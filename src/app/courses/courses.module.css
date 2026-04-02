@@ -1,0 +1,127 @@
+.page {
+    padding: 28px 32px;
+    max-width: 1440px;
+    margin: 0 auto;
+}
+
+.pageHeader {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    margin-bottom: 24px;
+    gap: 16px;
+    flex-wrap: wrap;
+}
+
+.pageTitle {
+    font-size: 1.65rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    margin-bottom: 4px;
+}
+
+.pageSub {
+    color: var(--color-text-muted);
+    font-size: 0.9rem;
+}
+
+/* Filters */
+.filters {
+    display: grid;
+    grid-template-columns: 1fr 1fr 2fr;
+    gap: 16px;
+    margin-bottom: 20px;
+    padding: 18px 20px;
+    background: var(--color-bg-card);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+}
+
+.filterGroup {
+    display: flex;
+    flex-direction: column;
+}
+
+.resultCount {
+    font-size: 0.82rem;
+    color: var(--color-text-muted);
+    margin-bottom: 12px;
+}
+
+.resultCount strong {
+    color: var(--color-text);
+}
+
+/* Course Code */
+.courseCode {
+    display: inline-flex;
+    padding: 3px 10px;
+    border-radius: var(--radius-sm);
+    background: rgba(99, 102, 241, 0.1);
+    color: var(--color-primary-light);
+    font-weight: 600;
+    font-size: 0.8rem;
+    letter-spacing: 0.03em;
+    white-space: nowrap;
+}
+
+/* Lecturers */
+.lecturers {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+
+.lecturerTag {
+    display: inline-flex;
+    padding: 2px 8px;
+    border-radius: 50px;
+    font-size: 0.72rem;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--color-border);
+    color: var(--color-text-secondary);
+    white-space: nowrap;
+}
+
+/* Actions */
+.actions {
+    display: flex;
+    gap: 6px;
+}
+
+.actionBtn {
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--radius-sm);
+    color: var(--color-text-muted);
+    transition: all var(--transition-fast);
+    cursor: pointer;
+    background: none;
+    border: none;
+}
+
+.actionBtn:hover {
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--color-text);
+}
+
+.deleteBtn:hover {
+    background: var(--color-danger-bg);
+    color: var(--color-danger);
+}
+
+.empty {
+    text-align: center;
+    padding: 32px !important;
+    color: var(--color-text-muted) !important;
+    font-style: italic;
+}
+
+@media (max-width: 900px) {
+    .filters {
+        grid-template-columns: 1fr;
+    }
+}

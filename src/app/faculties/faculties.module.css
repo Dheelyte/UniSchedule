@@ -1,0 +1,110 @@
+.page {
+    padding: 28px 32px;
+    max-width: 1440px;
+    margin: 0 auto;
+}
+
+.pageHeader {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    margin-bottom: 24px;
+    gap: 16px;
+    flex-wrap: wrap;
+}
+
+.pageTitle {
+    font-size: 1.65rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    margin-bottom: 4px;
+}
+
+.pageSub {
+    color: var(--color-text-muted);
+    font-size: 0.9rem;
+}
+
+.headerActions {
+    display: flex;
+    gap: 10px;
+}
+
+/* Stats Bar */
+.statsBar {
+    display: flex;
+    gap: 24px;
+    margin-bottom: 28px;
+    padding: 16px 20px;
+    background: var(--color-bg-card);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+}
+
+.stat {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.statValue {
+    font-size: 1.3rem;
+    font-weight: 700;
+    color: var(--color-primary-light);
+}
+
+.statLabel {
+    font-size: 0.8rem;
+    color: var(--color-text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+/* Section */
+.section {
+    margin-bottom: 28px;
+}
+
+.sectionTitle {
+    font-size: 1rem;
+    font-weight: 600;
+    margin-bottom: 12px;
+    color: var(--color-text-secondary);
+}
+
+/* Actions */
+.actions {
+    display: flex;
+    gap: 6px;
+}
+
+.actionBtn {
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--radius-sm);
+    color: var(--color-text-muted);
+    transition: all var(--transition-fast);
+    cursor: pointer;
+    background: none;
+    border: none;
+}
+
+.actionBtn:hover {
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--color-text);
+}
+
+.deleteBtn:hover {
+    background: var(--color-danger-bg);
+    color: var(--color-danger);
+}
+
+.empty {
+    text-align: center;
+    padding: 32px !important;
+    color: var(--color-text-muted) !important;
+    font-style: italic;
+}

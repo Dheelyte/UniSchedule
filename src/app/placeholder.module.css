@@ -1,0 +1,70 @@
+.placeholder {
+    padding: 28px 32px;
+    max-width: 1440px;
+    margin: 0 auto;
+}
+
+.header {
+    margin-bottom: 28px;
+}
+
+.title {
+    font-size: 1.65rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    margin-bottom: 4px;
+}
+
+.subtitle {
+    color: var(--color-text-muted);
+    font-size: 0.9rem;
+}
+
+.emptyState {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 80px 40px;
+    background: var(--color-bg-card);
+    border: 1px dashed var(--color-border-strong);
+    border-radius: var(--radius-lg);
+    text-align: center;
+}
+
+.emptyIcon {
+    width: 56px;
+    height: 56px;
+    border-radius: var(--radius-lg);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 18px;
+    background: var(--color-primary-bg);
+    color: var(--color-primary-light);
+}
+
+.emptyTitle {
+    font-size: 1.1rem;
+    font-weight: 600;
+    margin-bottom: 6px;
+}
+
+.emptyText {
+    color: var(--color-text-muted);
+    font-size: 0.85rem;
+    max-width: 400px;
+}
+
+.comingSoon {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 16px;
+    padding: 6px 14px;
+    border-radius: 50px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    background: var(--color-primary-bg);
+    color: var(--color-primary-light);
+}

@@ -1,0 +1,212 @@
+.page {
+    padding: 28px 32px;
+    max-width: 1440px;
+    margin: 0 auto;
+}
+
+.pageHeader {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    margin-bottom: 24px;
+    gap: 16px;
+    flex-wrap: wrap;
+}
+
+.pageTitle {
+    font-size: 1.65rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    margin-bottom: 4px;
+}
+
+.pageSub {
+    color: var(--color-text-muted);
+    font-size: 0.9rem;
+}
+
+/* Stats Row */
+.statsRow {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 14px;
+    margin-bottom: 24px;
+}
+
+.statCard {
+    background: var(--color-bg-card);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    padding: 18px 20px;
+    text-align: center;
+    transition: all var(--transition-base);
+}
+
+.statCard:hover {
+    border-color: var(--color-border-strong);
+}
+
+.statValue {
+    font-size: 1.5rem;
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    color: var(--color-text);
+}
+
+.statLabel {
+    font-size: 0.72rem;
+    color: var(--color-text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-top: 2px;
+}
+
+/* Filters */
+.filters {
+    display: flex;
+    gap: 14px;
+    margin-bottom: 16px;
+    align-items: center;
+}
+
+.searchWrap {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 14px;
+    background: var(--color-bg-card);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    flex: 1;
+    max-width: 360px;
+    transition: border-color var(--transition-fast);
+}
+
+.searchWrap:focus-within {
+    border-color: var(--color-primary);
+}
+
+.searchIcon {
+    color: var(--color-text-muted);
+    flex-shrink: 0;
+}
+
+.searchInput {
+    flex: 1;
+    font-size: 0.85rem;
+    background: transparent;
+    border: none;
+    outline: none;
+    color: var(--color-text);
+}
+
+.searchInput::placeholder {
+    color: var(--color-text-muted);
+}
+
+.resultCount {
+    font-size: 0.82rem;
+    color: var(--color-text-muted);
+    margin-bottom: 12px;
+}
+
+.resultCount strong {
+    color: var(--color-text);
+}
+
+/* Capacity Cell */
+.capacityCell {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.capacityNum {
+    font-weight: 600;
+    min-width: 36px;
+    color: var(--color-text);
+}
+
+.capacityBar {
+    flex: 1;
+    max-width: 100px;
+    height: 6px;
+    background: rgba(255, 255, 255, 0.06);
+    border-radius: 50px;
+    overflow: hidden;
+}
+
+.capacityFill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--color-primary), var(--color-accent));
+    border-radius: 50px;
+    transition: width var(--transition-base);
+}
+
+/* Tier badge */
+.tier {
+    display: inline-flex;
+    padding: 3px 10px;
+    border-radius: 50px;
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+}
+
+.tierSmall {
+    background: rgba(6, 182, 212, 0.1);
+    color: #22d3ee;
+}
+
+.tierMedium {
+    background: rgba(99, 102, 241, 0.1);
+    color: #818cf8;
+}
+
+.tierLarge {
+    background: rgba(16, 185, 129, 0.1);
+    color: #34d399;
+}
+
+/* Actions */
+.actions {
+    display: flex;
+    gap: 6px;
+}
+
+.actionBtn {
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--radius-sm);
+    color: var(--color-text-muted);
+    transition: all var(--transition-fast);
+    cursor: pointer;
+    background: none;
+    border: none;
+}
+
+.actionBtn:hover {
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--color-text);
+}
+
+.deleteBtn:hover {
+    background: var(--color-danger-bg);
+    color: var(--color-danger);
+}
+
+.empty {
+    text-align: center;
+    padding: 32px !important;
+    color: var(--color-text-muted) !important;
+    font-style: italic;
+}
+
+@media (max-width: 900px) {
+    .statsRow {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
