@@ -19,7 +19,7 @@ export default function CoursesPage() {
     const [deleteConfirm, setDeleteConfirm] = useState(null);
 
     // Form state
-    const [form, setForm] = useState({ code: '', title: '', creditLoad: 3, lecturers: '', departmentId: '' });
+    const [form, setForm] = useState({ code: '', title: '', creditLoad: 3, lecturers: '', locations: '', departmentId: '' });
 
     const filteredDepts = filterFaculty
         ? departments.filter((d) => d.facultyId === filterFaculty)
@@ -40,7 +40,7 @@ export default function CoursesPage() {
 
     const openAdd = () => {
         setEditing(null);
-        setForm({ code: '', title: '', creditLoad: 3, lecturers: '', departmentId: departments[0]?.id || '' });
+        setForm({ code: '', title: '', creditLoad: 3, lecturers: '', locations: '', departmentId: departments[0]?.id || '' });
         setShowModal(true);
     };
 
@@ -51,6 +51,7 @@ export default function CoursesPage() {
             title: course.title,
             creditLoad: course.creditLoad,
             lecturers: course.lecturers.join(', '),
+            locations: (course.locations || []).join(', '),
             departmentId: course.departmentId,
         });
         setShowModal(true);
@@ -63,6 +64,7 @@ export default function CoursesPage() {
             title: form.title.trim(),
             creditLoad: parseInt(form.creditLoad) || 3,
             lecturers: form.lecturers.split(',').map((l) => l.trim()).filter(Boolean),
+            locations: form.locations.split(',').map((l) => l.trim()).filter(Boolean),
             departmentId: form.departmentId,
         };
         if (editing) {
@@ -133,6 +135,7 @@ export default function CoursesPage() {
                             <th>Title</th>
                             <th>Credits</th>
                             <th>Lecturers</th>
+                            <th>Locations</th>
                             <th>Department</th>
                             <th>Faculty</th>
                             <th style={{ width: 100 }}>Actions</th>
@@ -151,6 +154,16 @@ export default function CoursesPage() {
                                         ))}
                                     </div>
                                 </td>
+                                <td>
+                                    <div className={styles.lecturers}>
+                                        {(c.locations || []).map((l, i) => (
+                                            <span key={i} className={styles.lecturerTag}>{l}</span>
+                                        ))}
+                                        {(!c.locations || c.locations.length === 0) && (
+                                            <span style={{ color: 'var(--color-text-muted)', fontSize: '0.82rem' }}>—</span>
+                                        )}
+                                    </div>
+                                </td>
                                 <td>{c.departmentName}</td>
                                 <td style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)' }}>{c.facultyName}</td>
                                 <td>
@@ -166,7 +179,7 @@ export default function CoursesPage() {
                             </tr>
                         ))}
                         {filteredCourses.length === 0 && (
-                            <tr><td colSpan={7} className={styles.empty}>No courses match your filters.</td></tr>
+                            <tr><td colSpan={8} className={styles.empty}>No courses match your filters.</td></tr>
                         )}
                     </tbody>
                 </table>
@@ -207,6 +220,10 @@ export default function CoursesPage() {
                             <div className="form-group">
                                 <label className="form-label">Lecturers (comma-separated)</label>
                                 <input className="form-input" value={form.lecturers} onChange={(e) => setForm({ ...form, lecturers: e.target.value })} placeholder="e.g. Dr. Adebayo Ojo, Prof. Nwankwo" />
+                            </div>
+                            <div className="form-group">
+                                <label className="form-label">Locations (comma-separated)</label>
+                                <input className="form-input" value={form.locations} onChange={(e) => setForm({ ...form, locations: e.target.value })} placeholder="e.g. Main Campus, Faculty of Science Building" />
                             </div>
                         </div>
                         <div className="modal-footer">

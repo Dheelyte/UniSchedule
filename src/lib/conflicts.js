@@ -2,16 +2,33 @@
  * Conflict Detection Engine
  *
  * Detects three types of conflicts:
- * 1. Room Conflict — same room booked for overlapping times on the same day
+ * 1. Room Conflict — any shared room booked for overlapping times on the same day
  * 2. Course Conflict — same course scheduled at overlapping times on the same day
  * 3. Time Conflict — scheduling outside standard operating hours (8 AM – 6 PM)
+ *
+ * Schedule items use `roomIds` (array) to support multiple locations per session.
  */
 
 import { timesOverlap, isOutsideOperatingHours } from './utils';
 
 /**
+ * Check whether two schedule items share at least one room.
+ * Handles both the new `roomIds` array and legacy `roomId` string.
+ */
+function sharesRoom(a, b) {
+    const aRooms = a.roomIds || (a.roomId ? [a.roomId] : []);
+    const bRooms = b.roomIds || (b.roomId ? [b.roomId] : []);
+    return aRooms.some((rid) => bRooms.includes(rid));
+}
+
+/** Get displayable room list from a schedule item. */
+function getRoomLabel(s) {
+    return s.roomNames || s.roomName || 'Room';
+}
+
+/**
  * Check all conflicts for a given schedule item against existing schedules.
- * @param {Object} candidate - The schedule item to check { courseId, roomId, day, startTime, endTime, type }
+ * @param {Object} candidate - The schedule item to check { courseId, roomIds, day, startTime, endTime, type }
  * @param {Array} allSchedules - All existing schedule items (with details)
  * @param {string|null} excludeId - ID to exclude (for editing existing items)
  * @returns {{ hasConflict: boolean, conflicts: Array<{type: string, message: string, severity: string}> }}
@@ -19,14 +36,33 @@ import { timesOverlap, isOutsideOperatingHours } from './utils';
 export function detectConflicts(candidate, allSchedules, excludeId = null) {
     const conflicts = [];
 
-    const relevantSchedules = allSchedules.filter(
-        (s) => s.id !== excludeId && s.day === candidate.day && s.type === candidate.type
-    );
+    // For exam mode: check for duplicate course across ALL weeks/days
+    if (candidate.type === 'exam') {
+        const duplicateCourse = allSchedules.find(
+            (s) => s.id !== excludeId && s.type === 'exam' && s.courseId === candidate.courseId
+        );
+        if (duplicateCourse) {
+            conflicts.push({
+                type: 'duplicate',
+                severity: 'error',
+                message: `Duplicate exam: "${duplicateCourse.courseCode || 'Course'}" already has an exam scheduled on ${duplicateCourse.day}${duplicateCourse.week ? ` (Week ${duplicateCourse.week})` : ''} ${duplicateCourse.startTime}–${duplicateCourse.endTime}.`,
+            });
+        }
+    }
 
-    // 1. Room Conflict
+    // For room/time overlap checks: scope to same day + same type
+    // In exam mode, also scope to same week
+    const relevantSchedules = allSchedules.filter((s) => {
+        if (s.id === excludeId) return false;
+        if (s.day !== candidate.day || s.type !== candidate.type) return false;
+        if (candidate.type === 'exam' && s.week !== candidate.week) return false;
+        return true;
+    });
+
+    // 1. Room Conflict — any shared room in overlapping time
     const roomConflicts = relevantSchedules.filter(
         (s) =>
-            s.roomId === candidate.roomId &&
+            sharesRoom(candidate, s) &&
             timesOverlap(
                 { startTime: candidate.startTime, endTime: candidate.endTime },
                 { startTime: s.startTime, endTime: s.endTime }
@@ -37,27 +73,31 @@ export function detectConflicts(candidate, allSchedules, excludeId = null) {
         conflicts.push({
             type: 'room',
             severity: 'error',
-            message: `Room conflict: "${s.roomName || 'Room'}" is already booked for ${s.courseCode || 'a course'} on ${s.day} ${s.startTime}–${s.endTime}.`,
+            message: `Room conflict: "${getRoomLabel(s)}" is already booked for ${s.courseCode || 'a course'} on ${s.day} ${s.startTime}–${s.endTime}.`,
         });
     });
 
-    // 2. Course Conflict
-    const courseConflicts = relevantSchedules.filter(
-        (s) =>
-            s.courseId === candidate.courseId &&
-            timesOverlap(
-                { startTime: candidate.startTime, endTime: candidate.endTime },
-                { startTime: s.startTime, endTime: s.endTime }
-            )
-    );
+    // 2. Course Conflict (same course at overlapping times on same day)
+    // In lecture mode, this is allowed (courses can repeat)
+    // In exam mode, duplicate is already caught above
+    if (candidate.type === 'lecture') {
+        const courseConflicts = relevantSchedules.filter(
+            (s) =>
+                s.courseId === candidate.courseId &&
+                timesOverlap(
+                    { startTime: candidate.startTime, endTime: candidate.endTime },
+                    { startTime: s.startTime, endTime: s.endTime }
+                )
+        );
 
-    courseConflicts.forEach((s) => {
-        conflicts.push({
-            type: 'course',
-            severity: 'error',
-            message: `Course conflict: "${s.courseCode || 'Course'}" is already scheduled on ${s.day} ${s.startTime}–${s.endTime}.`,
+        courseConflicts.forEach((s) => {
+            conflicts.push({
+                type: 'course',
+                severity: 'error',
+                message: `Course conflict: "${s.courseCode || 'Course'}" is already scheduled on ${s.day} ${s.startTime}–${s.endTime}.`,
+            });
         });
-    });
+    }
 
     // 3. Time Conflict (outside operating hours)
     if (isOutsideOperatingHours(candidate.startTime, candidate.endTime)) {
@@ -88,11 +128,30 @@ export function detectAllConflicts(allSchedules) {
         const a = allSchedules[i];
         const itemConflicts = [];
 
+        // Exam mode: check for duplicate course across all weeks/days
+        if (a.type === 'exam') {
+            for (let j = 0; j < allSchedules.length; j++) {
+                if (i === j) continue;
+                const b = allSchedules[j];
+                if (b.type !== 'exam') continue;
+                if (a.courseId === b.courseId) {
+                    itemConflicts.push({
+                        type: 'duplicate',
+                        severity: 'error',
+                        message: `Duplicate exam: ${b.courseCode} already scheduled on ${b.day}${b.week ? ` (Week ${b.week})` : ''} ${b.startTime}–${b.endTime}`,
+                        relatedId: b.id,
+                    });
+                }
+            }
+        }
+
         for (let j = 0; j < allSchedules.length; j++) {
             if (i === j) continue;
             const b = allSchedules[j];
 
             if (a.day !== b.day || a.type !== b.type) continue;
+            // In exam mode, room/time conflicts only within same week
+            if (a.type === 'exam' && a.week !== b.week) continue;
 
             const overlaps = timesOverlap(
                 { startTime: a.startTime, endTime: a.endTime },
@@ -101,18 +160,18 @@ export function detectAllConflicts(allSchedules) {
 
             if (!overlaps) continue;
 
-            // Room conflict
-            if (a.roomId === b.roomId) {
+            // Room conflict — any shared room
+            if (sharesRoom(a, b)) {
                 itemConflicts.push({
                     type: 'room',
                     severity: 'error',
-                    message: `Room "${b.roomName}" double-booked with ${b.courseCode} (${b.startTime}–${b.endTime})`,
+                    message: `Room "${getRoomLabel(b)}" double-booked with ${b.courseCode} (${b.startTime}–${b.endTime})`,
                     relatedId: b.id,
                 });
             }
 
-            // Course conflict
-            if (a.courseId === b.courseId) {
+            // Course conflict (only for lectures — exam duplicates already handled above)
+            if (a.type === 'lecture' && a.courseId === b.courseId) {
                 itemConflicts.push({
                     type: 'course',
                     severity: 'error',
@@ -164,7 +223,7 @@ export function countConflicts(allSchedules) {
 
             if (!overlaps) continue;
 
-            if (a.roomId === b.roomId) {
+            if (sharesRoom(a, b)) {
                 pairs.add(`room:${[a.id, b.id].sort().join('-')}`);
             }
             if (a.courseId === b.courseId) {

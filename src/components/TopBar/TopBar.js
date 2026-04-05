@@ -12,7 +12,7 @@ const pageTitles = {
     '/timetable/exams': 'Exam Timetable',
 };
 
-export default function TopBar() {
+export default function TopBar({ isSidebarCollapsed }) {
     const pathname = usePathname();
     const title = pageTitles[pathname] || 'Dashboard';
 
@@ -25,7 +25,13 @@ export default function TopBar() {
     });
 
     return (
-        <header className={styles.topbar}>
+        <header
+            className={styles.topbar}
+            style={{
+                left: isSidebarCollapsed ? 'var(--sidebar-collapsed-width)' : 'var(--sidebar-width)',
+                transition: 'left var(--transition-base)',
+            }}
+        >
             <div className={styles.left}>
                 <h1 className={styles.title}>{title}</h1>
                 <span className={styles.date}>{dateStr}</span>

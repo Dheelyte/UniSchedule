@@ -1,192 +1,321 @@
 import jsPDF from 'jspdf';
+import { unilagLogoBase64 } from '@/lib/logo';
 
 /**
- * Generate a clean, styled PDF timetable without html2canvas.
- * Renders the schedule data directly onto the PDF using jsPDF drawing APIs.
+ * PDF timetable — Rooms × Time grid
  *
- * @param {Object} options
- * @param {Array} options.schedules - Array of schedule objects with courseCode, roomName, day, startTime, endTime
- * @param {string} options.title - Title of the timetable (e.g., "Lecture Timetable")
- * @param {string} options.subtitle - Subtitle (e.g., faculty name or "All Faculties")
- * @param {string} options.mode - 'lecture' or 'exam'
+ * Layout:
+ *  - Rows    = Rooms  (spills over to next page if too many rooms)
+ *  - Columns = Time   (fixed 08:00–18:00 range, shown in header)
+ *  - One or more pages per day
+ *
+ * Course cards show: course code only.
  */
-export function exportTimetablePDF({ schedules, title, subtitle, mode }) {
-    const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+export function exportTimetablePDF({ schedules, rooms = [], title, session, semester, faculty, schoolName = 'University of Lagos', mode }) {
+    if (!schedules || schedules.length === 0) return;
 
-    const pageW = pdf.internal.pageSize.getWidth();
-    const pageH = pdf.internal.pageSize.getHeight();
-    const margin = 12;
+    const ACTIVE_DAYS = mode === 'exam'
+        ? ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+        : ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+    const START_H = 8;       // 08:00
+    const END_H = 18;      // 18:00
+    const SLOTS = END_H - START_H;   // 10 one-hour columns
 
-    const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
-    const HOURS = [8, 9, 10, 11, 12, 13, 14, 15, 16, 17];
+    // Build room lookup
+    const roomLookup = {};
+    rooms.forEach((r) => { roomLookup[r.id] = r; });
 
-    // Colors
-    const headerBg = mode === 'lecture' ? [99, 102, 241] : [245, 158, 11]; // purple or amber
-    const headerText = [255, 255, 255];
-    const gridBg = [22, 24, 40];
-    const gridBorder = [50, 55, 80];
-    const cellBg = [28, 30, 50];
-    const textPrimary = [240, 240, 245];
-    const textSecondary = [160, 165, 180];
-    const textMuted = [120, 125, 140];
+    // ---- Light-mode palette ----
+    const pageBg = [248, 250, 252];
+    const white = [255, 255, 255];
+    const accentBg = mode === 'lecture' ? [99, 102, 241] : [245, 158, 11];
+    const accentFg = [255, 255, 255];
+    const gridLine = [226, 232, 240];
+    const rowAlt = [241, 245, 249];
+    const textDark = [15, 23, 42];
+    const textMid = [71, 85, 105];
+    const textFaint = [148, 163, 184];
 
-    // Color palette for course events
     const PALETTE = [
-        [99, 102, 241], [6, 182, 212], [16, 185, 129], [245, 158, 11],
-        [168, 85, 247], [236, 72, 153], [14, 165, 233], [34, 197, 94],
+        { bg: [238, 240, 255], border: [99, 102, 241], text: [67, 56, 202] },
+        { bg: [224, 247, 250], border: [6, 182, 212], text: [14, 116, 144] },
+        { bg: [220, 252, 231], border: [16, 185, 129], text: [4, 120, 87] },
+        { bg: [255, 247, 237], border: [245, 158, 11], text: [180, 83, 9] },
+        { bg: [243, 232, 255], border: [168, 85, 247], text: [124, 58, 237] },
+        { bg: [253, 232, 243], border: [236, 72, 153], text: [190, 24, 93] },
+        { bg: [224, 242, 254], border: [14, 165, 233], text: [3, 105, 161] },
+        { bg: [220, 252, 231], border: [34, 197, 94], text: [21, 128, 61] },
+        { bg: [255, 237, 213], border: [234, 88, 12], text: [194, 65, 12] },
+        { bg: [254, 226, 226], border: [239, 68, 68], text: [185, 28, 28] },
     ];
 
-    // Background fill
-    pdf.setFillColor(...gridBg);
-    pdf.rect(0, 0, pageW, pageH, 'F');
-
-    // ---- Title area ----
-    let y = margin;
-    pdf.setFont('helvetica', 'bold');
-    pdf.setFontSize(18);
-    pdf.setTextColor(...textPrimary);
-    pdf.text(title, margin, y + 6);
-
-    pdf.setFont('helvetica', 'normal');
-    pdf.setFontSize(9);
-    pdf.setTextColor(...textSecondary);
-    pdf.text(subtitle, margin, y + 12);
-
-    // Date
-    const dateStr = new Date().toLocaleDateString('en-GB', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
-    pdf.text(`Generated: ${dateStr}`, pageW - margin, y + 6, { align: 'right' });
-    pdf.text(`${schedules.length} ${mode === 'lecture' ? 'lectures' : 'exams'} scheduled`, pageW - margin, y + 12, { align: 'right' });
-
-    y += 20;
-
-    // ---- Grid dimensions ----
-    const tableX = margin;
-    const tableW = pageW - margin * 2;
-    const timeLabelW = 18;
-    const dayW = (tableW - timeLabelW) / 5;
-    const headerH = 10;
-    const rowH = (pageH - y - margin - headerH) / HOURS.length;
-
-    // ---- Day headers ----
-    // Header background
-    pdf.setFillColor(...headerBg);
-    pdf.roundedRect(tableX, y, tableW, headerH, 2, 2, 'F');
-
-    // Time corner
-    pdf.setFont('helvetica', 'bold');
-    pdf.setFontSize(7);
-    pdf.setTextColor(...headerText);
-    pdf.text('TIME', tableX + timeLabelW / 2, y + headerH / 2 + 1.5, { align: 'center' });
-
-    // Day names
-    DAYS.forEach((day, i) => {
-        const x = tableX + timeLabelW + i * dayW;
-        pdf.text(day.toUpperCase(), x + dayW / 2, y + headerH / 2 + 1.5, { align: 'center' });
+    const deptColor = {};
+    let ci = 0;
+    schedules.forEach((s) => {
+        const deptKey = s.departmentId || 'unassigned';
+        if (!deptColor[deptKey]) deptColor[deptKey] = PALETTE[ci++ % PALETTE.length];
     });
 
-    y += headerH;
+    // ---- Group schedules by logical day/week ----
+    const groups = [];
+    if (mode === 'exam') {
+        const weeks = [...new Set(schedules.map((s) => s.week || 1))].sort((a, b) => a - b);
+        weeks.forEach((week) => {
+            ACTIVE_DAYS.forEach((day) => {
+                const ds = schedules.filter((s) => s.day === day && (s.week || 1) === week);
+                if (ds.length) groups.push({ label: `Week ${week} — ${day}`, day, week, schedules: ds });
+            });
+        });
+    } else {
+        ACTIVE_DAYS.forEach((day) => {
+            const ds = schedules.filter((s) => s.day === day);
+            if (ds.length) groups.push({ label: day, day, schedules: ds });
+        });
+    }
 
-    // ---- Grid rows ----
-    HOURS.forEach((hour, rowIdx) => {
-        const rowY = y + rowIdx * rowH;
+    if (!groups.length) return;
 
-        // Row background (alternating)
-        pdf.setFillColor(...(rowIdx % 2 === 0 ? cellBg : gridBg));
-        pdf.rect(tableX, rowY, tableW, rowH, 'F');
+    const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+    const pageW = 297;
+    const pageH = 210;
+    const margin = 10;
+    const headerH = 8;
 
-        // Time label
-        pdf.setFont('helvetica', 'bold');
-        pdf.setFontSize(7);
-        pdf.setTextColor(...textMuted);
-        const timeText = `${hour.toString().padStart(2, '0')}:00`;
-        pdf.text(timeText, tableX + timeLabelW / 2, rowY + 5, { align: 'center' });
+    // Page 1 has Logo (18), School Name (6), Meta (6), Title (7), Margin to strip (15) = 52
+    const firstPageStartY = margin + 52 + 10 + headerH;
+    const subPageStartY = margin + 10 + headerH;
 
-        // Vertical grid lines
-        pdf.setDrawColor(...gridBorder);
-        pdf.setLineWidth(0.2);
-        for (let i = 0; i <= 5; i++) {
-            const lineX = tableX + timeLabelW + i * dayW;
-            pdf.line(lineX, rowY, lineX, rowY + rowH);
+    const availH_first = pageH - firstPageStartY - margin;
+    const availH_sub = pageH - subPageStartY - margin;
+
+    const ROW_H = 8;
+    const maxFirstRows = Math.max(1, Math.floor(availH_first / ROW_H));
+    const maxSubRows = Math.max(1, Math.floor(availH_sub / ROW_H));
+
+    // Structure groups into physical pages based on dynamic MAX_ROWS
+    const pages = [];
+    let globalPageIsFirst = true;
+
+    groups.forEach((group) => {
+        const usedRoomIds = [];
+        group.schedules.forEach((s) => {
+            (s.roomIds || []).forEach((rid) => {
+                if (!usedRoomIds.includes(rid)) usedRoomIds.push(rid);
+            });
+        });
+
+        let i = 0;
+        let isFirstDayChunk = true;
+
+        if (usedRoomIds.length === 0) {
+            // Push an empty page if there are schedules but no rooms assigned
+            pages.push({
+                label: group.label,
+                hasMainHeader: globalPageIsFirst,
+                schedules: group.schedules,
+                rooms: []
+            });
+            globalPageIsFirst = false;
         }
 
-        // Horizontal grid line
-        pdf.line(tableX, rowY + rowH, tableX + tableW, rowY + rowH);
-    });
+        // Split rooms into chunks dynamically
+        while (i < usedRoomIds.length) {
+            const allowedRows = globalPageIsFirst ? maxFirstRows : maxSubRows;
+            const chunkRoomIds = usedRoomIds.slice(i, i + allowedRows);
+            const isContinuation = !isFirstDayChunk;
+            const ptLabel = isContinuation ? `${group.label} (cont.)` : group.label;
 
-    // ---- Schedule events ----
-    const courseColorMap = {};
-    let colorIdx = 0;
+            pages.push({
+                label: ptLabel,
+                hasMainHeader: globalPageIsFirst,
+                schedules: group.schedules,
+                rooms: chunkRoomIds.map((rid) => roomLookup[rid] || { id: rid, name: rid }),
+            });
 
-    schedules.forEach((s) => {
-        if (!courseColorMap[s.courseId]) {
-            courseColorMap[s.courseId] = PALETTE[colorIdx % PALETTE.length];
-            colorIdx++;
+            i += allowedRows;
+            isFirstDayChunk = false;
+            globalPageIsFirst = false;
         }
     });
 
-    schedules.forEach((s) => {
-        const dayIdx = DAYS.indexOf(s.day);
-        if (dayIdx < 0) return;
+    // ---- Render each page ----
+    pages.forEach((page, pi) => {
+        if (pi > 0) pdf.addPage();
 
-        const [startH, startM] = s.startTime.split(':').map(Number);
-        const [endH, endM] = s.endTime.split(':').map(Number);
+        pdf.setFillColor(...pageBg);
+        pdf.rect(0, 0, pageW, pageH, 'F');
 
-        const startOffset = (startH - 8) + startM / 60;
-        const endOffset = (endH - 8) + endM / 60;
-        const duration = endOffset - startOffset;
+        const pageRooms = page.rooms;
 
-        if (startOffset < 0 || startOffset >= 10) return;
+        // ---- Document Header ----
+        let curY = margin;
 
-        const eventX = tableX + timeLabelW + dayIdx * dayW + 1;
-        const eventY = y + startOffset * rowH + 1;
-        const eventW = dayW - 2;
-        const eventH = duration * rowH - 2;
+        if (page.hasMainHeader) {
+            // Draw Logo
+            const logoSize = 18;
+            pdf.addImage(unilagLogoBase64, 'PNG', pageW / 2 - logoSize / 2, curY, logoSize, logoSize);
+            curY += logoSize + 4;
 
-        const color = courseColorMap[s.courseId] || PALETTE[0];
+            pdf.setFont('helvetica', 'bold');
+            pdf.setFontSize(14);
+            pdf.setTextColor(...textDark);
+            pdf.text((schoolName || '').toUpperCase(), pageW / 2, curY + 6, { align: 'center' });
 
-        // Event background
-        pdf.setFillColor(color[0], color[1], color[2], 0.2);
-        pdf.setFillColor(
-            Math.round(gridBg[0] * 0.7 + color[0] * 0.3),
-            Math.round(gridBg[1] * 0.7 + color[1] * 0.3),
-            Math.round(gridBg[2] * 0.7 + color[2] * 0.3)
-        );
-        pdf.roundedRect(eventX, eventY, eventW, eventH, 1.5, 1.5, 'F');
-
-        // Left accent border
-        pdf.setFillColor(...color);
-        pdf.rect(eventX, eventY, 1.2, eventH, 'F');
-
-        // Course code
-        pdf.setFont('helvetica', 'bold');
-        pdf.setFontSize(7);
-        pdf.setTextColor(...color);
-        pdf.text(s.courseCode || s.courseId, eventX + 3, eventY + 4.5);
-
-        // Room name
-        if (eventH > 8) {
             pdf.setFont('helvetica', 'normal');
-            pdf.setFontSize(5.5);
-            pdf.setTextColor(...textSecondary);
-            pdf.text(s.roomName || '', eventX + 3, eventY + 8);
+            pdf.setFontSize(9);
+            pdf.setTextColor(...textMid);
+            const metaText = [
+                session ? `${session} Session` : null,
+                semester,
+                faculty
+            ].filter(Boolean).join('   ·   ');
+            if (metaText) {
+                pdf.text(metaText, pageW / 2, curY + 12, { align: 'center' });
+            }
+
+            pdf.setFont('helvetica', 'bold');
+            pdf.setFontSize(11);
+            pdf.text((title || '').toUpperCase(), pageW / 2, curY + 19, { align: 'center' });
+
+            curY += 26;
         }
 
-        // Time
-        if (eventH > 12) {
-            pdf.setFontSize(5);
-            pdf.setTextColor(...textMuted);
-            pdf.text(`${s.startTime}–${s.endTime}`, eventX + 3, eventY + 11);
+        // ---- Grid Strip Header ----
+        pdf.setFillColor(...accentBg);
+        pdf.roundedRect(margin, curY, pageW - margin * 2, 8, 1.5, 1.5, 'F');
+
+        pdf.setFont('helvetica', 'bold');
+        pdf.setFontSize(8);
+        pdf.setTextColor(...accentFg);
+        pdf.text(page.label, margin + 4, curY + 5.5);
+
+        pdf.setFont('helvetica', 'normal');
+        pdf.setFontSize(6);
+        const dateStr = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+        pdf.text(`Generated: ${dateStr}`, pageW - margin - 2, curY + 5.5, { align: 'right' });
+
+        curY += 10;
+
+        // ---- Grid measurements ----
+        const tableX = margin;
+        const tableW = pageW - margin * 2;
+        const roomLabelW = 34; // Slightly wider for room names
+        const slotW = (tableW - roomLabelW) / SLOTS;
+
+        // ---- Time header row ----
+        pdf.setFillColor(...accentBg);
+        pdf.rect(tableX, curY, roomLabelW, headerH, 'F');
+        pdf.setFont('helvetica', 'bold');
+        pdf.setFontSize(6);
+        pdf.setTextColor(...accentFg);
+        pdf.text('ROOM', tableX + roomLabelW / 2, curY + headerH / 2 + 1.5, { align: 'center' });
+
+        for (let h = 0; h < SLOTS; h++) {
+            const hx = tableX + roomLabelW + h * slotW;
+            pdf.setFillColor(...accentBg);
+            pdf.rect(hx, curY, slotW, headerH, 'F');
+
+            pdf.setFont('helvetica', 'bold');
+            pdf.setFontSize(5.5);
+            pdf.setTextColor(...accentFg);
+            const label = `${(START_H + h).toString().padStart(2, '0')}:00`;
+            pdf.text(label, hx + slotW / 2, curY + headerH / 2 + 1.5, { align: 'center' });
+
+            pdf.setDrawColor(...gridLine);
+            pdf.setLineWidth(0.15);
+            pdf.line(hx, curY, hx, curY + headerH);
         }
+
+        curY += headerH;
+
+        // ---- Room rows ----
+        pageRooms.forEach((room, ri) => {
+            const rowY = curY + ri * ROW_H;
+            const isAlt = ri % 2 === 1;
+
+            pdf.setFillColor(...(isAlt ? rowAlt : white));
+            pdf.rect(tableX, rowY, tableW, ROW_H, 'F');
+
+            // Room label cell
+            pdf.setFont('helvetica', 'bold');
+            pdf.setFontSize(6); // Adjusted for reduced padding
+            pdf.setTextColor(...textDark);
+
+            let roomLabel = room.name || room.id;
+            while (pdf.getTextWidth(roomLabel) > roomLabelW - 3 && roomLabel.length > 3) {
+                roomLabel = roomLabel.slice(0, -2) + '…';
+            }
+            pdf.text(roomLabel, tableX + 2, rowY + ROW_H / 2 + 1.5);
+
+            pdf.setDrawColor(...gridLine);
+            pdf.setLineWidth(0.12);
+            pdf.line(tableX, rowY + ROW_H, tableX + tableW, rowY + ROW_H);
+
+            for (let h = 0; h <= SLOTS; h++) {
+                const lx = tableX + roomLabelW + h * slotW;
+                pdf.line(lx, rowY, lx, rowY + ROW_H);
+            }
+
+            // ---- Draw events in this room ----
+            const roomSchedules = page.schedules.filter((s) =>
+                (s.roomIds || []).includes(room.id)
+            );
+
+            roomSchedules.forEach((s) => {
+                const [sH, sM] = s.startTime.split(':').map(Number);
+                const [eH, eM] = s.endTime.split(':').map(Number);
+                const startFrac = (sH - START_H) + sM / 60;
+                const endFrac = (eH - START_H) + eM / 60;
+                const dur = endFrac - startFrac;
+
+                if (startFrac < 0 || startFrac >= SLOTS) return;
+                const clampedDur = Math.min(dur, SLOTS - startFrac);
+
+                const col = deptColor[s.departmentId || 'unassigned'] || PALETTE[0];
+                const evX = tableX + roomLabelW + startFrac * slotW + 0.5;
+                const evY = rowY + 0.5;
+                const evW = clampedDur * slotW - 1;
+                const evH = ROW_H - 1;
+
+                // Event background
+                pdf.setFillColor(...col.bg);
+                pdf.roundedRect(evX, evY, evW, evH, 0.8, 0.8, 'F');
+
+                // Outline instead of top accent
+                pdf.setDrawColor(...col.border);
+                pdf.setLineWidth(0.2);
+                pdf.roundedRect(evX, evY, evW, evH, 0.8, 0.8, 'D');
+
+                // Course code only
+                const codeFontSize = Math.min(6, evH * 0.55, evW / 5);
+                if (codeFontSize >= 3) {
+                    pdf.setFont('helvetica', 'bold');
+                    pdf.setFontSize(codeFontSize);
+                    pdf.setTextColor(...col.text);
+
+                    let code = s.courseCode || s.courseId;
+                    while (pdf.getTextWidth(code) > evW - 2 && code.length > 2) {
+                        code = code.slice(0, -2) + '…';
+                    }
+                    pdf.text(code, evX + 1.5, evY + evH / 2 + codeFontSize * 0.35);
+                }
+            });
+        });
+
+        // Outer box
+        const gridH = pageRooms.length * ROW_H;
+        pdf.setDrawColor(...gridLine);
+        pdf.setLineWidth(0.25);
+        pdf.rect(tableX, curY, tableW, gridH);
+
+        // ---- Footer ----
+        pdf.setFont('helvetica', 'normal');
+        pdf.setFontSize(5.5);
+        pdf.setTextColor(...textFaint);
+        pdf.text('UnilagSchedule — University Timetable Manager', margin, pageH - 3);
+        pdf.text(`Page ${pi + 1} of ${pages.length}`, pageW - margin, pageH - 3, { align: 'right' });
     });
 
-    // ---- Footer ----
-    pdf.setFont('helvetica', 'normal');
-    pdf.setFontSize(6);
-    pdf.setTextColor(...textMuted);
-    pdf.text('UnilagSchedule — University Timetable Manager', margin, pageH - 4);
-    pdf.text(`Page 1 of 1`, pageW - margin, pageH - 4, { align: 'right' });
-
-    // Save
     const fileName = `${title.replace(/\s+/g, '_').toLowerCase()}_${new Date().toISOString().slice(0, 10)}.pdf`;
     pdf.save(fileName);
 }

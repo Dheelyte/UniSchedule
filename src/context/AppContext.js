@@ -142,12 +142,20 @@ function appReducer(state, action) {
                     r.id === action.payload.id ? { ...r, ...action.payload } : r
                 ),
             };
-        case ACTION_TYPES.DELETE_ROOM:
+        case ACTION_TYPES.DELETE_ROOM: {
+            const deletedRoomId = action.payload;
             return {
                 ...state,
-                rooms: state.rooms.filter((r) => r.id !== action.payload),
-                scheduleItems: state.scheduleItems.filter((s) => s.roomId !== action.payload),
+                rooms: state.rooms.filter((r) => r.id !== deletedRoomId),
+                // Remove the room from roomIds arrays; drop schedule if no rooms remain
+                scheduleItems: state.scheduleItems
+                    .map((s) => ({
+                        ...s,
+                        roomIds: (s.roomIds || []).filter((rid) => rid !== deletedRoomId),
+                    }))
+                    .filter((s) => s.roomIds.length > 0),
             };
+        }
 
         // ---- Schedule Items ----
         case ACTION_TYPES.ADD_SCHEDULE:
@@ -218,16 +226,21 @@ export function AppProvider({ children }) {
     const getSchedulesWithDetails = useMemo(() => {
         return state.scheduleItems.map((item) => {
             const course = state.courses.find((c) => c.id === item.courseId);
-            const room = state.rooms.find((r) => r.id === item.roomId);
+            // Resolve roomIds to room objects
+            const ids = item.roomIds || (item.roomId ? [item.roomId] : []);
+            const resolvedRooms = ids.map((rid) => state.rooms.find((r) => r.id === rid)).filter(Boolean);
             const dept = course ? state.departments.find((d) => d.id === course.departmentId) : null;
             const faculty = dept ? state.faculties.find((f) => f.id === dept.facultyId) : null;
             return {
                 ...item,
+                roomIds: ids,
                 courseCode: course?.code || 'N/A',
                 courseTitle: course?.title || 'Unknown',
                 courseLecturers: course?.lecturers || [],
-                roomName: room?.name || 'Unknown',
-                roomCapacity: room?.capacity || 0,
+                courseLocations: course?.locations || [],
+                // Multi-room display helpers
+                roomNames: resolvedRooms.map((r) => r.name).join(', ') || 'Unknown',
+                roomCapacity: resolvedRooms.reduce((sum, r) => sum + (r.capacity || 0), 0),
                 departmentId: dept?.id || null,
                 departmentName: dept?.name || 'Unknown',
                 facultyId: faculty?.id || null,

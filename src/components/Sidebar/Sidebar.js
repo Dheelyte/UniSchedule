@@ -80,11 +80,11 @@ const navItems = [
   },
 ];
 
-export default function Sidebar() {
+export default function Sidebar({ isCollapsed, toggleCollapse }) {
   const pathname = usePathname();
 
   return (
-    <aside className={styles.sidebar}>
+    <aside className={`${styles.sidebar} ${isCollapsed ? styles.collapsed : ''}`}>
       {/* Brand */}
       <div className={styles.brand}>
         <div className={styles.logo}>
@@ -99,21 +99,23 @@ export default function Sidebar() {
             <path d="M7 8h10M7 12h7M7 16h10" stroke="url(#logoGrad)" strokeWidth="2" strokeLinecap="round" />
           </svg>
         </div>
-        <div className={styles.brandText}>
-          <span className={styles.brandName}>UnilagSchedule</span>
-          <span className={styles.brandSub}>Timetable Manager</span>
-        </div>
+        {!isCollapsed && (
+          <div className={styles.brandText}>
+            <span className={styles.brandName}>UnilagSchedule</span>
+            <span className={styles.brandSub}>Timetable Manager</span>
+          </div>
+        )}
       </div>
 
       {/* Navigation */}
       <nav className={styles.nav}>
         {navItems.map((item, index) => {
           if (item.type === 'divider') {
-            return (
+            return !isCollapsed ? (
               <div key={index} className={styles.divider}>
                 <span>{item.label}</span>
               </div>
-            );
+            ) : <div key={index} className={styles.dividerSpacer} />;
           }
 
           const isActive =
@@ -125,30 +127,35 @@ export default function Sidebar() {
             <Link
               key={item.href}
               href={item.href}
-              className={`${styles.navItem} ${isActive ? styles.navItemActive : ''}`}
+              className={`${styles.navItem} ${isActive ? styles.navItemActive : ''} ${isCollapsed ? styles.navItemCollapsed : ''}`}
+              title={isCollapsed ? item.label : undefined}
             >
               <span className={styles.navIcon}>{item.icon}</span>
-              <span className={styles.navLabel}>{item.label}</span>
-              {isActive && <span className={styles.activeIndicator} />}
+              {!isCollapsed && <span className={styles.navLabel}>{item.label}</span>}
+              {isActive && !isCollapsed && <span className={styles.activeIndicator} />}
             </Link>
           );
         })}
       </nav>
 
-      {/* Footer */}
+      {/* Collapse Toggle */}
       <div className={styles.sidebarFooter}>
-        <div className={styles.footerCard}>
-          <div className={styles.footerIcon}>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="12" cy="12" r="3" />
-              <path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83" />
+        <button className={styles.collapseToggle} onClick={toggleCollapse}>
+          {isCollapsed ? (
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="13 17 18 12 13 7"></polyline>
+              <polyline points="6 17 11 12 6 7"></polyline>
             </svg>
-          </div>
-          <div className={styles.footerText}>
-            <span className={styles.footerTitle}>Phase 1</span>
-            <span className={styles.footerDesc}>UI Layout Shell</span>
-          </div>
-        </div>
+          ) : (
+            <>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="11 17 6 12 11 7"></polyline>
+                <polyline points="18 17 13 12 18 7"></polyline>
+              </svg>
+              <span className={styles.navLabel}></span>
+            </>
+          )}
+        </button>
       </div>
     </aside>
   );
