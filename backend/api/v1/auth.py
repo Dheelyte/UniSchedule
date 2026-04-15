@@ -3,6 +3,7 @@ from modules.auth.service import AuthService
 from modules.auth.schemas import LoginRequest, InviteRequest, RegisterRequest, UserResponse, InvitationResponse
 from api.dependencies.auth import RequireRole, get_current_user
 from modules.auth.models import RoleEnum
+from modules.timetable.repository import TimetableRepository
 from core.mail import send_invitation_email
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
@@ -32,11 +33,24 @@ async def get_current_session(user: dict = Depends(get_current_user)):
 @router.post("/invite")
 async def invite_staff(
     data: InviteRequest, 
-    service: AuthService = Depends(), 
+    service: AuthService = Depends(),
+    timetable_repo: TimetableRepository = Depends(),
     current_user: dict = Depends(RequireRole([RoleEnum.SUPER_ADMIN.value]))
 ):
     invite = await service.generate_invite(data.email, data.target_role, data.faculty_id, data.semester_id)
-    await send_invitation_email(data.email, invite.token)
+    
+    faculty_name = None
+    if data.faculty_id:
+        faculty = await timetable_repo.get_faculty(data.faculty_id)
+        if faculty:
+            faculty_name = faculty.name
+            
+    await send_invitation_email(
+        to_email=data.email, 
+        token=invite.token, 
+        role=data.target_role.value, 
+        faculty_name=faculty_name
+    )
     return {"message": "Invitation created", "token": invite.token}
 
 @router.post("/register/{token}")
