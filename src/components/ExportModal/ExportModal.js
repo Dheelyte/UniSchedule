@@ -2,21 +2,23 @@ import { useState, useEffect } from 'react';
 import { useApp } from '@/context/AppContext';
 import styles from './ExportModal.module.css';
 
-export default function ExportModal({ isOpen, onClose, onExport, mode }) {
+export default function ExportModal({ isOpen, onClose, onExport, mode, sessions = [] }) {
     const { state } = useApp();
 
     // Default values
-    const [session, setSession] = useState('2025/2026');
+    const [session, setSession] = useState('');
     const [semester, setSemester] = useState('1st Semester');
     const [facultyId, setFacultyId] = useState('ALL');
 
     useEffect(() => {
         if (isOpen) {
-            setSession('2025/2026');
+            // Default to current session or first available
+            const current = sessions.find(s => s.is_current) || sessions[0];
+            setSession(current ? current.name : '2025/2026');
             setSemester('1st Semester');
             setFacultyId('ALL');
         }
-    }, [isOpen]);
+    }, [isOpen, sessions]);
 
     if (!isOpen) return null;
 
@@ -37,14 +39,29 @@ export default function ExportModal({ isOpen, onClose, onExport, mode }) {
                 <form className={styles.body} onSubmit={handleExport}>
                     <div className={styles.formGroup}>
                         <label className={styles.label}>Academic Session</label>
-                        <input
-                            type="text"
-                            className={styles.input}
-                            value={session}
-                            onChange={(e) => setSession(e.target.value)}
-                            placeholder="e.g. 2025/2026"
-                            required
-                        />
+                        {sessions.length > 0 ? (
+                            <select
+                                className={styles.input}
+                                value={session}
+                                onChange={(e) => setSession(e.target.value)}
+                                required
+                            >
+                                {sessions.map((s) => (
+                                    <option key={s.id} value={s.name}>
+                                        {s.name}{s.is_current ? ' (Current)' : ''}
+                                    </option>
+                                ))}
+                            </select>
+                        ) : (
+                            <input
+                                type="text"
+                                className={styles.input}
+                                value={session}
+                                onChange={(e) => setSession(e.target.value)}
+                                placeholder="e.g. 2025/2026"
+                                required
+                            />
+                        )}
                     </div>
 
                     <div className={styles.formGroup}>

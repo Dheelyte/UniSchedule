@@ -287,7 +287,7 @@ export function exportTimetablePDF({ schedules, rooms = [], title, session, seme
                 pdf.roundedRect(evX, evY, evW, evH, 0.8, 0.8, 'D');
 
                 // Course code only
-                const codeFontSize = Math.min(6, evH * 0.55, evW / 5);
+                const codeFontSize = Math.min(10, evH * 0.9, evW / 6);
                 if (codeFontSize >= 3) {
                     pdf.setFont('helvetica', 'bold');
                     pdf.setFontSize(codeFontSize);
@@ -297,7 +297,7 @@ export function exportTimetablePDF({ schedules, rooms = [], title, session, seme
                     while (pdf.getTextWidth(code) > evW - 2 && code.length > 2) {
                         code = code.slice(0, -2) + '…';
                     }
-                    pdf.text(code, evX + 1.5, evY + evH / 2 + codeFontSize * 0.35);
+                    pdf.text(code, evX + 1.5, evY + evH / 3.5 + codeFontSize * 0.35);
                 }
             });
         });
@@ -312,7 +312,7 @@ export function exportTimetablePDF({ schedules, rooms = [], title, session, seme
         pdf.setFont('helvetica', 'normal');
         pdf.setFontSize(5.5);
         pdf.setTextColor(...textFaint);
-        pdf.text('UnilagSchedule — University Timetable Manager', margin, pageH - 3);
+        pdf.text('University of Lagos Timetable Manager', margin, pageH - 3);
         pdf.text(`Page ${pi + 1} of ${pages.length}`, pageW - margin, pageH - 3, { align: 'right' });
     });
 

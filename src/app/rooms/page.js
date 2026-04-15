@@ -1,12 +1,19 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useApp, ACTION_TYPES } from '@/context/AppContext';
+import { apiClient } from '@/lib/apiClient';
+import { useToast } from '@/components/Toast/Toast';
+import { useAuth } from '@/context/AuthContext';
+import { TablePageSkeleton } from '@/components/Skeleton/Skeleton';
 import styles from './rooms.module.css';
 
 export default function RoomsPage() {
     const { state, dispatch } = useApp();
-    const { rooms } = state;
+    const { rooms, faculties } = state;
+    const { addToast } = useToast();
+    const { user } = useAuth();
+    const role = user?.role;
 
     // Search & sort
     const [search, setSearch] = useState('');
@@ -18,7 +25,28 @@ export default function RoomsPage() {
     const [deleteConfirm, setDeleteConfirm] = useState(null);
 
     // Form state
-    const [form, setForm] = useState({ name: '', capacity: 100 });
+    const [form, setForm] = useState({ name: '', capacity: 100, facultyId: '' });
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        let mounted = true;
+        async function loadRooms() {
+            try {
+                const [rooms, faculties] = await Promise.all([
+                    apiClient.get('/timetable/rooms').catch(() => []),
+                    apiClient.get('/timetable/faculties').catch(() => [])
+                ]);
+                if (mounted) {
+                    dispatch({ type: ACTION_TYPES.INIT_STATE, payload: { rooms: rooms || [], faculties: faculties || [] } });
+                    setLoading(false);
+                }
+            } catch (e) {
+                console.error('Failed to JIT load rooms', e);
+            }
+        }
+        loadRooms();
+        return () => { mounted = false; };
+    }, [dispatch]);
 
     const filteredRooms = rooms
         .filter((r) => {
@@ -35,30 +63,41 @@ export default function RoomsPage() {
 
     const openAdd = () => {
         setEditing(null);
-        setForm({ name: '', capacity: 100 });
+        setForm({ name: '', capacity: 100, facultyId: faculties[0]?.id || '' });
         setShowModal(true);
     };
 
     const openEdit = (room) => {
         setEditing(room);
-        setForm({ name: room.name, capacity: room.capacity });
+        setForm({ name: room.name, capacity: room.capacity, facultyId: room.facultyId || '' });
         setShowModal(true);
     };
 
-    const handleSave = () => {
-        if (!form.name.trim() || !form.capacity) return;
-        const payload = { name: form.name.trim(), capacity: parseInt(form.capacity) || 100 };
-        if (editing) {
-            dispatch({ type: ACTION_TYPES.UPDATE_ROOM, payload: { id: editing.id, ...payload } });
-        } else {
-            dispatch({ type: ACTION_TYPES.ADD_ROOM, payload });
-        }
+    const handleSave = async () => {
+        if (!form.name.trim() || !form.capacity || !form.facultyId) return;
+        try {
+            const payload = { name: form.name.trim(), capacity: parseInt(form.capacity) || 100, faculty_id: form.facultyId };
+            if (editing) {
+                await apiClient.put(`/timetable/rooms/${editing.id}`, payload);
+                dispatch({ type: ACTION_TYPES.UPDATE_ROOM, payload: { id: editing.id, name: payload.name, capacity: payload.capacity, facultyId: payload.faculty_id } });
+            } else {
+                const res = await apiClient.post('/timetable/rooms', payload);
+                dispatch({ type: ACTION_TYPES.ADD_ROOM, payload: { id: res.id, name: res.name, capacity: res.capacity, facultyId: res.faculty_id } });
+            }
+        } catch (e) { console.error(e); }
         setShowModal(false);
     };
 
-    const handleDelete = (id) => {
-        dispatch({ type: ACTION_TYPES.DELETE_ROOM, payload: id });
-        setDeleteConfirm(null);
+    const handleDelete = async (id) => {
+        try {
+            await apiClient.delete(`/timetable/rooms/${id}`);
+            dispatch({ type: ACTION_TYPES.DELETE_ROOM, payload: id });
+            setDeleteConfirm(null);
+            addToast({ type: 'success', title: 'Room Deleted', message: 'The room was successfully deleted.' });
+        } catch (e) {
+            console.error('Failed to delete room', e);
+            addToast({ type: 'error', title: 'Deletion Failed', message: e.message || 'An error occurred while deleting the room.' });
+        }
     };
 
     // Capacity distribution
@@ -72,18 +111,19 @@ export default function RoomsPage() {
         return { label: 'Small', cls: styles.tierSmall };
     };
 
+    if (loading) return <TablePageSkeleton columns={3} rows={6} />;
+
     return (
         <div className={styles.page}>
             {/* Header */}
             <div className={styles.pageHeader}>
-                <div>
-                    <h2 className={styles.pageTitle}>Room Registry</h2>
-                    <p className={styles.pageSub}>Manage lecture halls, labs, and examination rooms.</p>
-                </div>
-                <button className="btn btn-primary" onClick={openAdd}>
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
-                    Add Room
-                </button>
+                <div />
+                {role !== 'FACULTY_VIEWER' && (
+                    <button className="btn btn-primary" onClick={openAdd}>
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
+                        Add Room
+                    </button>
+                )}
             </div>
 
             {/* Stats */}
@@ -129,6 +169,7 @@ export default function RoomsPage() {
                     <thead>
                         <tr>
                             <th>Room Name</th>
+                            <th>Faculty</th>
                             <th>Capacity</th>
                             <th>Size</th>
                             <th>Bookings</th>
@@ -139,9 +180,11 @@ export default function RoomsPage() {
                         {filteredRooms.map((room) => {
                             const tier = getCapacityTier(room.capacity);
                             const bookings = scheduleCount(room.id);
+                            const fac = faculties.find(f => f.id === room.facultyId);
                             return (
                                 <tr key={room.id}>
                                     <td style={{ fontWeight: 500, color: 'var(--color-text)' }}>{room.name}</td>
+                                    <td style={{ fontSize: '0.82rem', color: 'var(--color-text-muted)' }}>{fac?.name || '—'}</td>
                                     <td>
                                         <div className={styles.capacityCell}>
                                             <span className={styles.capacityNum}>{room.capacity}</span>
@@ -159,14 +202,18 @@ export default function RoomsPage() {
                                         )}
                                     </td>
                                     <td>
-                                        <div className={styles.actions}>
-                                            <button className={styles.actionBtn} onClick={() => openEdit(room)} title="Edit">
-                                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" /><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" /></svg>
-                                            </button>
-                                            <button className={`${styles.actionBtn} ${styles.deleteBtn}`} onClick={() => setDeleteConfirm(room)} title="Delete">
-                                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /></svg>
-                                            </button>
-                                        </div>
+                                        {role !== 'FACULTY_VIEWER' ? (
+                                            <div className={styles.actions}>
+                                                <button className={styles.actionBtn} onClick={() => openEdit(room)} title="Edit">
+                                                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" /><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" /></svg>
+                                                </button>
+                                                <button className={`${styles.actionBtn} ${styles.deleteBtn}`} onClick={() => setDeleteConfirm(room)} title="Delete">
+                                                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /></svg>
+                                                </button>
+                                            </div>
+                                        ) : (
+                                            <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Read Only</span>
+                                        )}
                                     </td>
                                 </tr>
                             );
@@ -192,13 +239,20 @@ export default function RoomsPage() {
                                 <input className="form-input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="e.g. LT-A (Main Lecture Theatre)" autoFocus />
                             </div>
                             <div className="form-group">
+                                <label className="form-label">Faculty</label>
+                                <select className="form-select form-input" value={form.facultyId} onChange={(e) => setForm({ ...form, facultyId: e.target.value })}>
+                                    <option value="">Select Faculty...</option>
+                                    {faculties.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
+                                </select>
+                            </div>
+                            <div className="form-group">
                                 <label className="form-label">Seating Capacity</label>
                                 <input className="form-input" type="number" min="1" value={form.capacity} onChange={(e) => setForm({ ...form, capacity: e.target.value })} placeholder="e.g. 300" />
                             </div>
                         </div>
                         <div className="modal-footer">
                             <button className="btn btn-secondary" onClick={() => setShowModal(false)}>Cancel</button>
-                            <button className="btn btn-primary" onClick={handleSave} disabled={!form.name.trim()}>
+                            <button className="btn btn-primary" onClick={handleSave} disabled={!form.name.trim() || !form.facultyId}>
                                 {editing ? 'Save Changes' : 'Add Room'}
                             </button>
                         </div>

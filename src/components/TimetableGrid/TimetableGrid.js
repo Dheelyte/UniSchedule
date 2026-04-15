@@ -1,14 +1,14 @@
 'use client';
 
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import { useApp, ACTION_TYPES } from '@/context/AppContext';
 import { DAYS, EXAM_DAYS, timeToMinutes } from '@/lib/utils';
 import { detectConflicts, detectAllConflicts } from '@/lib/conflicts';
 import { useToast } from '@/components/Toast/Toast';
+import { apiClient } from '@/lib/apiClient';
 import styles from './TimetableGrid.module.css';
 
-const HOURS = Array.from({ length: 10 }, (_, i) => i + 8); // 8..17
-const MAX_VISIBLE_EVENTS = 3; // Max events shown side-by-side before "+N more"
+const HOURS = Array.from({ length: 11 }, (_, i) => i + 8); // 8, 9, 10...18
 
 // Color palette for course blocks (light mode)
 const COLORS = [
@@ -28,57 +28,51 @@ function getColor(index) {
     return COLORS[index % COLORS.length];
 }
 
-function timeToRow(time) {
+function timeToCol(time) {
     const [h, m] = time.split(':').map(Number);
     return (h - 8) * 2 + (m >= 30 ? 1 : 0);
 }
 
 /**
- * Compute side-by-side layout columns for overlapping events.
- * Returns a Map of scheduleId → { col, totalCols }.
+ * Compute vertical stacking layout for overlapping events in the SAME ROOM.
  */
-function computeOverlapLayout(events) {
+function computeVerticalOverlapLayout(events) {
     if (events.length <= 1) {
         const map = new Map();
-        if (events.length === 1) map.set(events[0].id, { col: 0, totalCols: 1 });
+        if (events.length === 1) map.set(events[0].id, { offset: 0, total: 1 });
         return map;
     }
 
-    // Sort by start time, then by end time (earlier end first)
     const sorted = [...events].sort((a, b) => {
         const diff = timeToMinutes(a.startTime) - timeToMinutes(b.startTime);
         return diff !== 0 ? diff : timeToMinutes(a.endTime) - timeToMinutes(b.endTime);
     });
 
-    // Assign columns using a greedy algorithm
-    const columns = []; // columns[i] = end time of last event in column i
+    const lanes = [];
     const assignments = new Map();
 
     sorted.forEach((ev) => {
         const start = timeToMinutes(ev.startTime);
         let placed = false;
-        for (let c = 0; c < columns.length; c++) {
-            if (columns[c] <= start) {
-                columns[c] = timeToMinutes(ev.endTime);
-                assignments.set(ev.id, { col: c, totalCols: 0 });
+        for (let l = 0; l < lanes.length; l++) {
+            if (lanes[l] <= start) {
+                lanes[l] = timeToMinutes(ev.endTime);
+                assignments.set(ev.id, { offset: l, total: 0 });
                 placed = true;
                 break;
             }
         }
         if (!placed) {
-            assignments.set(ev.id, { col: columns.length, totalCols: 0 });
-            columns.push(timeToMinutes(ev.endTime));
+            assignments.set(ev.id, { offset: lanes.length, total: 0 });
+            lanes.push(timeToMinutes(ev.endTime));
         }
     });
 
-    // Now find true overlap groups and set totalCols per group
-    // A group is a set of events that all mutually overlap (connected component via time overlap)
     const groups = [];
     const visited = new Set();
 
     sorted.forEach((ev) => {
         if (visited.has(ev.id)) return;
-        // BFS to find all events in this connected overlap group
         const group = [];
         const queue = [ev];
         visited.add(ev.id);
@@ -87,7 +81,6 @@ function computeOverlapLayout(events) {
             group.push(curr);
             sorted.forEach((other) => {
                 if (visited.has(other.id)) return;
-                // Check if any event in the group overlaps with other
                 const overlaps = group.some((g) => {
                     const gStart = timeToMinutes(g.startTime);
                     const gEnd = timeToMinutes(g.endTime);
@@ -105,26 +98,34 @@ function computeOverlapLayout(events) {
     });
 
     groups.forEach((group) => {
-        const maxCol = Math.max(...group.map((e) => assignments.get(e.id).col)) + 1;
+        const maxOffset = Math.max(...group.map((e) => assignments.get(e.id).offset)) + 1;
         group.forEach((e) => {
-            assignments.get(e.id).totalCols = maxCol;
+            assignments.get(e.id).total = maxOffset;
         });
     });
 
     return assignments;
 }
 
-export default function TimetableGrid({ mode = 'lecture' }) {
+export default function TimetableGrid({ mode = 'lecture', semesterId = null, readOnly = false }) {
     const { state, dispatch, getSchedulesWithDetails } = useApp();
     const { faculties, departments, courses, rooms } = state;
     const { addToast } = useToast();
 
-    // Map correct day array
     const activeDays = mode === 'exam' ? EXAM_DAYS : DAYS;
 
     // Filters
     const [filterFaculty, setFilterFaculty] = useState('');
     const [filterDept, setFilterDept] = useState('');
+
+    // State for selected day
+    const [currentDay, setCurrentDay] = useState(activeDays[0]);
+
+    useEffect(() => {
+        if (!activeDays.includes(currentDay)) {
+            setCurrentDay(activeDays[0]);
+        }
+    }, [activeDays, currentDay]);
 
     // Schedule modal
     const [showModal, setShowModal] = useState(false);
@@ -137,14 +138,8 @@ export default function TimetableGrid({ mode = 'lecture' }) {
         endTime: '10:00',
     });
 
-    // Validation state
     const [modalConflicts, setModalConflicts] = useState([]);
-
-    // Delete confirmation
     const [deleteTarget, setDeleteTarget] = useState(null);
-
-    // Overflow popover (for +N more)
-    const [overflowPopover, setOverflowPopover] = useState(null); // { day, hour, schedules, rect }
 
     // Drag & drop state
     const [dragItem, setDragItem] = useState(null);
@@ -159,58 +154,57 @@ export default function TimetableGrid({ mode = 'lecture' }) {
         return Math.max(maxWeek, 1);
     });
 
-    // Filtered departments based on faculty
     const filteredDepts = filterFaculty
         ? departments.filter((d) => d.facultyId === filterFaculty)
         : departments;
 
-    // Get schedules for current mode, filtered by faculty/dept (and week for exams)
-    const schedules = useMemo(() => {
-        return getSchedulesWithDetails.filter((s) => {
-            if (s.type !== mode) return false;
+    // ALL schedules of this mode (for conflicts across days/weeks)
+    const allModeSchedules = useMemo(() => {
+        return getSchedulesWithDetails.filter((s) => s.type === mode);
+    }, [getSchedulesWithDetails, mode]);
+
+    const conflictMap = useMemo(() => {
+        return detectAllConflicts(allModeSchedules);
+    }, [allModeSchedules]);
+
+    // Filtered mode schedules (respecting faculty, dept, week) but independent of day
+    const filteredModeSchedules = useMemo(() => {
+        return allModeSchedules.filter((s) => {
             if (filterFaculty && s.facultyId !== filterFaculty) return false;
             if (filterDept && s.departmentId !== filterDept) return false;
             if (mode === 'exam' && s.week && s.week !== currentWeek) return false;
             return true;
         });
-    }, [getSchedulesWithDetails, mode, filterFaculty, filterDept, currentWeek]);
+    }, [allModeSchedules, mode, filterFaculty, filterDept, currentWeek]);
 
-    // ALL schedules of this mode (unfiltered, for conflict detection)
-    const allModeSchedules = useMemo(() => {
-        return getSchedulesWithDetails.filter((s) => s.type === mode);
-    }, [getSchedulesWithDetails, mode]);
+    // Schedules for ONLY the current day
+    const daySchedules = useMemo(() => {
+        return filteredModeSchedules.filter(s => s.day === currentDay);
+    }, [filteredModeSchedules, currentDay]);
 
-    // Detect all conflicts across the grid
-    const conflictMap = useMemo(() => {
-        return detectAllConflicts(allModeSchedules);
-    }, [allModeSchedules]);
-
-    // Assign colors by course
     const courseColorMap = useMemo(() => {
         const map = {};
         let idx = 0;
-        schedules.forEach((s) => {
+        daySchedules.forEach((s) => {
             if (!map[s.courseId]) {
                 map[s.courseId] = getColor(idx++);
             }
         });
         return map;
-    }, [schedules]);
+    }, [daySchedules]);
 
-    // Pre-compute overlap layout for each day
+    // Pre-compute overlapping per room for the current day
     const overlapLayoutMap = useMemo(() => {
-        const dayMap = {};
-        activeDays.forEach((day) => {
-            const daySchedules = schedules.filter((s) => s.day === day);
-            const layout = computeOverlapLayout(daySchedules);
-            layout.forEach((val, key) => {
-                dayMap[key] = val;
-            });
+        const roomMap = {};
+        rooms.forEach((room) => {
+            const roomSchedules = daySchedules.filter((s) =>
+                s.roomIds?.includes(room.id) || s.roomId === room.id
+            );
+            roomMap[room.id] = computeVerticalOverlapLayout(roomSchedules);
         });
-        return dayMap;
-    }, [schedules, activeDays]);
+        return roomMap;
+    }, [daySchedules, rooms]);
 
-    // Filtered courses for modal dropdown
     const modalCourses = useMemo(() => {
         if (filterDept) return courses.filter((c) => c.departmentId === filterDept);
         if (filterFaculty) {
@@ -220,8 +214,8 @@ export default function TimetableGrid({ mode = 'lecture' }) {
         return courses;
     }, [courses, departments, filterFaculty, filterDept]);
 
-    // Click on empty cell
-    const handleCellClick = (day, hour) => {
+    const handleCellClick = (roomId, hour) => {
+        if (readOnly) return;
         const startTime = `${hour.toString().padStart(2, '0')}:00`;
         const endH = Math.min(hour + 2, 18);
         const endTime = `${endH.toString().padStart(2, '0')}:00`;
@@ -229,8 +223,8 @@ export default function TimetableGrid({ mode = 'lecture' }) {
         setModalConflicts([]);
         setModalForm({
             courseId: modalCourses[0]?.id || '',
-            roomIds: [rooms[0]?.id || ''],
-            day,
+            roomIds: [roomId || rooms[0]?.id || ''],
+            day: currentDay,
             startTime,
             endTime,
             ...(mode === 'exam' ? { week: currentWeek } : {}),
@@ -238,9 +232,9 @@ export default function TimetableGrid({ mode = 'lecture' }) {
         setShowModal(true);
     };
 
-    // Click on existing schedule
     const handleEventClick = (schedule, e) => {
         e.stopPropagation();
+        if (readOnly) return; // viewing historical semester — no edits
         setEditing(schedule);
         setModalConflicts([]);
         setModalForm({
@@ -254,7 +248,6 @@ export default function TimetableGrid({ mode = 'lecture' }) {
         setShowModal(true);
     };
 
-    // Live validation when modal form changes
     const validateForm = (formData) => {
         if (!formData.courseId || !formData.roomIds?.some((r) => r)) return;
         const result = detectConflicts(
@@ -271,7 +264,6 @@ export default function TimetableGrid({ mode = 'lecture' }) {
         validateForm(newForm);
     };
 
-    // Room list management for modal
     const addRoom = () => {
         updateForm({ roomIds: [...modalForm.roomIds, ''] });
     };
@@ -288,21 +280,18 @@ export default function TimetableGrid({ mode = 'lecture' }) {
         updateForm({ roomIds: newRoomIds });
     };
 
-    // Save schedule
-    const handleSave = () => {
+    const handleSave = async () => {
         const validRoomIds = modalForm.roomIds.filter((r) => r);
         if (!modalForm.courseId || validRoomIds.length === 0) return;
 
         const formWithCleanRooms = { ...modalForm, roomIds: validRoomIds };
 
-        // Run final conflict check
         const result = detectConflicts(
             { ...formWithCleanRooms, type: mode },
             allModeSchedules,
             editing?.id || null
         );
 
-        // Block if there are errors (room/course conflicts)
         if (result.hasConflict) {
             result.conflicts.filter((c) => c.severity === 'error').forEach((c) => {
                 addToast({
@@ -312,10 +301,9 @@ export default function TimetableGrid({ mode = 'lecture' }) {
                     duration: 8000,
                 });
             });
-            return; // Block submission
+            return;
         }
 
-        // Show warnings but allow submission
         if (result.hasWarning) {
             result.conflicts.filter((c) => c.severity === 'warning').forEach((c) => {
                 addToast({
@@ -328,26 +316,68 @@ export default function TimetableGrid({ mode = 'lecture' }) {
         }
 
         const payload = { ...formWithCleanRooms, type: mode, ...(mode === 'exam' ? { week: formWithCleanRooms.week || currentWeek } : {}) };
-        if (editing) {
-            dispatch({ type: ACTION_TYPES.UPDATE_SCHEDULE, payload: { id: editing.id, ...payload } });
-            addToast({ type: 'success', title: 'Schedule Updated', message: `${courses.find(c => c.id === modalForm.courseId)?.code || 'Course'} updated successfully.` });
-        } else {
-            dispatch({ type: ACTION_TYPES.ADD_SCHEDULE, payload });
-            addToast({ type: 'success', title: 'Course Scheduled', message: `${courses.find(c => c.id === modalForm.courseId)?.code || 'Course'} added to ${modalForm.day} timetable.` });
+
+        try {
+            if (editing) {
+                const apiPayload = {
+                    room_ids: validRoomIds,
+                    day_of_week: payload.day,
+                    start_time: payload.startTime,
+                    end_time: payload.endTime
+                };
+                await apiClient.put(`/timetable/schedule-items/${editing.id}`, apiPayload);
+                dispatch({ type: ACTION_TYPES.UPDATE_SCHEDULE, payload: { id: editing.id, ...payload } });
+                addToast({ type: 'success', title: 'Schedule Updated', message: `${courses.find(c => c.id === modalForm.courseId)?.code || 'Course'} updated successfully.` });
+            } else {
+                const course = courses.find(c => c.id === modalForm.courseId);
+                const dept = departments.find(d => d.id === course?.departmentId);
+                const apiPayload = {
+                    course_id: payload.courseId,
+                    faculty_id: dept?.facultyId || faculties[0]?.id || '',
+                    room_ids: validRoomIds,
+                    day_of_week: payload.day,
+                    start_time: payload.startTime,
+                    end_time: payload.endTime,
+                    type: payload.type,
+                    week: payload.week || null
+                };
+                const res = await apiClient.post('/timetable/schedule-items', { ...apiPayload, semester_id: semesterId });
+                dispatch({
+                    type: ACTION_TYPES.ADD_SCHEDULE, payload: {
+                        id: res.id,
+                        courseId: parseInt(payload.courseId),
+                        roomIds: (payload.roomIds || []).map(r => parseInt(r)),
+                        facultyId: dept?.facultyId || faculties[0]?.id || '',
+                        day: payload.day,
+                        startTime: payload.startTime,
+                        endTime: payload.endTime,
+                        type: payload.type,
+                        week: payload.week || null,
+                        semester_id: semesterId,
+                    }
+                });
+                addToast({ type: 'success', title: 'Course Scheduled', message: `${courses.find(c => c.id === modalForm.courseId)?.code || 'Course'} added to timetable.` });
+            }
+        } catch (e) {
+            console.error('Failed to sync schedule', e);
+            addToast({ type: 'error', title: 'API Sync Error', message: 'Failed to synchronize with server.' });
         }
         setShowModal(false);
     };
 
-    // Delete schedule
-    const handleDelete = () => {
+    const handleDelete = async () => {
         if (deleteTarget) {
-            dispatch({ type: ACTION_TYPES.DELETE_SCHEDULE, payload: deleteTarget.id });
-            addToast({ type: 'info', title: 'Schedule Removed', message: `${deleteTarget.courseCode} removed from ${deleteTarget.day} ${deleteTarget.startTime}–${deleteTarget.endTime}.` });
-            setDeleteTarget(null);
+            try {
+                await apiClient.delete(`/timetable/schedule-items/${deleteTarget.id}`);
+                dispatch({ type: ACTION_TYPES.DELETE_SCHEDULE, payload: deleteTarget.id });
+                addToast({ type: 'info', title: 'Schedule Removed', message: `${deleteTarget.courseCode || 'Course'} removed.` });
+                setDeleteTarget(null);
+            } catch (e) {
+                console.error('Failed to delete schedule', e);
+            }
         }
     };
 
-    // ---- Drag & Drop Handlers ----
     const handleDragStart = useCallback((schedule, e) => {
         setDragItem(schedule);
         e.dataTransfer.effectAllowed = 'move';
@@ -364,20 +394,19 @@ export default function TimetableGrid({ mode = 'lecture' }) {
         e.dataTransfer.dropEffect = 'move';
     }, []);
 
-    const handleCellDragEnter = useCallback((day, hour) => {
-        setDragOverCell(`${day}-${hour}`);
+    const handleCellDragEnter = useCallback((roomId, hour) => {
+        setDragOverCell(`${roomId}-${hour}`);
     }, []);
 
     const handleCellDragLeave = useCallback(() => {
         setDragOverCell(null);
     }, []);
 
-    const handleDrop = useCallback((day, hour, e) => {
+    const handleDrop = useCallback(async (roomId, hour, e) => {
         e.preventDefault();
         setDragOverCell(null);
         if (!dragItem) return;
 
-        // Calculate duration in minutes
         const oldStart = timeToMinutes(dragItem.startTime);
         const oldEnd = timeToMinutes(dragItem.endTime);
         const duration = oldEnd - oldStart;
@@ -385,7 +414,6 @@ export default function TimetableGrid({ mode = 'lecture' }) {
         const newStartMin = hour * 60;
         const newEndMin = newStartMin + duration;
 
-        // Clamp to 18:00
         if (newEndMin > 18 * 60) {
             addToast({ type: 'warning', title: 'Cannot Drop', message: 'The course would extend past 6:00 PM.' });
             setDragItem(null);
@@ -395,22 +423,21 @@ export default function TimetableGrid({ mode = 'lecture' }) {
         const newStartTime = `${Math.floor(newStartMin / 60).toString().padStart(2, '0')}:${(newStartMin % 60).toString().padStart(2, '0')}`;
         const newEndTime = `${Math.floor(newEndMin / 60).toString().padStart(2, '0')}:${(newEndMin % 60).toString().padStart(2, '0')}`;
 
-        // Skip if same position
-        if (day === dragItem.day && newStartTime === dragItem.startTime) {
+        if (currentDay === dragItem.day && newStartTime === dragItem.startTime && dragItem.roomIds?.includes(roomId) && dragItem.roomIds.length === 1) {
             setDragItem(null);
             return;
         }
 
-        // Conflict check
         const candidate = {
             courseId: dragItem.courseId,
-            roomIds: dragItem.roomIds || [],
-            day,
+            roomIds: [roomId],
+            day: currentDay,
             startTime: newStartTime,
             endTime: newEndTime,
             type: mode,
             ...(mode === 'exam' && dragItem.week != null ? { week: dragItem.week } : {}),
         };
+
         const result = detectConflicts(candidate, allModeSchedules, dragItem.id);
 
         if (result.hasConflict) {
@@ -427,29 +454,40 @@ export default function TimetableGrid({ mode = 'lecture' }) {
             });
         }
 
-        dispatch({
-            type: ACTION_TYPES.UPDATE_SCHEDULE,
-            payload: { id: dragItem.id, day, startTime: newStartTime, endTime: newEndTime },
-        });
-        addToast({
-            type: 'success',
-            title: 'Course Moved',
-            message: `${dragItem.courseCode} moved to ${day} ${newStartTime}–${newEndTime}.`,
-        });
-        setDragItem(null);
-    }, [dragItem, allModeSchedules, mode, dispatch, addToast]);
+        try {
+            const apiPayload = {
+                room_ids: [roomId],
+                day_of_week: currentDay,
+                start_time: newStartTime,
+                end_time: newEndTime
+            };
+            await apiClient.put(`/timetable/schedule-items/${dragItem.id}`, apiPayload);
 
-    // Time options
+            dispatch({
+                type: ACTION_TYPES.UPDATE_SCHEDULE,
+                payload: { id: dragItem.id, day: currentDay, startTime: newStartTime, endTime: newEndTime, roomIds: [roomId] },
+            });
+            addToast({
+                type: 'success',
+                title: 'Course Moved',
+                message: `${dragItem.courseCode || 'Course'} moved to ${currentDay} ${newStartTime}–${newEndTime}.`,
+            });
+        } catch (err) {
+            console.error('Drop error', err);
+            addToast({ type: 'error', title: 'API Sync Error', message: 'Failed to synchronize movement with server.' });
+        }
+
+        setDragItem(null);
+    }, [dragItem, allModeSchedules, mode, dispatch, addToast, currentDay]);
+
     const timeOptions = [];
     for (let h = 8; h <= 18; h++) {
         timeOptions.push(`${h.toString().padStart(2, '0')}:00`);
         if (h < 18) timeOptions.push(`${h.toString().padStart(2, '0')}:30`);
     }
 
-    // Count conflicts in the visible grid
-    const visibleConflictCount = schedules.filter((s) => conflictMap.has(s.id)).length;
+    const visibleConflictCount = daySchedules.filter((s) => conflictMap.has(s.id)).length;
 
-    // Get rooms already selected (to filter dropdown options)
     const getAvailableRooms = (currentIndex) => {
         const selectedIds = modalForm.roomIds.filter((_, i) => i !== currentIndex);
         return rooms.filter((r) => !selectedIds.includes(r.id));
@@ -457,6 +495,15 @@ export default function TimetableGrid({ mode = 'lecture' }) {
 
     return (
         <div className={styles.container}>
+            {readOnly && (
+                <div style={{
+                    background: '#fef9c3', border: '1px solid #fcd34d', borderRadius: '8px',
+                    padding: '10px 16px', marginBottom: '12px', fontSize: '0.875rem',
+                    color: '#92400e', display: 'flex', alignItems: 'center', gap: '8px'
+                }}>
+                    🔒 <strong>Read-only view</strong> — this is a historical semester. Switch to the current semester to make changes.
+                </div>
+            )}
             {/* Filter Bar */}
             <div className={styles.filterBar}>
                 <div className={styles.filterLeft}>
@@ -485,7 +532,7 @@ export default function TimetableGrid({ mode = 'lecture' }) {
                 </div>
                 <div className={styles.filterRight}>
                     <span className={styles.scheduleCount}>
-                        {schedules.length} {mode === 'lecture' ? 'lecture' : 'exam'}{schedules.length !== 1 ? 's' : ''}
+                        {daySchedules.length} {mode === 'lecture' ? 'lecture' : 'exam'}{daySchedules.length !== 1 ? 's' : ''} on {currentDay}
                         {visibleConflictCount > 0 && (
                             <span className={styles.conflictBadge}>
                                 ⚠ {visibleConflictCount} conflict{visibleConflictCount !== 1 ? 's' : ''}
@@ -522,213 +569,156 @@ export default function TimetableGrid({ mode = 'lecture' }) {
                 </div>
             )}
 
+            {/* Day selector bar */}
+            <div className={styles.dayBar}>
+                {activeDays.map(day => {
+                    const count = filteredModeSchedules.filter(s => s.day === day).length;
+                    return (
+                        <button
+                            key={day}
+                            className={`${styles.dayBtn} ${currentDay === day ? styles.dayBtnActive : ''}`}
+                            onClick={() => setCurrentDay(day)}
+                        >
+                            {day}
+                            {count > 0 && (
+                                <span className={styles.dayChip}>
+                                    {count}
+                                </span>
+                            )}
+                        </button>
+                    );
+                })}
+            </div>
+
             {/* Grid */}
             <div className={styles.gridWrapper} id="timetable-grid">
+                {/* 1 room column, then 1 column per half-hour from 8:00 to 18:00 (20 columns total) */}
                 <div
                     className={styles.grid}
-                    style={{ '--grid-columns': `80px repeat(${activeDays.length}, 1fr)` }}
+                    style={{ '--grid-columns': `180px repeat(20, 1fr)` }}
                 >
                     {/* Header row */}
                     <div className={styles.cornerCell}>
-                        <span className={styles.cornerLabel}>Time</span>
+                        <span className={styles.cornerLabel}>Room / Time</span>
                     </div>
-                    {activeDays.map((day) => (
-                        <div key={day} className={styles.dayHeader}>
-                            <span className={styles.dayName}>{day}</span>
-                            <span className={styles.dayCount}>
-                                {schedules.filter((s) => s.day === day).length} slots
+                    {/* Time slots (only showing 8:00, 9:00, etc. but spanning 2 columns) */}
+                    {HOURS.slice(0, 10).map((hour) => (
+                        <div key={hour} className={styles.timeHeader} style={{ gridColumn: 'span 2' }}>
+                            <span className={styles.timePrimary}>
+                                {hour.toString().padStart(2, '0')}:00
                             </span>
                         </div>
                     ))}
 
-                    {/* Time rows */}
-                    {HOURS.map((hour) => (
-                        <div key={hour} className={styles.timeRow}>
-                            {/* Time label */}
-                            <div className={styles.timeLabel}>
-                                <span className={styles.timePrimary}>
-                                    {hour.toString().padStart(2, '0')}:00
-                                </span>
-                            </div>
+                    {/* Room rows */}
+                    {rooms.map((room) => {
+                        const roomSchedules = daySchedules.filter((s) =>
+                            s.roomIds?.includes(room.id) || s.roomId === room.id
+                        );
+                        const layoutMap = overlapLayoutMap[room.id] || new Map();
 
-                            {/* Day cells */}
-                            {activeDays.map((day) => {
-                                const cellSchedules = schedules.filter(
-                                    (s) => s.day === day
-                                );
+                        return (
+                            <div key={room.id} className={styles.roomRow}>
+                                {/* Room label */}
+                                <div className={styles.roomLabel}>
+                                    <span className={styles.roomName}>{room.name}</span>
+                                    <span className={styles.roomCapacity}>Capacity: {room.capacity}</span>
+                                </div>
 
-                                // Find events that START in this cell
-                                const cellStart = (hour - 8) * 2;
-                                const cellEnd = cellStart + 2;
-                                const cellEvents = cellSchedules.filter((s) => {
-                                    const startRow = timeToRow(s.startTime);
-                                    return startRow >= cellStart && startRow < cellEnd;
-                                });
+                                {/* Hourly cells for grid lining & drop zones (spanning 2 columns each) */}
+                                {HOURS.slice(0, 10).map((hour) => {
+                                    const cellStartCol = (hour - 8) * 2;
+                                    const cellEndCol = cellStartCol + 2;
 
-                                // Determine if cell is entirely empty
-                                const isCellEmpty = !cellSchedules.some((s) => {
-                                    const startRow = timeToRow(s.startTime);
-                                    const endRow = timeToRow(s.endTime);
-                                    return startRow < cellEnd && endRow > cellStart;
-                                });
+                                    const cellEvents = roomSchedules.filter((s) => {
+                                        const startCol = timeToCol(s.startTime);
+                                        // Return true if it STARTS in this hour block (so we only render it once)
+                                        return startCol >= cellStartCol && startCol < cellEndCol;
+                                    });
 
-                                // Determine if we need overflow
-                                const needsOverflow = cellEvents.length > MAX_VISIBLE_EVENTS;
-                                const visibleEvents = needsOverflow ? cellEvents.slice(0, MAX_VISIBLE_EVENTS - 1) : cellEvents;
-                                const overflowCount = needsOverflow ? cellEvents.length - visibleEvents.length : 0;
-                                const visibleCols = needsOverflow ? MAX_VISIBLE_EVENTS : undefined; // force column count when overflowing
+                                    const isCellEmpty = !roomSchedules.some((s) => {
+                                        const startCol = timeToCol(s.startTime);
+                                        const endCol = timeToCol(s.endTime);
+                                        return startCol < cellEndCol && endCol > cellStartCol;
+                                    });
 
-                                return (
-                                    <div
-                                        key={`${day}-${hour}`}
-                                        className={`${styles.cell} ${dragOverCell === `${day}-${hour}` ? styles.cellDragOver : ''}`}
-                                        onClick={() => handleCellClick(day, hour)}
-                                        onDragOver={handleCellDragOver}
-                                        onDragEnter={() => handleCellDragEnter(day, hour)}
-                                        onDragLeave={handleCellDragLeave}
-                                        onDrop={(e) => handleDrop(day, hour, e)}
-                                    >
-                                        {isCellEmpty && <span className={styles.cellHint}>+ Add</span>}
-                                        <button
-                                            className={styles.quickAddBtn}
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                handleCellClick(day, hour);
-                                            }}
-                                            title="Add new course here"
+                                    return (
+                                        <div
+                                            key={`${room.id}-${hour}`}
+                                            className={`${styles.cell} ${dragOverCell === `${room.id}-${hour}` ? styles.cellDragOver : ''}`}
+                                            style={{ gridColumn: 'span 2' }}
+                                            onClick={() => handleCellClick(room.id, hour)}
+                                            onDragOver={handleCellDragOver}
+                                            onDragEnter={() => handleCellDragEnter(room.id, hour)}
+                                            onDragLeave={handleCellDragLeave}
+                                            onDrop={(e) => handleDrop(room.id, hour, e)}
                                         >
-                                            +
-                                        </button>
-
-                                        {/* Schedule blocks */}
-                                        {cellSchedules.map((s) => {
-                                            const startRow = timeToRow(s.startTime);
-                                            const endRow = timeToRow(s.endTime);
-
-                                            // Only render if this block starts in this cell
-                                            if (startRow < cellStart || startRow >= cellEnd) return null;
-
-                                            // Skip if this event is hidden by overflow
-                                            if (needsOverflow && !visibleEvents.includes(s)) return null;
-
-                                            const span = endRow - startRow;
-                                            const color = courseColorMap[s.courseId] || COLORS[0];
-                                            const hasConflict = conflictMap.has(s.id);
-                                            const itemConflicts = conflictMap.get(s.id) || [];
-                                            const hasError = itemConflicts.some((c) => c.severity === 'error');
-
-                                            // Side-by-side layout — use capped columns when overflowing
-                                            const layout = overlapLayoutMap[s.id] || { col: 0, totalCols: 1 };
-                                            const totalCols = visibleCols || layout.totalCols;
-                                            const col = needsOverflow ? visibleEvents.indexOf(s) : layout.col;
-                                            const colWidth = 100 / totalCols;
-                                            const leftPct = col * colWidth;
-
-                                            return (
-                                                <div
-                                                    key={s.id}
-                                                    className={`${styles.event} ${hasError ? styles.eventConflict : ''} ${dragItem?.id === s.id ? styles.eventDragging : ''}`}
-                                                    style={{
-                                                        top: `${((startRow - cellStart) / 2) * 100}%`,
-                                                        height: `${(span / 2) * 100}%`,
-                                                        left: `${leftPct}%`,
-                                                        width: `${colWidth}%`,
-                                                        background: hasError ? 'rgba(239, 68, 68, 0.15)' : color.bg,
-                                                        borderLeftColor: hasError ? '#ef4444' : color.border,
-                                                    }}
-                                                    draggable
-                                                    onDragStart={(e) => handleDragStart(s, e)}
-                                                    onDragEnd={handleDragEnd}
-                                                    onClick={(e) => handleEventClick(s, e)}
-                                                    title={hasConflict ? itemConflicts.map((c) => c.message).join('\n') : `${s.courseCode} — ${s.roomNames}`}
-                                                >
-                                                    <span className={styles.eventCode} style={{ color: hasError ? '#f87171' : color.border }}>
-                                                        {hasError && '⚠ '}{s.courseCode}
-                                                    </span>
-                                                    <span className={styles.eventRoom}>{s.roomNames}</span>
-                                                    <span className={styles.eventTime}>{s.startTime}–{s.endTime}</span>
-                                                </div>
-                                            );
-                                        })}
-
-                                        {/* +N more badge */}
-                                        {needsOverflow && (
-                                            <div
-                                                className={styles.overflowBadge}
-                                                style={{
-                                                    top: `${((timeToRow(cellEvents[0].startTime) - cellStart) / 2) * 100}%`,
-                                                    left: `${((MAX_VISIBLE_EVENTS - 1) / MAX_VISIBLE_EVENTS) * 100}%`,
-                                                    width: `${100 / MAX_VISIBLE_EVENTS}%`,
-                                                }}
+                                            {isCellEmpty && <span className={styles.cellHint}>+ Add</span>}
+                                            <button
+                                                className={styles.quickAddBtn}
                                                 onClick={(e) => {
                                                     e.stopPropagation();
-                                                    const rect = e.currentTarget.getBoundingClientRect();
-                                                    setOverflowPopover({
-                                                        day,
-                                                        hour,
-                                                        schedules: cellEvents,
-                                                        rect: { top: rect.bottom + 4, left: rect.left },
-                                                    });
+                                                    handleCellClick(room.id, hour);
                                                 }}
+                                                title="Add course here"
                                             >
-                                                +{overflowCount} more
-                                            </div>
-                                        )}
+                                                +
+                                            </button>
 
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    ))}
+                                            {/* Schedule blocks that START in this hour block */}
+                                            {cellEvents.map((s) => {
+                                                const startCol = timeToCol(s.startTime);
+                                                const endCol = timeToCol(s.endTime);
+                                                const span = endCol - startCol;
+                                                const color = courseColorMap[s.courseId] || COLORS[0];
+
+                                                const hasConflict = conflictMap.has(s.id);
+                                                const itemConflicts = conflictMap.get(s.id) || [];
+                                                const hasError = itemConflicts.some((c) => c.severity === 'error');
+
+                                                const layout = layoutMap.get(s.id) || { offset: 0, total: 1 };
+                                                const rowHeight = 100 / layout.total;
+                                                const topOffset = layout.offset * rowHeight;
+
+                                                // startCol is 0-20. cellStartCol is the col index of this cell.
+                                                // So inside this cell, relative position is based on the 30-min granular offset.
+                                                // 1 span = 1 column (30 mins) = 50% width of the 1-hour cell.
+                                                const leftPct = ((startCol - cellStartCol) / 2) * 100;
+                                                const widthPct = (span / 2) * 100;
+
+                                                return (
+                                                    <div
+                                                        key={s.id}
+                                                        className={`${styles.event} ${hasError ? styles.eventConflict : ''} ${dragItem?.id === s.id ? styles.eventDragging : ''}`}
+                                                        style={{
+                                                            top: `calc(${topOffset}% + 4px)`,
+                                                            height: `calc(${rowHeight}% - 8px)`,
+                                                            left: `${leftPct}%`,
+                                                            width: `calc(${widthPct}% - 4px)`,
+                                                            background: hasError ? 'rgba(239, 68, 68, 0.15)' : color.bg,
+                                                            borderLeftColor: hasError ? '#ef4444' : color.border,
+                                                        }}
+                                                        draggable
+                                                        onDragStart={(e) => handleDragStart(s, e)}
+                                                        onDragEnd={handleDragEnd}
+                                                        onClick={(e) => handleEventClick(s, e)}
+                                                        title={hasConflict ? itemConflicts.map((c) => c.message).join('\n') : `${s.courseCode} — ${s.roomNames}`}
+                                                    >
+                                                        <span className={styles.eventCode} style={{ color: hasError ? '#f87171' : color.border }}>
+                                                            {hasError && '⚠ '}{s.courseCode}
+                                                        </span>
+                                                        <span className={styles.eventRoom}>{s.startTime}–{s.endTime}</span>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        );
+                    })}
                 </div>
             </div>
-
-            {/* Overflow Popover */}
-            {overflowPopover && (
-                <>
-                    <div className={styles.popoverBackdrop} onClick={() => setOverflowPopover(null)} />
-                    <div
-                        className={styles.overflowPopover}
-                        style={{
-                            top: overflowPopover.rect.top,
-                            left: overflowPopover.rect.left,
-                        }}
-                    >
-                        <div className={styles.popoverHeader}>
-                            <span className={styles.popoverTitle}>
-                                {overflowPopover.day} — {overflowPopover.schedules[0]?.startTime}
-                            </span>
-                            <span className={styles.popoverCount}>
-                                {overflowPopover.schedules.length} courses
-                            </span>
-                            <button className={styles.popoverClose} onClick={() => setOverflowPopover(null)}>✕</button>
-                        </div>
-                        <div className={styles.popoverList}>
-                            {overflowPopover.schedules.map((s) => {
-                                const color = courseColorMap[s.courseId] || COLORS[0];
-                                const hasConflict = conflictMap.has(s.id);
-                                return (
-                                    <div
-                                        key={s.id}
-                                        className={`${styles.popoverItem} ${hasConflict ? styles.popoverItemConflict : ''}`}
-                                        style={{ borderLeftColor: color.border }}
-                                        onClick={(e) => {
-                                            setOverflowPopover(null);
-                                            handleEventClick(s, e);
-                                        }}
-                                    >
-                                        <span className={styles.popoverCode} style={{ color: color.border }}>
-                                            {hasConflict && '⚠ '}{s.courseCode}
-                                        </span>
-                                        <span className={styles.popoverRoom}>{s.roomNames}</span>
-                                        <span className={styles.popoverTime}>{s.startTime}–{s.endTime}</span>
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    </div>
-                </>
-            )}
 
             {/* Schedule Modal */}
             {showModal && (
@@ -739,7 +729,6 @@ export default function TimetableGrid({ mode = 'lecture' }) {
                             <button className="modal-close" onClick={() => setShowModal(false)}>✕</button>
                         </div>
                         <div className="modal-body">
-                            {/* Inline conflict warnings */}
                             {modalConflicts.length > 0 && (
                                 <div className={styles.conflictAlerts}>
                                     {modalConflicts.map((c, i) => (
@@ -767,7 +756,6 @@ export default function TimetableGrid({ mode = 'lecture' }) {
                                 </select>
                             </div>
 
-                            {/* Multi-location room picker */}
                             <div className="form-group">
                                 <label className="form-label">Room{modalForm.roomIds.length > 1 ? 's' : ''}</label>
                                 <div className={styles.locationList}>
@@ -800,11 +788,7 @@ export default function TimetableGrid({ mode = 'lecture' }) {
                                         className={styles.addLocationBtn}
                                         onClick={addRoom}
                                     >
-                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                            <line x1="12" y1="5" x2="12" y2="19" />
-                                            <line x1="5" y1="12" x2="19" y2="12" />
-                                        </svg>
-                                        Add Another Location
+                                        + Add Another Location
                                     </button>
                                 </div>
                             </div>

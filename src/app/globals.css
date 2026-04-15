@@ -231,7 +231,7 @@ h4 {
 }
 
 .btn-primary {
-  background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-dark) 100%);
+  background: #3b82f6;
   color: #fff;
   box-shadow: 0 2px 8px rgba(99, 102, 241, 0.3);
 }

@@ -2,6 +2,8 @@
 
 import { usePathname } from 'next/navigation';
 import Link from 'next/link';
+import { useAuth } from '@/context/AuthContext';
+import { unilagLogoBase64 } from '@/lib/logo';
 import styles from './Sidebar.module.css';
 
 const navItems = [
@@ -20,6 +22,7 @@ const navItems = [
   {
     label: 'Faculties & Departments',
     href: '/faculties',
+    roles: ['SUPER_ADMIN', 'FACULTY_EDITOR', 'FACULTY_VIEWER'],
     icon: (
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <path d="M2 20V8l10-5 10 5v12" />
@@ -33,6 +36,7 @@ const navItems = [
   {
     label: 'Courses',
     href: '/courses',
+    roles: ['SUPER_ADMIN', 'FACULTY_EDITOR', 'FACULTY_VIEWER'],
     icon: (
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
@@ -45,10 +49,38 @@ const navItems = [
   {
     label: 'Rooms',
     href: '/rooms',
+    roles: ['SUPER_ADMIN', 'FACULTY_EDITOR', 'FACULTY_VIEWER'],
     icon: (
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
         <polyline points="9 22 9 12 15 12 15 22" />
+      </svg>
+    ),
+  },
+  { type: 'divider', label: 'Management', roles: ['SUPER_ADMIN'] },
+  {
+    label: 'Academic Terms',
+    href: '/terms',
+    roles: ['SUPER_ADMIN'],
+    icon: (
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+        <line x1="16" y1="2" x2="16" y2="6" />
+        <line x1="8" y1="2" x2="8" y2="6" />
+        <line x1="3" y1="10" x2="21" y2="10" />
+      </svg>
+    ),
+  },
+  {
+    label: 'Staff',
+    href: '/staff',
+    roles: ['SUPER_ADMIN'],
+    icon: (
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+        <circle cx="9" cy="7" r="4" />
+        <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+        <path d="M16 3.13a4 4 0 0 1 0 7.75" />
       </svg>
     ),
   },
@@ -82,26 +114,25 @@ const navItems = [
 
 export default function Sidebar({ isCollapsed, toggleCollapse }) {
   const pathname = usePathname();
+  const { user } = useAuth();
+  const role = user?.role;
+
+  const isAllowed = (item) => {
+    if (!item.roles) return true; // no restriction = visible to all
+    if (!role) return false;
+    return item.roles.includes(role);
+  };
 
   return (
     <aside className={`${styles.sidebar} ${isCollapsed ? styles.collapsed : ''}`}>
       {/* Brand */}
       <div className={styles.brand}>
         <div className={styles.logo}>
-          <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
-            <defs>
-              <linearGradient id="logoGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stopColor="#818cf8" />
-                <stop offset="100%" stopColor="#06b6d4" />
-              </linearGradient>
-            </defs>
-            <rect x="2" y="2" width="20" height="20" rx="4" stroke="url(#logoGrad)" strokeWidth="2" />
-            <path d="M7 8h10M7 12h7M7 16h10" stroke="url(#logoGrad)" strokeWidth="2" strokeLinecap="round" />
-          </svg>
+          <img src={unilagLogoBase64} alt="UNILAG Logo" width="32" height="32" style={{ borderRadius: '4px', objectFit: 'contain' }} />
         </div>
         {!isCollapsed && (
           <div className={styles.brandText}>
-            <span className={styles.brandName}>UnilagSchedule</span>
+            <span className={styles.brandName}>University of Lagos</span>
             <span className={styles.brandSub}>Timetable Manager</span>
           </div>
         )}
@@ -110,6 +141,8 @@ export default function Sidebar({ isCollapsed, toggleCollapse }) {
       {/* Navigation */}
       <nav className={styles.nav}>
         {navItems.map((item, index) => {
+          if (!isAllowed(item)) return null;
+
           if (item.type === 'divider') {
             return !isCollapsed ? (
               <div key={index} className={styles.divider}>
@@ -137,26 +170,6 @@ export default function Sidebar({ isCollapsed, toggleCollapse }) {
           );
         })}
       </nav>
-
-      {/* Collapse Toggle */}
-      <div className={styles.sidebarFooter}>
-        <button className={styles.collapseToggle} onClick={toggleCollapse}>
-          {isCollapsed ? (
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <polyline points="13 17 18 12 13 7"></polyline>
-              <polyline points="6 17 11 12 6 7"></polyline>
-            </svg>
-          ) : (
-            <>
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="11 17 6 12 11 7"></polyline>
-                <polyline points="18 17 13 12 18 7"></polyline>
-              </svg>
-              <span className={styles.navLabel}></span>
-            </>
-          )}
-        </button>
-      </div>
     </aside>
   );
 }

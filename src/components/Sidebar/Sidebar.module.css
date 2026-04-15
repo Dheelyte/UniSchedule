@@ -19,12 +19,38 @@
     width: var(--sidebar-collapsed-width);
 }
 
+/* Collapse Toggle - Top */
+.collapseToggleTop {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    margin: 12px 12px 0;
+    border-radius: var(--radius-md);
+    color: var(--color-text-secondary);
+    background: transparent;
+    border: 1px solid var(--color-border);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    flex-shrink: 0;
+}
+
+.collapseToggleTop:hover {
+    background: rgba(0, 0, 0, 0.04);
+    color: var(--color-text);
+}
+
+.collapsed .collapseToggleTop {
+    margin: 12px auto 0;
+}
+
 /* Brand */
 .brand {
     display: flex;
     align-items: center;
     gap: 12px;
-    padding: 20px 20px 16px;
+    padding: 16px 20px 16px;
     border-bottom: 1px solid var(--sidebar-border);
     flex-shrink: 0;
     overflow: hidden;
@@ -153,28 +179,4 @@
     border-radius: 50%;
     background: var(--color-primary);
     box-shadow: 0 0 8px var(--color-primary);
-}
-
-/* Footer / Toggle */
-.collapseToggle {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 10px 14px;
-    width: 100%;
-    border-radius: var(--radius-md);
-    color: var(--color-text-secondary);
-    font-size: 0.85rem;
-    font-weight: 500;
-    transition: all var(--transition-fast);
-}
-
-.collapsed .collapseToggle {
-    justify-content: center;
-    padding: 10px;
-}
-
-.collapseToggle:hover {
-    background: rgba(0, 0, 0, 0.04);
-    color: var(--color-text);
 }

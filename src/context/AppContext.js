@@ -1,26 +1,20 @@
 'use client';
 
 import { createContext, useContext, useReducer, useMemo } from 'react';
-import {
-    initialFaculties,
-    initialDepartments,
-    initialCourses,
-    initialRooms,
-    initialScheduleItems,
-} from '@/data/mockData';
 import { generateId } from '@/lib/utils';
 
 // ---- INITIAL STATE ----
 const initialState = {
-    faculties: initialFaculties,
-    departments: initialDepartments,
-    courses: initialCourses,
-    rooms: initialRooms,
-    scheduleItems: initialScheduleItems,
+    faculties: [],
+    departments: [],
+    courses: [],
+    rooms: [],
+    scheduleItems: [],
 };
 
 // ---- ACTION TYPES ----
 export const ACTION_TYPES = {
+    INIT_STATE: 'INIT_STATE',
     // Faculties
     ADD_FACULTY: 'ADD_FACULTY',
     UPDATE_FACULTY: 'UPDATE_FACULTY',
@@ -46,6 +40,13 @@ export const ACTION_TYPES = {
 // ---- REDUCER ----
 function appReducer(state, action) {
     switch (action.type) {
+        // ---- Context Init ----
+        case ACTION_TYPES.INIT_STATE:
+            return {
+                ...state,
+                ...action.payload
+            };
+
         // ---- Faculties ----
         case ACTION_TYPES.ADD_FACULTY:
             return {
@@ -161,7 +162,7 @@ function appReducer(state, action) {
         case ACTION_TYPES.ADD_SCHEDULE:
             return {
                 ...state,
-                scheduleItems: [...state.scheduleItems, { id: generateId('sch'), ...action.payload }],
+                scheduleItems: [...state.scheduleItems, action.payload],
             };
         case ACTION_TYPES.UPDATE_SCHEDULE:
             return {
@@ -184,8 +185,13 @@ function appReducer(state, action) {
 // ---- CONTEXT ----
 const AppContext = createContext(null);
 
+import { useEffect } from 'react';
+import { apiClient } from '@/lib/apiClient';
+
 export function AppProvider({ children }) {
     const [state, dispatch] = useReducer(appReducer, initialState);
+
+    // Global API fetch removed - Individual pages now perform Just-in-Time component fetching
 
     // Memoised derived data for the dashboard
     const stats = useMemo(() => {

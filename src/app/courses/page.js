@@ -1,12 +1,19 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useApp, ACTION_TYPES } from '@/context/AppContext';
+import { apiClient } from '@/lib/apiClient';
+import { useToast } from '@/components/Toast/Toast';
+import { useAuth } from '@/context/AuthContext';
+import { TablePageSkeleton } from '@/components/Skeleton/Skeleton';
 import styles from './courses.module.css';
 
 export default function CoursesPage() {
     const { state, dispatch, getCoursesWithDetails } = useApp();
     const { faculties, departments } = state;
+    const { addToast } = useToast();
+    const { user } = useAuth();
+    const role = user?.role;
 
     // Filters
     const [filterFaculty, setFilterFaculty] = useState('');
@@ -19,7 +26,36 @@ export default function CoursesPage() {
     const [deleteConfirm, setDeleteConfirm] = useState(null);
 
     // Form state
-    const [form, setForm] = useState({ code: '', title: '', creditLoad: 3, lecturers: '', locations: '', departmentId: '' });
+    const [form, setForm] = useState({ code: '', title: '', creditLoad: 3, lecturers: '', departmentId: '' });
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        let mounted = true;
+        async function loadCourses() {
+            try {
+                const [courses, faculties, departments] = await Promise.all([
+                    apiClient.get('/timetable/courses').catch(() => []),
+                    apiClient.get('/timetable/faculties').catch(() => []),
+                    apiClient.get('/timetable/departments').catch(() => [])
+                ]);
+                if (mounted) {
+                    dispatch({
+                        type: ACTION_TYPES.INIT_STATE,
+                        payload: {
+                            courses: (courses || []).map(c => ({ ...c, creditLoad: c.credit_load, departmentId: c.department_id })),
+                            faculties: faculties || [],
+                            departments: (departments || []).map(d => ({ ...d, facultyId: d.faculty_id }))
+                        }
+                    });
+                    setLoading(false);
+                }
+            } catch (e) {
+                console.error('Failed to JIT load courses', e);
+            }
+        }
+        loadCourses();
+        return () => { mounted = false; };
+    }, [dispatch]);
 
     const filteredDepts = filterFaculty
         ? departments.filter((d) => d.facultyId === filterFaculty)
@@ -40,7 +76,7 @@ export default function CoursesPage() {
 
     const openAdd = () => {
         setEditing(null);
-        setForm({ code: '', title: '', creditLoad: 3, lecturers: '', locations: '', departmentId: departments[0]?.id || '' });
+        setForm({ code: '', title: '', creditLoad: 3, lecturers: '', departmentId: departments[0]?.id || '' });
         setShowModal(true);
     };
 
@@ -51,33 +87,55 @@ export default function CoursesPage() {
             title: course.title,
             creditLoad: course.creditLoad,
             lecturers: course.lecturers.join(', '),
-            locations: (course.locations || []).join(', '),
             departmentId: course.departmentId,
         });
         setShowModal(true);
     };
 
-    const handleSave = () => {
+    const handleSave = async () => {
         if (!form.code.trim() || !form.title.trim() || !form.departmentId) return;
-        const payload = {
-            code: form.code.trim(),
-            title: form.title.trim(),
-            creditLoad: parseInt(form.creditLoad) || 3,
-            lecturers: form.lecturers.split(',').map((l) => l.trim()).filter(Boolean),
-            locations: form.locations.split(',').map((l) => l.trim()).filter(Boolean),
-            departmentId: form.departmentId,
-        };
-        if (editing) {
-            dispatch({ type: ACTION_TYPES.UPDATE_COURSE, payload: { id: editing.id, ...payload } });
-        } else {
-            dispatch({ type: ACTION_TYPES.ADD_COURSE, payload });
+
+        try {
+            if (editing) {
+                const payload = {
+                    code: form.code.trim(),
+                    title: form.title.trim(),
+                    credit_load: parseInt(form.creditLoad) || 3,
+                    lecturers: form.lecturers.split(',').map((l) => l.trim()).filter(Boolean),
+                    department_id: form.departmentId,
+                };
+                await apiClient.put(`/timetable/courses/${editing.id}`, payload);
+                dispatch({
+                    type: ACTION_TYPES.UPDATE_COURSE,
+                    payload: { id: editing.id, code: payload.code, title: payload.title, creditLoad: payload.credit_load, lecturers: payload.lecturers, departmentId: payload.department_id }
+                });
+            } else {
+                const payload = {
+                    code: form.code.trim(),
+                    title: form.title.trim(),
+                    credit_load: parseInt(form.creditLoad) || 3,
+                    lecturers: form.lecturers.split(',').map((l) => l.trim()).filter(Boolean),
+                    department_id: form.departmentId,
+                };
+                const res = await apiClient.post('/timetable/courses', payload);
+                dispatch({ type: ACTION_TYPES.ADD_COURSE, payload: { id: res.id, code: res.code, title: res.title, creditLoad: res.credit_load, lecturers: res.lecturers, departmentId: res.department_id } });
+            }
+        } catch (e) {
+            console.error('Failed to create course', e);
         }
         setShowModal(false);
     };
 
-    const handleDelete = (id) => {
-        dispatch({ type: ACTION_TYPES.DELETE_COURSE, payload: id });
-        setDeleteConfirm(null);
+    const handleDelete = async (id) => {
+        try {
+            await apiClient.delete(`/timetable/courses/${id}`);
+            dispatch({ type: ACTION_TYPES.DELETE_COURSE, payload: id });
+            setDeleteConfirm(null);
+            addToast({ type: 'success', title: 'Course Deleted', message: 'The course was successfully deleted.' });
+        } catch (e) {
+            console.error('Failed to delete course', e);
+            addToast({ type: 'error', title: 'Deletion Failed', message: e.message || 'An error occurred while deleting the course.' });
+        }
     };
 
     // Form dept options grouped by faculty
@@ -85,29 +143,32 @@ export default function CoursesPage() {
         ? departments.filter((d) => d.facultyId === filterFaculty)
         : departments;
 
+    if (loading) return <TablePageSkeleton columns={5} rows={6} />;
+
     return (
         <div className={styles.page}>
             {/* Header */}
             <div className={styles.pageHeader}>
-                <div>
-                    <h2 className={styles.pageTitle}>Course Registry</h2>
-                    <p className={styles.pageSub}>Register and manage courses across departments.</p>
-                </div>
-                <button className="btn btn-primary" onClick={openAdd}>
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
-                    Add Course
-                </button>
+                <div />
+                {role !== 'FACULTY_VIEWER' && (
+                    <button className="btn btn-primary" onClick={openAdd}>
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
+                        Add Course
+                    </button>
+                )}
             </div>
 
             {/* Filters */}
             <div className={styles.filters}>
-                <div className={styles.filterGroup}>
-                    <label className="form-label">Faculty</label>
-                    <select className="form-select form-input" value={filterFaculty} onChange={(e) => { setFilterFaculty(e.target.value); setFilterDept(''); }}>
-                        <option value="">All Faculties</option>
-                        {faculties.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
-                    </select>
-                </div>
+                {role === 'SUPER_ADMIN' && (
+                    <div className={styles.filterGroup}>
+                        <label className="form-label">Faculty</label>
+                        <select className="form-select form-input" value={filterFaculty} onChange={(e) => { setFilterFaculty(e.target.value); setFilterDept(''); }}>
+                            <option value="">All Faculties</option>
+                            {faculties.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
+                        </select>
+                    </div>
+                )}
                 <div className={styles.filterGroup}>
                     <label className="form-label">Department</label>
                     <select className="form-select form-input" value={filterDept} onChange={(e) => setFilterDept(e.target.value)}>
@@ -135,7 +196,6 @@ export default function CoursesPage() {
                             <th>Title</th>
                             <th>Credits</th>
                             <th>Lecturers</th>
-                            <th>Locations</th>
                             <th>Department</th>
                             <th>Faculty</th>
                             <th style={{ width: 100 }}>Actions</th>
@@ -154,27 +214,21 @@ export default function CoursesPage() {
                                         ))}
                                     </div>
                                 </td>
-                                <td>
-                                    <div className={styles.lecturers}>
-                                        {(c.locations || []).map((l, i) => (
-                                            <span key={i} className={styles.lecturerTag}>{l}</span>
-                                        ))}
-                                        {(!c.locations || c.locations.length === 0) && (
-                                            <span style={{ color: 'var(--color-text-muted)', fontSize: '0.82rem' }}>—</span>
-                                        )}
-                                    </div>
-                                </td>
                                 <td>{c.departmentName}</td>
                                 <td style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)' }}>{c.facultyName}</td>
                                 <td>
-                                    <div className={styles.actions}>
-                                        <button className={styles.actionBtn} onClick={() => openEdit(c)} title="Edit">
-                                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" /><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" /></svg>
-                                        </button>
-                                        <button className={`${styles.actionBtn} ${styles.deleteBtn}`} onClick={() => setDeleteConfirm(c)} title="Delete">
-                                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /></svg>
-                                        </button>
-                                    </div>
+                                    {role !== 'FACULTY_VIEWER' ? (
+                                        <div className={styles.actions}>
+                                            <button className={styles.actionBtn} onClick={() => openEdit(c)} title="Edit">
+                                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" /><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" /></svg>
+                                            </button>
+                                            <button className={`${styles.actionBtn} ${styles.deleteBtn}`} onClick={() => setDeleteConfirm(c)} title="Delete">
+                                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /></svg>
+                                            </button>
+                                        </div>
+                                    ) : (
+                                        <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Read Only</span>
+                                    )}
                                 </td>
                             </tr>
                         ))}
@@ -220,10 +274,6 @@ export default function CoursesPage() {
                             <div className="form-group">
                                 <label className="form-label">Lecturers (comma-separated)</label>
                                 <input className="form-input" value={form.lecturers} onChange={(e) => setForm({ ...form, lecturers: e.target.value })} placeholder="e.g. Dr. Adebayo Ojo, Prof. Nwankwo" />
-                            </div>
-                            <div className="form-group">
-                                <label className="form-label">Locations (comma-separated)</label>
-                                <input className="form-input" value={form.locations} onChange={(e) => setForm({ ...form, locations: e.target.value })} placeholder="e.g. Main Campus, Faculty of Science Building" />
                             </div>
                         </div>
                         <div className="modal-footer">
