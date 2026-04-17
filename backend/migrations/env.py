@@ -1,5 +1,6 @@
 import asyncio
 import os
+import uuid
 from logging.config import fileConfig
 
 from sqlalchemy import pool
