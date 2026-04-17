@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, Response, HTTPException
 from modules.auth.service import AuthService
 from modules.auth.schemas import LoginRequest, InviteRequest, RegisterRequest, UserResponse, InvitationResponse
+from core.config import settings
 from api.dependencies.auth import RequireRole, get_current_user
 from modules.auth.models import RoleEnum
 from modules.timetable.repository import TimetableRepository
@@ -15,8 +16,8 @@ async def login(response: Response, data: LoginRequest, service: AuthService = D
         key="access_token",
         value=token,
         httponly=True,
-        secure=True,
-        samesite="lax",
+        secure=settings.COOKIE_SECURE,
+        samesite=settings.COOKIE_SAMESITE,
         max_age=1440 * 60
     )
     return {"message": "Login successful"}
