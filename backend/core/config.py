@@ -7,6 +7,8 @@ class Settings(BaseSettings):
     DEFAULT_SUPER_ADMIN_EMAIL: str = "admin@unilag.edu.ng"
     DEFAULT_SUPER_ADMIN_PASSWORD: str = "unilag123!"
 
+    CORS_ALLOWED_ORIGINS: list[str] = []
+
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding='utf-8', extra='ignore')
 
 settings = Settings()
