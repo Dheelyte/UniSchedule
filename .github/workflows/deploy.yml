@@ -13,7 +13,7 @@ jobs:
 
   deploy:
     runs-on: ubuntu-latest
-    environment: unilag-timetable
+    environment: production
 
     steps:
       - name: Checkout repo
@@ -29,16 +29,6 @@ jobs:
       - name: Install dependencies
         run: |
           uv sync --frozen --no-dev
-
-      - name: Check DB URL is set
-        run: |
-          if [ -z "$DATABASE_URL" ]; then
-            echo "DATABASE_URL is empty!"
-            exit 1
-          fi
-          echo "DATABASE_URL starts with: ${DATABASE_URL:0:15}..."
-        env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
 
       - name: Run Alembic migrations
         env:
