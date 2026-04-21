@@ -1,36 +1,98 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# UniSchedule - University of Lagos Timetable Manager
+
+UniSchedule is a comprehensive timetable management application for the University of Lagos. It features a Next.js 15 React frontend and a FastAPI (Python) backend to handle complex scheduling logic, access control, and PDF exports.
+
+## Project Structure
+
+- `/` (Root): Next.js frontend web application
+- `/backend`: Python FastAPI server and database management
+
+## Prerequisites
+
+Before setting up the project, assure you have the following installed:
+- Node.js (>= 18.x) and npm
+- Python (>= 3.12)
+- PostgeSQL or Docker (for running the database container)
+- `uv` (Fast Python package installer) or `pip`
 
 ## Getting Started
 
-First, run the development server:
+### 1. Backend Setup
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+The backend logic and database are managed within the `backend/` directory.
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+1. Navigate to the backend directory:
+   ```bash
+   cd backend
+   ```
 
-You can start editing the page by modifying `app/page.js`. The page auto-updates as you edit the file.
+2. Start the PostgreSQL database:
+   ```bash
+   docker compose up -d
+   ```
+   *(Alternatively, configure a local PostgreSQL instance with credentials matching `core/config.py`)*
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+3. Create the virtual environment and install dependencies using `uv` (recommended):
+   ```bash
+   uv venv
+   source .venv/bin/activate
+   uv sync
+   # or with standard pip: pip install -r requirements.txt (if available)
+   ```
 
-## Learn More
+4. Provide environment variables:
+   Create a `.env` file inside `/backend` with the following variables:
+   ```env
+   DATABASE_URL=postgresql+asyncpg://postgres:password@localhost:5432/unilag_timetable
+   SECRET_KEY=your_secret_key
+   DEFAULT_SUPER_ADMIN_EMAIL=admin@email.com
+   DEFAULT_SUPER_ADMIN_PASSWORD=adminpassword
+   FRONTEND_URL=http://localhost:3000
+   ```
 
-To learn more about Next.js, take a look at the following resources:
+5. Run database migrations:
+   ```bash
+   uv run alembic upgrade head
+   ```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+6. Start the FastAPI server:
+   ```bash
+   uv run uvicorn main:app --reload
+   ```
+   The backend API will be available at `http://localhost:8000`.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+### 2. Frontend Setup
 
-## Deploy on Vercel
+The frontend is a Next.js application located at the project root.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+1. In a new terminal, navigate to the project root:
+   ```bash
+   cd unilag-timetable
+   ```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+2. Install npm dependencies:
+   ```bash
+   npm install
+   ```
+
+3. Run the development server:
+   ```bash
+   npm run dev
+   ```
+
+4. Open [http://localhost:3000](http://localhost:3000) with your browser to launch the application.
+
+## Contributing
+
+We welcome contributions! Please follow the steps below:
+1. Clone the repository and create a feature branch (`git checkout -b feature/your-feature-name`).
+2. Make your modifications, ensuring you test the changes locally.
+3. Commit your changes with descriptive messages.
+4. Push your branch and submit a Pull Request.
+
+Make sure to align your styles with our Indigo and Slate frontend design system, and keep all business logic tests updated in the backend.
+
+## Deployment
+
+- The frontend is optimized for deployment on [Vercel](https://vercel.com).
+- The backend can be packaged using the included `Dockerfile` and deployed on AWS Lambda.
