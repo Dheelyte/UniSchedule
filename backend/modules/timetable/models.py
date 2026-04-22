@@ -26,6 +26,7 @@ class Room(Base):
     name: Mapped[str] = mapped_column(String, unique=True, index=True)
     capacity: Mapped[int] = mapped_column(Integer)
     faculty_id: Mapped[str | None] = mapped_column(ForeignKey("faculties.id"), nullable=True)
+    display_order: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
 
 class Course(Base):
     __tablename__ = "courses"

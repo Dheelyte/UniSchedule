@@ -104,6 +104,11 @@ export function exportTimetablePDF({ schedules, blockedSlots = [], rooms = [], t
             });
         });
 
+        // Ensure PDF export chunking respects the globally sorted 'rooms' array order
+        usedRoomIds.sort((a, b) => {
+            return rooms.findIndex(r => r.id === a) - rooms.findIndex(r => r.id === b);
+        });
+
         let i = 0;
         let isFirstDayChunk = true;
 

@@ -17,7 +17,7 @@ export default function RoomsPage() {
 
     // Search & sort
     const [search, setSearch] = useState('');
-    const [sortBy, setSortBy] = useState('name'); // 'name' | 'capacity'
+    const [sortBy, setSortBy] = useState('custom'); // 'custom' | 'name' | 'capacity'
 
     // Modal state
     const [showModal, setShowModal] = useState(false);
@@ -48,15 +48,52 @@ export default function RoomsPage() {
         return () => { mounted = false; };
     }, [dispatch]);
 
-    const filteredRooms = rooms
+    const filteredRooms = [...rooms]
         .filter((r) => {
             if (!search) return true;
             return r.name.toLowerCase().includes(search.toLowerCase());
         })
         .sort((a, b) => {
             if (sortBy === 'capacity') return b.capacity - a.capacity;
-            return a.name.localeCompare(b.name);
+            if (sortBy === 'name') return a.name.localeCompare(b.name);
+            return (a.display_order || 0) - (b.display_order || 0);
         });
+
+    const isDraggable = sortBy === 'custom' && !search && role !== 'FACULTY_VIEWER';
+
+    const saveNewOrder = async (sortedList) => {
+        try {
+            const reorderPayload = {
+                rooms: sortedList.map((r, idx) => ({ id: r.id, display_order: idx }))
+            };
+            const updatedRoomsRes = await apiClient.post('/timetable/rooms/reorder', reorderPayload);
+            dispatch({ type: ACTION_TYPES.INIT_STATE, payload: { rooms: updatedRoomsRes } });
+        } catch (err) {
+            console.error("Reorder failed", err);
+            addToast({ type: 'error', title: 'Reorder Failed', message: 'Could not save the new room order.' });
+        }
+    };
+
+    const handleMoveUp = (index) => {
+        if (index === 0) return;
+        const updated = [...filteredRooms];
+        const temp = updated[index - 1];
+        updated[index - 1] = updated[index];
+        updated[index] = temp;
+        dispatch({ type: ACTION_TYPES.INIT_STATE, payload: { rooms: updated } });
+        saveNewOrder(updated);
+    };
+
+    const handleMoveDown = (index) => {
+        if (index === filteredRooms.length - 1) return;
+        const updated = [...filteredRooms];
+        const temp = updated[index + 1];
+        updated[index + 1] = updated[index];
+        updated[index] = temp;
+        dispatch({ type: ACTION_TYPES.INIT_STATE, payload: { rooms: updated } });
+        saveNewOrder(updated);
+    };
+
 
     // Count scheduled items per room
     const scheduleCount = (roomId) => state.scheduleItems.filter((s) => s.roomId === roomId).length;
@@ -84,8 +121,12 @@ export default function RoomsPage() {
                 const res = await apiClient.post('/timetable/rooms', payload);
                 dispatch({ type: ACTION_TYPES.ADD_ROOM, payload: { id: res.id, name: res.name, capacity: res.capacity, facultyId: res.faculty_id } });
             }
-        } catch (e) { console.error(e); }
-        setShowModal(false);
+            setShowModal(false);
+            addToast({ type: 'success', title: editing ? 'Room Updated' : 'Room Added', message: 'Room has been saved successfully.' });
+        } catch (e) {
+            console.error(e);
+            addToast({ type: 'error', title: 'Save Failed', message: e.message || 'An error occurred while saving the room.' });
+        }
     };
 
     const handleDelete = async (id) => {
@@ -153,6 +194,7 @@ export default function RoomsPage() {
                     <input className={styles.searchInput} value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search rooms..." />
                 </div>
                 <select className="form-select form-input" style={{ width: 180 }} value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
+                    <option value="custom">Custom Order</option>
                     <option value="name">Sort by Name</option>
                     <option value="capacity">Sort by Capacity</option>
                 </select>
@@ -173,16 +215,18 @@ export default function RoomsPage() {
                             <th>Capacity</th>
                             <th>Size</th>
                             <th>Bookings</th>
+                            {isDraggable && <th style={{ width: 60, textAlign: 'center' }}>Order</th>}
                             <th style={{ width: 100 }}>Actions</th>
                         </tr>
                     </thead>
                     <tbody>
-                        {filteredRooms.map((room) => {
+                        {filteredRooms.map((room, index) => {
                             const tier = getCapacityTier(room.capacity);
                             const bookings = scheduleCount(room.id);
                             const fac = faculties.find(f => f.id === room.facultyId);
                             return (
                                 <tr key={room.id}>
+
                                     <td style={{ fontWeight: 500, color: 'var(--color-text)' }}>{room.name}</td>
                                     <td style={{ fontSize: '0.82rem', color: 'var(--color-text-muted)' }}>{fac?.name || '—'}</td>
                                     <td>
@@ -201,6 +245,26 @@ export default function RoomsPage() {
                                             <span style={{ color: 'var(--color-text-muted)', fontSize: '0.82rem' }}>No bookings</span>
                                         )}
                                     </td>
+                                    {isDraggable && (
+                                        <td style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>
+                                            <button
+                                                onClick={() => handleMoveUp(index)}
+                                                disabled={index === 0}
+                                                style={{ background: 'transparent', border: '1px solid var(--color-border)', cursor: index === 0 ? 'not-allowed' : 'pointer', opacity: index === 0 ? 0.3 : 1, padding: '2px 6px', borderRadius: '4px', marginRight: '4px' }}
+                                                title="Move Up"
+                                            >
+                                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="18 15 12 9 6 15" /></svg>
+                                            </button>
+                                            <button
+                                                onClick={() => handleMoveDown(index)}
+                                                disabled={index === filteredRooms.length - 1}
+                                                style={{ background: 'transparent', border: '1px solid var(--color-border)', cursor: index === filteredRooms.length - 1 ? 'not-allowed' : 'pointer', opacity: index === filteredRooms.length - 1 ? 0.3 : 1, padding: '2px 6px', borderRadius: '4px' }}
+                                                title="Move Down"
+                                            >
+                                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9" /></svg>
+                                            </button>
+                                        </td>
+                                    )}
                                     <td>
                                         {role !== 'FACULTY_VIEWER' ? (
                                             <div className={styles.actions}>

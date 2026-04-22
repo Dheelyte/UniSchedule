@@ -30,6 +30,7 @@ class RoomCreate(BaseModel):
     name: str
     capacity: int
     faculty_id: str | None = None
+    display_order: int = 0
 
 class RoomResponse(RoomCreate):
     id: int
@@ -39,6 +40,14 @@ class RoomUpdate(BaseModel):
     name: str | None = None
     capacity: int | None = None
     faculty_id: str | None = None
+    display_order: int | None = None
+
+class RoomReorderItem(BaseModel):
+    id: int
+    display_order: int
+
+class RoomReorderRequest(BaseModel):
+    rooms: list[RoomReorderItem]
 
 
 class CourseCreate(BaseModel):
