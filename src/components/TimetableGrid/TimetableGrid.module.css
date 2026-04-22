@@ -194,6 +194,7 @@
     border: 1px solid var(--color-border);
     border-radius: var(--radius-lg);
     background: var(--color-bg-card);
+    transform: rotateX(180deg);
 }
 
 .grid {
@@ -201,6 +202,7 @@
     /* We expect columns to be dynamically set */
     min-width: 1200px;
     grid-template-columns: var(--grid-columns);
+    transform: rotateX(180deg);
 }
 
 /* Corner cell */
@@ -242,9 +244,10 @@
 }
 
 .timePrimary {
-    font-size: 0.85rem;
-    font-weight: 600;
-    color: var(--color-text);
+    font-size: 0.72rem;
+    font-weight: 500;
+    color: var(--color-text-secondary);
+    white-space: nowrap;
 }
 
 /* Room rows */

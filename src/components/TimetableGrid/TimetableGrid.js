@@ -710,7 +710,7 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, rea
                     {HOURS.slice(0, 10).map((hour) => (
                         <div key={hour} className={styles.timeHeader} style={{ gridColumn: 'span 2' }}>
                             <span className={styles.timePrimary}>
-                                {hour.toString().padStart(2, '0')}:00
+                                {hour.toString().padStart(2, '0')}:00 - {(hour + 1).toString().padStart(2, '0')}:00
                             </span>
                         </div>
                     ))}
