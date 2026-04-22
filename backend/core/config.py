@@ -9,9 +9,9 @@ class Settings(BaseSettings):
 
     #Authentication
     COOKIE_SECURE: bool = False
-    COOKIE_SAMESITE: str = "none"
+    COOKIE_SAMESITE: str = "lax"
 
-    CORS_ALLOWED_ORIGINS: list[str] = []
+    CORS_ALLOWED_ORIGINS: list[str] = ["http://127.0.0.1:3000"]
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding='utf-8', extra='ignore')
 

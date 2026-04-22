@@ -8,6 +8,12 @@ import { useAuth } from '@/context/AuthContext';
 import { TablePageSkeleton } from '@/components/Skeleton/Skeleton';
 import styles from './courses.module.css';
 
+const SCOPES = {
+    DEPARTMENTAL: 'DEPARTMENTAL',
+    INTERFACULTY: 'INTERFACULTY',
+    UNIVERSITY_WIDE: 'UNIVERSITY_WIDE',
+};
+
 export default function CoursesPage() {
     const { state, dispatch, getCoursesWithDetails } = useApp();
     const { faculties, departments } = state;
@@ -18,6 +24,7 @@ export default function CoursesPage() {
     // Filters
     const [filterFaculty, setFilterFaculty] = useState('');
     const [filterDept, setFilterDept] = useState('');
+    const [filterScope, setFilterScope] = useState('');
     const [search, setSearch] = useState('');
 
     // Modal state
@@ -26,7 +33,7 @@ export default function CoursesPage() {
     const [deleteConfirm, setDeleteConfirm] = useState(null);
 
     // Form state
-    const [form, setForm] = useState({ code: '', title: '', creditLoad: 3, lecturers: '', departmentId: '' });
+    const [form, setForm] = useState({ code: '', title: '', creditLoad: 3, lecturers: '', departmentId: '', scope: SCOPES.DEPARTMENTAL });
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
@@ -42,7 +49,12 @@ export default function CoursesPage() {
                     dispatch({
                         type: ACTION_TYPES.INIT_STATE,
                         payload: {
-                            courses: (courses || []).map(c => ({ ...c, creditLoad: c.credit_load, departmentId: c.department_id })),
+                            courses: (courses || []).map(c => ({
+                                ...c,
+                                creditLoad: c.credit_load,
+                                departmentId: c.department_id,
+                                scope: c.scope || SCOPES.DEPARTMENTAL,
+                            })),
                             faculties: faculties || [],
                             departments: (departments || []).map(d => ({ ...d, facultyId: d.faculty_id }))
                         }
@@ -62,11 +74,12 @@ export default function CoursesPage() {
         : departments;
 
     const filteredCourses = getCoursesWithDetails.filter((c) => {
-        if (filterFaculty) {
+        if (filterScope && c.scope !== filterScope) return false;
+        if (filterFaculty && c.scope === SCOPES.DEPARTMENTAL) {
             const dept = departments.find((d) => d.id === c.departmentId);
             if (!dept || dept.facultyId !== filterFaculty) return false;
         }
-        if (filterDept && c.departmentId !== filterDept) return false;
+        if (filterDept && c.scope === SCOPES.DEPARTMENTAL && c.departmentId !== parseInt(filterDept)) return false;
         if (search) {
             const q = search.toLowerCase();
             return c.code.toLowerCase().includes(q) || c.title.toLowerCase().includes(q) || c.lecturers.some((l) => l.toLowerCase().includes(q));
@@ -76,7 +89,11 @@ export default function CoursesPage() {
 
     const openAdd = () => {
         setEditing(null);
-        setForm({ code: '', title: '', creditLoad: 3, lecturers: '', departmentId: departments[0]?.id || '' });
+        setForm({
+            code: '', title: '', creditLoad: 3, lecturers: '',
+            departmentId: departments[0]?.id || '',
+            scope: SCOPES.DEPARTMENTAL,
+        });
         setShowModal(true);
     };
 
@@ -87,41 +104,43 @@ export default function CoursesPage() {
             title: course.title,
             creditLoad: course.creditLoad,
             lecturers: course.lecturers.join(', '),
-            departmentId: course.departmentId,
+            departmentId: course.departmentId || departments[0]?.id || '',
+            scope: course.scope || SCOPES.DEPARTMENTAL,
         });
         setShowModal(true);
     };
 
     const handleSave = async () => {
-        if (!form.code.trim() || !form.title.trim() || !form.departmentId) return;
+        if (!form.code.trim() || !form.title.trim()) return;
+        // Department required for non-university-wide courses
+        if (form.scope !== SCOPES.UNIVERSITY_WIDE && !form.departmentId) return;
 
         try {
+            const payload = {
+                code: form.code.trim(),
+                title: form.title.trim(),
+                credit_load: parseInt(form.creditLoad) || 3,
+                lecturers: form.lecturers.split(',').map((l) => l.trim()).filter(Boolean),
+                department_id: form.scope === SCOPES.UNIVERSITY_WIDE ? null : (typeof form.departmentId === 'string' ? parseInt(form.departmentId) : form.departmentId),
+                scope: form.scope,
+            };
+
             if (editing) {
-                const payload = {
-                    code: form.code.trim(),
-                    title: form.title.trim(),
-                    credit_load: parseInt(form.creditLoad) || 3,
-                    lecturers: form.lecturers.split(',').map((l) => l.trim()).filter(Boolean),
-                    department_id: form.departmentId,
-                };
                 await apiClient.put(`/timetable/courses/${editing.id}`, payload);
                 dispatch({
                     type: ACTION_TYPES.UPDATE_COURSE,
-                    payload: { id: editing.id, code: payload.code, title: payload.title, creditLoad: payload.credit_load, lecturers: payload.lecturers, departmentId: payload.department_id }
+                    payload: { id: editing.id, code: payload.code, title: payload.title, creditLoad: payload.credit_load, lecturers: payload.lecturers, departmentId: payload.department_id, scope: payload.scope }
                 });
             } else {
-                const payload = {
-                    code: form.code.trim(),
-                    title: form.title.trim(),
-                    credit_load: parseInt(form.creditLoad) || 3,
-                    lecturers: form.lecturers.split(',').map((l) => l.trim()).filter(Boolean),
-                    department_id: form.departmentId,
-                };
                 const res = await apiClient.post('/timetable/courses', payload);
-                dispatch({ type: ACTION_TYPES.ADD_COURSE, payload: { id: res.id, code: res.code, title: res.title, creditLoad: res.credit_load, lecturers: res.lecturers, departmentId: res.department_id } });
+                dispatch({
+                    type: ACTION_TYPES.ADD_COURSE,
+                    payload: { id: res.id, code: res.code, title: res.title, creditLoad: res.credit_load, lecturers: res.lecturers, departmentId: res.department_id, scope: res.scope }
+                });
             }
         } catch (e) {
-            console.error('Failed to create course', e);
+            console.error('Failed to save course', e);
+            addToast({ type: 'error', title: 'Error', message: e.message || 'Failed to save course.' });
         }
         setShowModal(false);
     };
@@ -138,10 +157,25 @@ export default function CoursesPage() {
         }
     };
 
-    // Form dept options grouped by faculty
-    const formDepts = filterFaculty
-        ? departments.filter((d) => d.facultyId === filterFaculty)
-        : departments;
+    // Scope badge renderer
+    const ScopeBadge = ({ scope }) => {
+        if (scope === SCOPES.UNIVERSITY_WIDE) return <span className={styles.generalBadge}>General</span>;
+        if (scope === SCOPES.INTERFACULTY) return <span className={styles.interfacultyBadge}>Interfaculty</span>;
+        return null;
+    };
+
+    // Placeholder text based on scope
+    const getPlaceholder = (field) => {
+        if (form.scope === SCOPES.UNIVERSITY_WIDE) return field === 'code' ? 'e.g. GST 111' : 'e.g. Use of English';
+        if (form.scope === SCOPES.INTERFACULTY) return field === 'code' ? 'e.g. MTH 201' : 'e.g. Mathematical Methods';
+        return field === 'code' ? 'e.g. CSC 301' : 'e.g. Operating Systems';
+    };
+
+    // Determine which scope options this user can see
+    const canSetScope = role === 'SUPER_ADMIN' || role === 'FACULTY_EDITOR';
+    const scopeOptions = role === 'SUPER_ADMIN'
+        ? [SCOPES.DEPARTMENTAL, SCOPES.INTERFACULTY, SCOPES.UNIVERSITY_WIDE]
+        : [SCOPES.DEPARTMENTAL, SCOPES.INTERFACULTY];
 
     if (loading) return <TablePageSkeleton columns={5} rows={6} />;
 
@@ -178,13 +212,27 @@ export default function CoursesPage() {
                 </div>
                 <div className={styles.filterGroup}>
                     <label className="form-label">Search</label>
-                    <input className="form-input" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search by code, title, or lecturer..." />
+                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                        <input className="form-input" style={{ flex: 1 }} value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search by code, title, or lecturer..." />
+                        <select
+                            className="form-select form-input"
+                            style={{ width: 'auto', minWidth: 130 }}
+                            value={filterScope}
+                            onChange={(e) => setFilterScope(e.target.value)}
+                        >
+                            <option value="">All Types</option>
+                            <option value={SCOPES.DEPARTMENTAL}>Departmental</option>
+                            <option value={SCOPES.INTERFACULTY}>Interfaculty</option>
+                            <option value={SCOPES.UNIVERSITY_WIDE}>University-Wide</option>
+                        </select>
+                    </div>
                 </div>
             </div>
 
             {/* Results Count */}
             <div className={styles.resultCount}>
                 Showing <strong>{filteredCourses.length}</strong> of {getCoursesWithDetails.length} courses
+                {filterScope && <span style={{ marginLeft: 6, color: filterScope === SCOPES.UNIVERSITY_WIDE ? '#eab308' : filterScope === SCOPES.INTERFACULTY ? '#6366f1' : 'var(--color-text-muted)' }}>• {filterScope === SCOPES.UNIVERSITY_WIDE ? 'University-Wide' : filterScope === SCOPES.INTERFACULTY ? 'Interfaculty' : 'Departmental'} courses</span>}
             </div>
 
             {/* Table */}
@@ -204,7 +252,10 @@ export default function CoursesPage() {
                     <tbody>
                         {filteredCourses.map((c) => (
                             <tr key={c.id}>
-                                <td><span className={styles.courseCode}>{c.code}</span></td>
+                                <td>
+                                    <span className={styles.courseCode}>{c.code}</span>
+                                    <ScopeBadge scope={c.scope} />
+                                </td>
                                 <td style={{ fontWeight: 500, color: 'var(--color-text)' }}>{c.title}</td>
                                 <td><span className="badge badge-primary">{c.creditLoad}</span></td>
                                 <td>
@@ -248,29 +299,81 @@ export default function CoursesPage() {
                             <button className="modal-close" onClick={() => setShowModal(false)}>✕</button>
                         </div>
                         <div className="modal-body">
+                            {/* Course Type Selector */}
+                            {canSetScope && (
+                                <div className="form-group">
+                                    <label className="form-label">Course Type</label>
+                                    <div className={styles.segmentedControl} style={{ gridTemplateColumns: `repeat(${scopeOptions.length}, 1fr)` }}>
+                                        <button
+                                            type="button"
+                                            className={`${styles.segment} ${form.scope === SCOPES.DEPARTMENTAL ? styles.segmentActive : ''}`}
+                                            onClick={() => setForm({ ...form, scope: SCOPES.DEPARTMENTAL, departmentId: form.departmentId || departments[0]?.id || '' })}
+                                        >
+                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" /><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" /></svg>
+                                            Departmental
+                                        </button>
+                                        <button
+                                            type="button"
+                                            className={`${styles.segment} ${form.scope === SCOPES.INTERFACULTY ? styles.segmentActive : ''}`}
+                                            onClick={() => setForm({ ...form, scope: SCOPES.INTERFACULTY, departmentId: form.departmentId || departments[0]?.id || '' })}
+                                        >
+                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M23 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></svg>
+                                            Interfaculty
+                                        </button>
+                                        {role === 'SUPER_ADMIN' && (
+                                            <button
+                                                type="button"
+                                                className={`${styles.segment} ${form.scope === SCOPES.UNIVERSITY_WIDE ? styles.segmentActive : ''}`}
+                                                onClick={() => setForm({ ...form, scope: SCOPES.UNIVERSITY_WIDE })}
+                                            >
+                                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><line x1="2" y1="12" x2="22" y2="12" /><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" /></svg>
+                                                University-Wide
+                                            </button>
+                                        )}
+                                    </div>
+                                </div>
+                            )}
+
                             <div className="form-group">
                                 <label className="form-label">Course Code</label>
-                                <input className="form-input" value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} placeholder="e.g. CSC 301" autoFocus />
+                                <input className="form-input" value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} placeholder={getPlaceholder('code')} autoFocus />
                             </div>
                             <div className="form-group">
                                 <label className="form-label">Course Title</label>
-                                <input className="form-input" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="e.g. Operating Systems" />
+                                <input className="form-input" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder={getPlaceholder('title')} />
                             </div>
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                            <div style={{ display: 'grid', gridTemplateColumns: form.scope === SCOPES.UNIVERSITY_WIDE ? '1fr' : '1fr 1fr', gap: '16px' }}>
                                 <div className="form-group">
                                     <label className="form-label">Credit Load</label>
                                     <input className="form-input" type="number" min="1" max="12" value={form.creditLoad} onChange={(e) => setForm({ ...form, creditLoad: e.target.value })} />
                                 </div>
-                                <div className="form-group">
-                                    <label className="form-label">Department</label>
-                                    <select className="form-select form-input" value={form.departmentId} onChange={(e) => setForm({ ...form, departmentId: e.target.value })}>
-                                        {departments.map((d) => {
-                                            const fac = faculties.find((f) => f.id === d.facultyId);
-                                            return <option key={d.id} value={d.id}>{d.name} ({fac?.name})</option>;
-                                        })}
-                                    </select>
-                                </div>
+                                {form.scope !== SCOPES.UNIVERSITY_WIDE && (
+                                    <div className="form-group">
+                                        <label className="form-label">Department</label>
+                                        <select className="form-select form-input" value={form.departmentId} onChange={(e) => setForm({ ...form, departmentId: e.target.value })}>
+                                            {departments.map((d) => {
+                                                const fac = faculties.find((f) => f.id === d.facultyId);
+                                                return <option key={d.id} value={d.id}>{d.name} ({fac?.name})</option>;
+                                            })}
+                                        </select>
+                                    </div>
+                                )}
                             </div>
+
+                            {/* Info notes per scope */}
+                            {form.scope === SCOPES.INTERFACULTY && (
+                                <div className={styles.infoNote} style={{ background: 'rgba(99, 102, 241, 0.08)', borderColor: 'rgba(99, 102, 241, 0.18)', color: '#818cf8' }}>
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><line x1="12" y1="16" x2="12" y2="12" /><line x1="12" y1="8" x2="12.01" y2="8" /></svg>
+                                    This course belongs to the selected department but will be visible to all faculties.
+                                </div>
+                            )}
+                            {form.scope === SCOPES.UNIVERSITY_WIDE && (
+                                <div className={styles.infoNote}>
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><line x1="12" y1="16" x2="12" y2="12" /><line x1="12" y1="8" x2="12.01" y2="8" /></svg>
+                                    This is a central university course — no department required. Visible to all faculties.
+                                </div>
+                            )}
+
                             <div className="form-group">
                                 <label className="form-label">Lecturers (comma-separated)</label>
                                 <input className="form-input" value={form.lecturers} onChange={(e) => setForm({ ...form, lecturers: e.target.value })} placeholder="e.g. Dr. Adebayo Ojo, Prof. Nwankwo" />

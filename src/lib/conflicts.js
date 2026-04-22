@@ -59,23 +59,25 @@ export function detectConflicts(candidate, allSchedules, excludeId = null) {
         return true;
     });
 
-    // 1. Room Conflict — any shared room in overlapping time
-    const roomConflicts = relevantSchedules.filter(
-        (s) =>
-            sharesRoom(candidate, s) &&
-            timesOverlap(
-                { startTime: candidate.startTime, endTime: candidate.endTime },
-                { startTime: s.startTime, endTime: s.endTime }
-            )
-    );
+    // 1. Room Conflict — any shared room in overlapping time (Exams are allowed to share rooms)
+    if (candidate.type !== 'exam') {
+        const roomConflicts = relevantSchedules.filter(
+            (s) =>
+                sharesRoom(candidate, s) &&
+                timesOverlap(
+                    { startTime: candidate.startTime, endTime: candidate.endTime },
+                    { startTime: s.startTime, endTime: s.endTime }
+                )
+        );
 
-    roomConflicts.forEach((s) => {
-        conflicts.push({
-            type: 'room',
-            severity: 'error',
-            message: `Room conflict: "${getRoomLabel(s)}" is already booked for ${s.courseCode || 'a course'} on ${s.day} ${s.startTime}–${s.endTime}.`,
+        roomConflicts.forEach((s) => {
+            conflicts.push({
+                type: 'room',
+                severity: 'error',
+                message: `Room conflict: "${getRoomLabel(s)}" is already booked for ${s.courseCode || 'a course'} on ${s.day} ${s.startTime}–${s.endTime}.`,
+            });
         });
-    });
+    }
 
     // 2. Course Conflict (same course at overlapping times on same day)
     // In lecture mode, this is allowed (courses can repeat)
@@ -160,8 +162,8 @@ export function detectAllConflicts(allSchedules) {
 
             if (!overlaps) continue;
 
-            // Room conflict — any shared room
-            if (sharesRoom(a, b)) {
+            // Room conflict — any shared room (Exams can share rooms)
+            if (a.type !== 'exam' && sharesRoom(a, b)) {
                 itemConflicts.push({
                     type: 'room',
                     severity: 'error',
@@ -223,7 +225,7 @@ export function countConflicts(allSchedules) {
 
             if (!overlaps) continue;
 
-            if (sharesRoom(a, b)) {
+            if (a.type !== 'exam' && sharesRoom(a, b)) {
                 pairs.add(`room:${[a.id, b.id].sort().join('-')}`);
             }
             if (a.courseId === b.courseId) {

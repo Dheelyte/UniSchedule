@@ -11,7 +11,7 @@ import { unilagLogoBase64 } from '@/lib/logo';
  *
  * Course cards show: course code only.
  */
-export function exportTimetablePDF({ schedules, rooms = [], title, session, semester, faculty, schoolName = 'University of Lagos', mode }) {
+export function exportTimetablePDF({ schedules, blockedSlots = [], rooms = [], title, session, semester, faculty, schoolName = 'University of Lagos', mode }) {
     if (!schedules || schedules.length === 0) return;
 
     const ACTIVE_DAYS = mode === 'exam'
@@ -56,15 +56,15 @@ export function exportTimetablePDF({ schedules, rooms = [], title, session, seme
         if (!deptColor[deptKey]) deptColor[deptKey] = PALETTE[ci++ % PALETTE.length];
     });
 
-    // ---- Group schedules by logical day/week ----
+    // ---- Group schedules by logical day/week/date ----
     const groups = [];
     if (mode === 'exam') {
-        const weeks = [...new Set(schedules.map((s) => s.week || 1))].sort((a, b) => a - b);
-        weeks.forEach((week) => {
-            ACTIVE_DAYS.forEach((day) => {
-                const ds = schedules.filter((s) => s.day === day && (s.week || 1) === week);
-                if (ds.length) groups.push({ label: `Week ${week} — ${day}`, day, week, schedules: ds });
-            });
+        const dates = [...new Set(schedules.map((s) => s.examDate))].sort();
+        dates.forEach((dateStr) => {
+            const dateObj = new Date(dateStr);
+            const ds = schedules.filter((s) => s.examDate === dateStr);
+            const ptLabel = dateObj.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+            if (ds.length) groups.push({ label: ptLabel, day: dateStr, schedules: ds });
         });
     } else {
         ACTIVE_DAYS.forEach((day) => {
@@ -130,6 +130,7 @@ export function exportTimetablePDF({ schedules, rooms = [], title, session, seme
                 hasMainHeader: globalPageIsFirst,
                 schedules: group.schedules,
                 rooms: chunkRoomIds.map((rid) => roomLookup[rid] || { id: rid, name: rid }),
+                day: group.day
             });
 
             i += allowedRows;
@@ -247,6 +248,37 @@ export function exportTimetablePDF({ schedules, rooms = [], title, session, seme
             }
             pdf.text(roomLabel, tableX + 2, rowY + ROW_H / 2 + 1.5);
 
+            // ---- Draw Blocked Slots Backgrounds ----
+            const dayBlocks = blockedSlots.filter(b => {
+                if (mode === 'exam') {
+                    if (b.type === 'HOLIDAY') return b.date === page.day;
+                    if (b.type === 'EXTRACURRICULAR') {
+                        const w = new Date(page.day).toLocaleDateString('en-US', { weekday: 'long' });
+                        return b.day_of_week === w;
+                    }
+                }
+                return b.day_of_week === page.day;
+            }) || [];
+            dayBlocks.forEach(b => {
+                pdf.setFillColor(254, 242, 242); // Very light red
+                if (b.type === 'HOLIDAY') {
+                    pdf.rect(tableX + roomLabelW, rowY, tableW - roomLabelW, ROW_H, 'F');
+                } else if (b.type === 'EXTRACURRICULAR' && b.start_time && b.end_time) {
+                    const [sH, sM] = b.start_time.split(':').map(Number);
+                    const [eH, eM] = b.end_time.split(':').map(Number);
+                    const startFrac = (sH - START_H) + sM / 60;
+                    const endFrac = (eH - START_H) + eM / 60;
+
+                    if (startFrac < SLOTS && endFrac > 0) {
+                        const drawStart = Math.max(0, startFrac);
+                        const drawEnd = Math.min(SLOTS, endFrac);
+                        const bx = tableX + roomLabelW + drawStart * slotW;
+                        const bw = (drawEnd - drawStart) * slotW;
+                        pdf.rect(bx, rowY, bw, ROW_H, 'F');
+                    }
+                }
+            });
+
             pdf.setDrawColor(...gridLine);
             pdf.setLineWidth(0.12);
             pdf.line(tableX, rowY + ROW_H, tableX + tableW, rowY + ROW_H);
@@ -304,6 +336,44 @@ export function exportTimetablePDF({ schedules, rooms = [], title, session, seme
 
         // Outer box
         const gridH = pageRooms.length * ROW_H;
+
+        // ---- Draw Blocked Slots Overlays (Text) ----
+        const dayBlocks = blockedSlots.filter(b => {
+            if (mode === 'exam') {
+                if (b.type === 'HOLIDAY') return b.date === page.day;
+                if (b.type === 'EXTRACURRICULAR') {
+                    const w = new Date(page.day).toLocaleDateString('en-US', { weekday: 'long' });
+                    return b.day_of_week === w;
+                }
+            }
+            return b.day_of_week === page.day;
+        }) || [];
+        if (dayBlocks.length > 0) {
+            pdf.setFont('helvetica', 'bolditalic');
+            pdf.setFontSize(9);
+            pdf.setTextColor(220, 38, 38); // red-600
+
+            dayBlocks.forEach(b => {
+                if (b.type === 'HOLIDAY') {
+                    const tx = tableX + roomLabelW + (tableW - roomLabelW) / 2;
+                    const ty = curY + gridH / 2;
+                    pdf.text(`HOLIDAY: ${b.name.toUpperCase()}`, tx, ty, { align: 'center', angle: -35 });
+                } else if (b.type === 'EXTRACURRICULAR' && b.start_time && b.end_time) {
+                    const [sH, sM] = b.start_time.split(':').map(Number);
+                    const [eH, eM] = b.end_time.split(':').map(Number);
+                    const startFrac = (sH - START_H) + sM / 60;
+                    const endFrac = (eH - START_H) + eM / 60;
+                    if (startFrac < SLOTS && endFrac > 0) {
+                        const drawStart = Math.max(0, startFrac);
+                        const drawEnd = Math.min(SLOTS, endFrac);
+                        const bMidX = tableX + roomLabelW + (drawStart + (drawEnd - drawStart) / 2) * slotW;
+                        // Avoid drawing text entirely outside visible bounds
+                        pdf.text(`${b.name.toUpperCase()}`, bMidX, curY + gridH / 2, { align: 'center', angle: -90 });
+                    }
+                }
+            });
+        }
+
         pdf.setDrawColor(...gridLine);
         pdf.setLineWidth(0.25);
         pdf.rect(tableX, curY, tableW, gridH);
