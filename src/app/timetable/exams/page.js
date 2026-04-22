@@ -20,30 +20,50 @@ export default function ExamTimetablePage() {
     const [selectedSemesterId, setSelectedSemesterId] = useState(null);
     const [isExportModalOpen, setIsExportModalOpen] = useState(false);
 
+    // ✅ Activity Logger
+    const logActivity = async (action) => {
+        try {
+            await apiClient.post('/logs', {
+                action,
+                timestamp: new Date().toISOString()
+            });
+        } catch (err) {
+            console.error("Log failed", err);
+        }
+    };
+
+    // Load sessions/semesters
     useEffect(() => {
         async function loadTerms() {
             try {
                 const sessList = await apiClient.get('/calendar/sessions').catch(() => []);
                 setSessions(sessList);
+
                 let allSems = [];
                 for (const s of sessList) {
                     const sems = await apiClient.get(`/calendar/sessions/${s.id}/semesters`).catch(() => []);
                     allSems.push(...sems.map(sem => ({ ...sem, sessionName: s.name })));
                 }
+
                 setSemesters(allSems);
+
                 const current = await apiClient.get('/calendar/semesters/current').catch(() => null);
                 if (current) {
                     setSelectedSemesterId(current.id);
                 } else if (allSems.length > 0) {
                     setSelectedSemesterId(allSems[0].id);
                 }
-            } catch (e) { console.error(e); }
+            } catch (e) {
+                console.error(e);
+            }
         }
+
         loadTerms();
     }, []);
 
     const loadSchedules = useCallback(async (semId) => {
         if (semId === null) return;
+
         try {
             const [faculties, departments, rooms, courses, scheduleItems] = await Promise.all([
                 apiClient.get('/timetable/faculties').catch(() => []),
@@ -52,13 +72,18 @@ export default function ExamTimetablePage() {
                 apiClient.get('/timetable/courses').catch(() => []),
                 apiClient.get(`/timetable/schedule-items?semester_id=${semId}`).catch(() => [])
             ]);
+
             dispatch({
                 type: ACTION_TYPES.INIT_STATE,
                 payload: {
                     faculties: faculties || [],
                     departments: (departments || []).map(d => ({ ...d, facultyId: d.faculty_id })),
                     rooms: rooms || [],
-                    courses: (courses || []).map(c => ({ ...c, creditLoad: c.credit_load, departmentId: c.department_id })),
+                    courses: (courses || []).map(c => ({
+                        ...c,
+                        creditLoad: c.credit_load,
+                        departmentId: c.department_id
+                    })),
                     scheduleItems: (scheduleItems || []).map(s => ({
                         ...s,
                         courseId: s.course_id,
@@ -70,37 +95,62 @@ export default function ExamTimetablePage() {
                     }))
                 }
             });
-        } catch (e) { console.error(e); }
+        } catch (e) {
+            console.error(e);
+        }
     }, [dispatch]);
 
     useEffect(() => {
-        if (selectedSemesterId !== null) loadSchedules(selectedSemesterId);
+        if (selectedSemesterId !== null) {
+            loadSchedules(selectedSemesterId);
+        }
     }, [selectedSemesterId, loadSchedules]);
 
+    // PDF export
     const handleExportInit = () => {
         const schedules = getSchedulesWithDetails.filter((s) => s.type === 'exam');
+
         const conflictsMap = detectAllConflicts(schedules);
         const hasErrors = Array.from(conflictsMap.values()).some((conflicts) =>
             conflicts.some((c) => c.severity === 'error')
         );
+
         if (hasErrors) {
-            addToast({ type: 'error', title: 'Export Failed', message: 'Please resolve all schedule conflicts before exporting.' });
+            addToast({
+                type: 'error',
+                title: 'Export Failed',
+                message: 'Please resolve all schedule conflicts before exporting.'
+            });
             return;
         }
+
         setIsExportModalOpen(true);
     };
 
     const handleExportConfirm = ({ session, semester, facultyId }) => {
         setIsExportModalOpen(false);
+
         const allExams = getSchedulesWithDetails.filter((s) => s.type === 'exam');
-        const filteredSchedules = facultyId === 'ALL' ? allExams : allExams.filter(s => s.facultyId === facultyId);
+
+        const filteredSchedules =
+            facultyId === 'ALL'
+                ? allExams
+                : allExams.filter(s => s.facultyId === facultyId);
+
         if (filteredSchedules.length === 0) {
-            addToast({ type: 'error', title: 'Export Failed', message: 'No schedules found for the selected faculty.' });
+            addToast({
+                type: 'error',
+                title: 'Export Failed',
+                message: 'No schedules found for the selected faculty.'
+            });
             return;
         }
-        const facultyInfo = facultyId === 'ALL'
-            ? 'All Faculties'
-            : state.faculties.find(f => f.id === facultyId)?.name || 'Unknown Faculty';
+
+        const facultyInfo =
+            facultyId === 'ALL'
+                ? 'All Faculties'
+                : state.faculties.find(f => f.id === facultyId)?.name || 'Unknown Faculty';
+
         exportTimetablePDF({
             schedules: filteredSchedules,
             rooms: state.rooms,
@@ -111,16 +161,64 @@ export default function ExamTimetablePage() {
             schoolName: 'University of Lagos',
             mode: 'exam',
         });
-        addToast({ type: 'success', title: 'PDF Exported', message: 'Exam timetable downloaded as PDF.' });
+
+        // ✅ LOG PDF EXPORT
+        logActivity("EXPORT_PDF");
+
+        addToast({
+            type: 'success',
+            title: 'PDF Exported',
+            message: 'Exam timetable downloaded as PDF.'
+        });
+    };
+
+    // Excel export
+    const handleExcelExport = async () => {
+        try {
+            const response = await fetch("http://127.0.0.1:8000/export/excel");
+            const blob = await response.blob();
+
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = "exam_timetable.xlsx";
+            a.click();
+
+            // ✅ LOG EXCEL EXPORT
+            await logActivity("EXPORT_EXCEL");
+
+            addToast({
+                type: 'success',
+                title: 'Excel Exported',
+                message: 'Exam timetable downloaded as Excel.'
+            });
+        } catch (error) {
+            addToast({
+                type: 'error',
+                title: 'Export Failed',
+                message: 'Could not export Excel file.'
+            });
+        }
     };
 
     if (selectedSemesterId === null) return <TimetableSkeleton />;
 
+    const currentSemester = semesters.find(s => s.id === selectedSemesterId);
+
     return (
         <div className={styles.page}>
+
             <div className={styles.pageHeader}>
-                <div />
+
+                {/* STATUS TAG */}
+                <div>
+                    <span className={currentSemester?.is_current ? styles.draft : styles.final}>
+                        {currentSemester?.is_current ? "DRAFT" : "FINAL"}
+                    </span>
+                </div>
+
                 <div className={styles.headerActions}>
+
                     {semesters.length > 0 && (
                         <select
                             className="form-input"
@@ -135,21 +233,31 @@ export default function ExamTimetablePage() {
                             ))}
                         </select>
                     )}
+
+                    {/* EXCEL */}
+                    <button className="btn btn-primary" onClick={handleExcelExport}>
+                        Export Excel
+                    </button>
+
+                    {/* PDF */}
                     <button className="btn btn-secondary" onClick={handleExportInit}>
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                            <polyline points="7 10 12 15 17 10" />
-                            <line x1="12" y1="15" x2="12" y2="3" />
-                        </svg>
                         Export PDF
                     </button>
+
                     <div className={styles.modeBadge}>
                         <span className={styles.modeDot} />
                         Examination Mode
                     </div>
+
                 </div>
             </div>
-            <TimetableGrid mode="exam" semesterId={selectedSemesterId} readOnly={semesters.find(s => s.id === selectedSemesterId)?.is_current === false} />
+
+            <TimetableGrid
+                mode="exam"
+                semesterId={selectedSemesterId}
+                readOnly={currentSemester?.is_current === false}
+            />
+
             <ExportModal
                 isOpen={isExportModalOpen}
                 onClose={() => setIsExportModalOpen(false)}
@@ -157,6 +265,7 @@ export default function ExamTimetablePage() {
                 mode="exam"
                 sessions={sessions}
             />
+
         </div>
     );
 }

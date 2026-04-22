@@ -50,7 +50,7 @@ The backend logic and database are managed within the `backend/` directory.
    FRONTEND_URL=http://localhost:3000
    ```
 
-5. Run database migrations:
+5. Run database migrations: 
    ```bash
    uv run alembic upgrade head
    ```
