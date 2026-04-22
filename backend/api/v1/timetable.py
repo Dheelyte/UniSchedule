@@ -7,7 +7,7 @@ from modules.timetable.schemas import (
     RoomCreate, RoomResponse, RoomUpdate,
     CourseCreate, CourseResponse, CourseUpdate,
     ScheduleItemCreate, ScheduleItemResponse, ScheduleItemUpdate,
-    BlockedSlotCreate, BlockedSlotResponse
+    BlockedSlotCreate, BlockedSlotResponse, RoomReorderRequest
 )
 from api.dependencies.auth import RequireRole, get_current_user
 from modules.auth.models import RoleEnum
@@ -87,6 +87,14 @@ async def create_room(
     user: dict = Depends(RequireRole([RoleEnum.SUPER_ADMIN.value, RoleEnum.FACULTY_EDITOR.value]))
 ):
     return await service.create_room(data, user)
+
+@router.post("/rooms/reorder", response_model=list[RoomResponse])
+async def reorder_rooms(
+    data: RoomReorderRequest,
+    service: TimetableService = Depends(),
+    user: dict = Depends(RequireRole([RoleEnum.SUPER_ADMIN.value, RoleEnum.FACULTY_EDITOR.value]))
+):
+    return await service.reorder_rooms(data, user)
 
 @router.get("/rooms", response_model=list[RoomResponse])
 async def get_rooms(

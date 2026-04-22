@@ -5,7 +5,7 @@ from modules.calendar.repository import CalendarRepository
 from modules.timetable.models import Faculty, Room, Course, ScheduleItem, Department, CourseScope, BlockedSlot
 from modules.timetable.schemas import (
     FacultyCreate, RoomCreate, CourseCreate, ScheduleItemCreate, DepartmentCreate, ScheduleItemUpdate,
-    FacultyUpdate, DepartmentUpdate, RoomUpdate, CourseUpdate, BlockedSlotCreate
+    FacultyUpdate, DepartmentUpdate, RoomUpdate, CourseUpdate, BlockedSlotCreate, RoomReorderRequest
 )
 from modules.auth.models import RoleEnum
 from sqlalchemy.exc import IntegrityError
@@ -81,7 +81,10 @@ class TimetableService:
             if current_user.get("faculty_id") != data.faculty_id:
                 raise HTTPException(status_code=403, detail="Not authorized to bind this resource off-scope")
         room = Room(name=data.name, capacity=data.capacity, faculty_id=data.faculty_id)
-        return await self.repo.create_room(room)
+        try:
+            return await self.repo.create_room(room)
+        except IntegrityError:
+            raise HTTPException(status_code=400, detail=f"Room '{data.name}' already exists.")
 
     async def get_rooms(self, current_user: dict) -> list[Room]:
         faculty_id = None if current_user.get('role') == RoleEnum.SUPER_ADMIN.value else current_user.get('faculty_id')
@@ -99,7 +102,10 @@ class TimetableService:
             if current_user.get("role") == RoleEnum.FACULTY_EDITOR.value and current_user.get("faculty_id") != data.faculty_id:
                 raise HTTPException(status_code=403, detail="Not authorized")
             room.faculty_id = data.faculty_id
-        return await self.repo.update_room(room)
+        try:
+            return await self.repo.update_room(room)
+        except IntegrityError:
+            raise HTTPException(status_code=400, detail=f"Room name must be unique.")
 
     async def delete_room(self, id: int, current_user: dict) -> None:
         room = await self.repo.get_room(id)
@@ -111,6 +117,25 @@ class TimetableService:
             await self.repo.delete_room(room)
         except IntegrityError:
             raise HTTPException(status_code=400, detail="Cannot delete room because it is currently referenced by other records (such as schedule items). Please remove them first.")
+
+    async def reorder_rooms(self, data: RoomReorderRequest, current_user: dict) -> list[Room]:
+        if current_user.get("role") not in [RoleEnum.SUPER_ADMIN.value, RoleEnum.FACULTY_EDITOR.value]:
+            raise HTTPException(status_code=403, detail="Not authorized")
+        
+        # Build map for fast updates
+        order_map = {item.id: item.display_order for item in data.rooms}
+        updated_rooms = []
+        
+        for room_id, new_order in order_map.items():
+            room = await self.repo.get_room(room_id)
+            if room:
+                if current_user.get("role") == RoleEnum.FACULTY_EDITOR.value and current_user.get("faculty_id") != room.faculty_id:
+                    continue # Skip rooms outside their faculty natively
+                room.display_order = new_order
+                updated_rooms.append(room)
+                
+        await self.repo.db.flush()
+        return updated_rooms
 
     async def create_course(self, data: CourseCreate, current_user: dict) -> Course:
         # Only Super Admins can create university-wide courses

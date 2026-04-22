@@ -66,6 +66,7 @@ class TimetableRepository:
         query = select(Room)
         if faculty_id:
             query = query.where(Room.faculty_id == faculty_id)
+        query = query.order_by(Room.display_order.asc(), Room.name.asc())
         result = await self.db.execute(query)
         return list(result.scalars().all())
 
