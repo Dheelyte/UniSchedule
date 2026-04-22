@@ -1,8 +1,8 @@
 """Initial migrations
 
-Revision ID: c7035a72335f
+Revision ID: cfd106c07325
 Revises: 
-Create Date: 2026-04-15 14:43:10.837464
+Create Date: 2026-04-22 15:54:36.812043
 
 """
 from typing import Sequence, Union
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision: str = 'c7035a72335f'
+revision: str = 'cfd106c07325'
 down_revision: Union[str, Sequence[str], None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
@@ -57,13 +57,27 @@ def upgrade() -> None:
     sa.ForeignKeyConstraint(['session_id'], ['academic_sessions.id'], ),
     sa.PrimaryKeyConstraint('id')
     )
+    op.create_table('blocked_slots',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('name', sa.String(), nullable=False),
+    sa.Column('type', sa.String(), nullable=False),
+    sa.Column('date', sa.Date(), nullable=True),
+    sa.Column('day_of_week', sa.String(), nullable=True),
+    sa.Column('start_time', sa.Time(), nullable=True),
+    sa.Column('end_time', sa.Time(), nullable=True),
+    sa.Column('applies_to', sa.String(), server_default='BOTH', nullable=False),
+    sa.Column('semester_id', sa.Integer(), nullable=False),
+    sa.ForeignKeyConstraint(['semester_id'], ['semesters.id'], ),
+    sa.PrimaryKeyConstraint('id')
+    )
     op.create_table('courses',
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('code', sa.String(), nullable=False),
     sa.Column('title', sa.String(), nullable=False),
     sa.Column('credit_load', sa.Integer(), nullable=False),
     sa.Column('lecturers', sa.ARRAY(sa.String()), nullable=False),
-    sa.Column('department_id', sa.Integer(), nullable=False),
+    sa.Column('department_id', sa.Integer(), nullable=True),
+    sa.Column('scope', sa.Enum('DEPARTMENTAL', 'INTERFACULTY', 'UNIVERSITY_WIDE', name='coursescope'), nullable=False),
     sa.ForeignKeyConstraint(['department_id'], ['departments.id'], ),
     sa.PrimaryKeyConstraint('id')
     )
@@ -111,11 +125,12 @@ def upgrade() -> None:
     sa.Column('course_id', sa.Integer(), nullable=False),
     sa.Column('room_ids', sa.ARRAY(sa.Integer()), nullable=False),
     sa.Column('faculty_id', sa.String(), nullable=False),
-    sa.Column('day_of_week', sa.String(), nullable=False),
+    sa.Column('day_of_week', sa.String(), nullable=True),
     sa.Column('start_time', sa.Time(), nullable=False),
     sa.Column('end_time', sa.Time(), nullable=False),
     sa.Column('type', sa.String(), nullable=False),
     sa.Column('week', sa.Integer(), nullable=True),
+    sa.Column('exam_date', sa.Date(), nullable=True),
     sa.Column('semester_id', sa.Integer(), nullable=True),
     sa.ForeignKeyConstraint(['course_id'], ['courses.id'], ),
     sa.ForeignKeyConstraint(['faculty_id'], ['faculties.id'], ),
@@ -138,6 +153,7 @@ def downgrade() -> None:
     op.drop_table('invitations')
     op.drop_index(op.f('ix_courses_code'), table_name='courses')
     op.drop_table('courses')
+    op.drop_table('blocked_slots')
     op.drop_table('semesters')
     op.drop_index(op.f('ix_rooms_name'), table_name='rooms')
     op.drop_table('rooms')

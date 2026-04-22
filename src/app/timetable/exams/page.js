@@ -18,6 +18,7 @@ export default function ExamTimetablePage() {
     const [sessions, setSessions] = useState([]);
     const [semesters, setSemesters] = useState([]);
     const [selectedSemesterId, setSelectedSemesterId] = useState(null);
+    const [blockedSlots, setBlockedSlots] = useState([]);
     const [isExportModalOpen, setIsExportModalOpen] = useState(false);
 
     useEffect(() => {
@@ -45,12 +46,13 @@ export default function ExamTimetablePage() {
     const loadSchedules = useCallback(async (semId) => {
         if (semId === null) return;
         try {
-            const [faculties, departments, rooms, courses, scheduleItems] = await Promise.all([
+            const [faculties, departments, rooms, courses, scheduleItems, blockedSlotsData] = await Promise.all([
                 apiClient.get('/timetable/faculties').catch(() => []),
                 apiClient.get('/timetable/departments').catch(() => []),
                 apiClient.get('/timetable/rooms').catch(() => []),
                 apiClient.get('/timetable/courses').catch(() => []),
-                apiClient.get(`/timetable/schedule-items?semester_id=${semId}`).catch(() => [])
+                apiClient.get(`/timetable/schedule-items?semester_id=${semId}`).catch(() => []),
+                apiClient.get(`/timetable/blocked-slots?semester_id=${semId}`).catch(() => [])
             ]);
             dispatch({
                 type: ACTION_TYPES.INIT_STATE,
@@ -65,11 +67,13 @@ export default function ExamTimetablePage() {
                         roomIds: s.room_ids,
                         facultyId: s.faculty_id,
                         day: s.day_of_week,
+                        examDate: s.exam_date,
                         startTime: s.start_time,
                         endTime: s.end_time
                     }))
                 }
             });
+            setBlockedSlots(blockedSlotsData || []);
         } catch (e) { console.error(e); }
     }, [dispatch]);
 
@@ -90,7 +94,7 @@ export default function ExamTimetablePage() {
         setIsExportModalOpen(true);
     };
 
-    const handleExportConfirm = ({ session, semester, facultyId }) => {
+    const handleExportConfirm = async ({ session, semester, facultyId }) => {
         setIsExportModalOpen(false);
         const allExams = getSchedulesWithDetails.filter((s) => s.type === 'exam');
         const filteredSchedules = facultyId === 'ALL' ? allExams : allExams.filter(s => s.facultyId === facultyId);
@@ -98,11 +102,16 @@ export default function ExamTimetablePage() {
             addToast({ type: 'error', title: 'Export Failed', message: 'No schedules found for the selected faculty.' });
             return;
         }
+
+        const blockedSlots = await apiClient.get(`/timetable/blocked-slots?semester_id=${selectedSemesterId}`).catch(() => []);
+
         const facultyInfo = facultyId === 'ALL'
             ? 'All Faculties'
             : state.faculties.find(f => f.id === facultyId)?.name || 'Unknown Faculty';
+
         exportTimetablePDF({
             schedules: filteredSchedules,
+            blockedSlots,
             rooms: state.rooms,
             title: 'Examination Timetable',
             session,
@@ -149,7 +158,7 @@ export default function ExamTimetablePage() {
                     </div>
                 </div>
             </div>
-            <TimetableGrid mode="exam" semesterId={selectedSemesterId} readOnly={semesters.find(s => s.id === selectedSemesterId)?.is_current === false} />
+            <TimetableGrid mode="exam" semesterId={selectedSemesterId} blockedSlots={blockedSlots} readOnly={semesters.find(s => s.id === selectedSemesterId)?.is_current === false} />
             <ExportModal
                 isOpen={isExportModalOpen}
                 onClose={() => setIsExportModalOpen(false)}

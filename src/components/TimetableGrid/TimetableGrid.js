@@ -1,12 +1,24 @@
 'use client';
 
-import { useState, useMemo, useCallback, useEffect } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
 import { useApp, ACTION_TYPES } from '@/context/AppContext';
 import { DAYS, EXAM_DAYS, timeToMinutes } from '@/lib/utils';
+import { apiClient } from '@/lib/apiClient';
 import { detectConflicts, detectAllConflicts } from '@/lib/conflicts';
 import { useToast } from '@/components/Toast/Toast';
-import { apiClient } from '@/lib/apiClient';
 import styles from './TimetableGrid.module.css';
+
+/** Safely parse a YYYY-MM-DD string into a Date without timezone issues */
+function parseLocalDate(ds) {
+    if (!ds) return new Date();
+    const [y, m, d] = ds.split('-').map(Number);
+    return new Date(y, m - 1, d);
+}
+
+/** Format YYYY-MM-DD to readable label */
+function formatDateLabel(ds, opts) {
+    return parseLocalDate(ds).toLocaleDateString('en-GB', opts);
+}
 
 const HOURS = Array.from({ length: 11 }, (_, i) => i + 8); // 8, 9, 10...18
 
@@ -107,7 +119,7 @@ function computeVerticalOverlapLayout(events) {
     return assignments;
 }
 
-export default function TimetableGrid({ mode = 'lecture', semesterId = null, readOnly = false }) {
+export default function TimetableGrid({ mode = 'lecture', semesterId = null, readOnly = false, blockedSlots = [] }) {
     const { state, dispatch, getSchedulesWithDetails } = useApp();
     const { faculties, departments, courses, rooms } = state;
     const { addToast } = useToast();
@@ -134,6 +146,7 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, rea
         courseId: '',
         roomIds: [''],
         day: 'Monday',
+        examDate: '',
         startTime: '08:00',
         endTime: '10:00',
     });
@@ -145,14 +158,36 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, rea
     const [dragItem, setDragItem] = useState(null);
     const [dragOverCell, setDragOverCell] = useState(null);
 
-    // Week state (exam mode only)
-    const [currentWeek, setCurrentWeek] = useState(1);
-    const [totalWeeks, setTotalWeeks] = useState(() => {
-        const maxWeek = getSchedulesWithDetails
-            .filter((s) => s.type === 'exam' && s.week)
-            .reduce((max, s) => Math.max(max, s.week), 1);
-        return Math.max(maxWeek, 1);
-    });
+    // Date state (exam mode only)
+    const examDates = useMemo(() => {
+        if (mode !== 'exam') return [];
+        const dateSet = new Set();
+        getSchedulesWithDetails.filter(s => s.type === 'exam').forEach(s => {
+            if (s.examDate) {
+                dateSet.add(s.examDate);
+            } else if (s.day) {
+                // Legacy exams without exam_date: use day_of_week as a synthetic key
+                dateSet.add(`legacy:${s.day}`);
+            }
+        });
+        return Array.from(dateSet).sort();
+    }, [getSchedulesWithDetails, mode]);
+
+    const [addedDates, setAddedDates] = useState([]);
+
+    const allActiveDates = useMemo(() => {
+        const ds = new Set([...examDates, ...addedDates]);
+        const arr = Array.from(ds).sort();
+        return arr;
+    }, [examDates, addedDates]);
+
+    const [currentDate, setCurrentDate] = useState(() => new Date().toISOString().split('T')[0]);
+
+    useEffect(() => {
+        if (mode === 'exam' && allActiveDates.length > 0 && !allActiveDates.includes(currentDate)) {
+            setCurrentDate(allActiveDates[0]);
+        }
+    }, [mode, allActiveDates, currentDate]);
 
     const filteredDepts = filterFaculty
         ? departments.filter((d) => d.facultyId === filterFaculty)
@@ -172,15 +207,52 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, rea
         return allModeSchedules.filter((s) => {
             if (filterFaculty && s.facultyId !== filterFaculty) return false;
             if (filterDept && s.departmentId !== filterDept) return false;
-            if (mode === 'exam' && s.week && s.week !== currentWeek) return false;
             return true;
         });
-    }, [allModeSchedules, mode, filterFaculty, filterDept, currentWeek]);
+    }, [allModeSchedules, filterFaculty, filterDept]);
 
-    // Schedules for ONLY the current day
+    // Schedules for ONLY the current day/date
     const daySchedules = useMemo(() => {
+        if (mode === 'exam') {
+            if (currentDate.startsWith('legacy:')) {
+                const legacyDay = currentDate.replace('legacy:', '');
+                return filteredModeSchedules.filter(s => !s.examDate && s.day === legacyDay);
+            }
+            return filteredModeSchedules.filter(s => s.examDate === currentDate);
+        }
         return filteredModeSchedules.filter(s => s.day === currentDay);
-    }, [filteredModeSchedules, currentDay]);
+    }, [filteredModeSchedules, currentDay, currentDate, mode]);
+
+    // Blocked slots relevant for the current day/date
+    const activeBlockedSlots = useMemo(() => {
+        if (!blockedSlots || blockedSlots.length === 0) return [];
+        return blockedSlots.filter(slot => {
+            // Check applies_to scope
+            const scope = slot.applies_to || 'BOTH';
+            if (mode === 'lecture' && scope === 'EXAM_ONLY') return false;
+            if (mode === 'exam' && scope === 'LECTURE_ONLY') return false;
+
+            if (slot.type === 'HOLIDAY') {
+                // For exam mode with exact dates, match the date
+                if (mode === 'exam' && !currentDate.startsWith('legacy:')) {
+                    return slot.date === currentDate;
+                }
+                return false; // Holidays don't show on lecture weekly grid
+            }
+            if (slot.type === 'EXTRACURRICULAR') {
+                if (mode === 'exam') {
+                    if (currentDate.startsWith('legacy:')) {
+                        return slot.day_of_week === currentDate.replace('legacy:', '');
+                    }
+                    // For date-based exams, compare the weekday
+                    const examDay = parseLocalDate(currentDate).toLocaleDateString('en-US', { weekday: 'long' });
+                    return slot.day_of_week === examDay;
+                }
+                return slot.day_of_week === currentDay;
+            }
+            return false;
+        });
+    }, [blockedSlots, mode, currentDay, currentDate]);
 
     const courseColorMap = useMemo(() => {
         const map = {};
@@ -206,13 +278,23 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, rea
     }, [daySchedules, rooms]);
 
     const modalCourses = useMemo(() => {
-        if (filterDept) return courses.filter((c) => c.departmentId === filterDept);
-        if (filterFaculty) {
+        let filteredCourses = courses;
+        if (filterDept) {
+            filteredCourses = courses.filter((c) => c.departmentId === filterDept);
+        } else if (filterFaculty) {
             const deptIds = departments.filter((d) => d.facultyId === filterFaculty).map((d) => d.id);
-            return courses.filter((c) => deptIds.includes(c.departmentId));
+            filteredCourses = courses.filter((c) => deptIds.includes(c.departmentId));
         }
-        return courses;
-    }, [courses, departments, filterFaculty, filterDept]);
+
+        if (mode === 'exam') {
+            const scheduledCourseIds = new Set(allModeSchedules.map(s => s.courseId));
+            if (editing) {
+                scheduledCourseIds.delete(editing.courseId);
+            }
+            return filteredCourses.filter(c => !scheduledCourseIds.has(c.id));
+        }
+        return filteredCourses;
+    }, [courses, departments, filterFaculty, filterDept, mode, allModeSchedules, editing]);
 
     const handleCellClick = (roomId, hour) => {
         if (readOnly) return;
@@ -225,9 +307,9 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, rea
             courseId: modalCourses[0]?.id || '',
             roomIds: [roomId || rooms[0]?.id || ''],
             day: currentDay,
+            examDate: currentDate,
             startTime,
             endTime,
-            ...(mode === 'exam' ? { week: currentWeek } : {}),
         });
         setShowModal(true);
     };
@@ -241,9 +323,9 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, rea
             courseId: schedule.courseId,
             roomIds: schedule.roomIds || (schedule.roomId ? [schedule.roomId] : ['']),
             day: schedule.day,
+            examDate: schedule.examDate || currentDate,
             startTime: schedule.startTime,
             endTime: schedule.endTime,
-            ...(mode === 'exam' ? { week: schedule.week || currentWeek } : {}),
         });
         setShowModal(true);
     };
@@ -315,18 +397,19 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, rea
             });
         }
 
-        const payload = { ...formWithCleanRooms, type: mode, ...(mode === 'exam' ? { week: formWithCleanRooms.week || currentWeek } : {}) };
+        const payload = { ...formWithCleanRooms, type: mode };
 
         try {
             if (editing) {
                 const apiPayload = {
                     room_ids: validRoomIds,
-                    day_of_week: payload.day,
+                    day_of_week: mode === 'exam' ? null : payload.day,
+                    exam_date: mode === 'exam' ? payload.examDate : null,
                     start_time: payload.startTime,
                     end_time: payload.endTime
                 };
                 await apiClient.put(`/timetable/schedule-items/${editing.id}`, apiPayload);
-                dispatch({ type: ACTION_TYPES.UPDATE_SCHEDULE, payload: { id: editing.id, ...payload } });
+                dispatch({ type: ACTION_TYPES.UPDATE_SCHEDULE, payload: { id: editing.id, ...payload, examDate: payload.examDate } });
                 addToast({ type: 'success', title: 'Schedule Updated', message: `${courses.find(c => c.id === modalForm.courseId)?.code || 'Course'} updated successfully.` });
             } else {
                 const course = courses.find(c => c.id === modalForm.courseId);
@@ -335,11 +418,11 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, rea
                     course_id: payload.courseId,
                     faculty_id: dept?.facultyId || faculties[0]?.id || '',
                     room_ids: validRoomIds,
-                    day_of_week: payload.day,
+                    day_of_week: mode === 'exam' ? null : payload.day,
+                    exam_date: mode === 'exam' ? payload.examDate : null,
                     start_time: payload.startTime,
                     end_time: payload.endTime,
                     type: payload.type,
-                    week: payload.week || null
                 };
                 const res = await apiClient.post('/timetable/schedule-items', { ...apiPayload, semester_id: semesterId });
                 dispatch({
@@ -349,10 +432,10 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, rea
                         roomIds: (payload.roomIds || []).map(r => parseInt(r)),
                         facultyId: dept?.facultyId || faculties[0]?.id || '',
                         day: payload.day,
+                        examDate: payload.examDate,
                         startTime: payload.startTime,
                         endTime: payload.endTime,
                         type: payload.type,
-                        week: payload.week || null,
                         semester_id: semesterId,
                     }
                 });
@@ -360,7 +443,7 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, rea
             }
         } catch (e) {
             console.error('Failed to sync schedule', e);
-            addToast({ type: 'error', title: 'API Sync Error', message: 'Failed to synchronize with server.' });
+            addToast({ type: 'error', title: 'Scheduling Error', message: e.message || 'Failed to synchronize with server.', duration: 8000 });
         }
         setShowModal(false);
     };
@@ -423,7 +506,10 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, rea
         const newStartTime = `${Math.floor(newStartMin / 60).toString().padStart(2, '0')}:${(newStartMin % 60).toString().padStart(2, '0')}`;
         const newEndTime = `${Math.floor(newEndMin / 60).toString().padStart(2, '0')}:${(newEndMin % 60).toString().padStart(2, '0')}`;
 
-        if (currentDay === dragItem.day && newStartTime === dragItem.startTime && dragItem.roomIds?.includes(roomId) && dragItem.roomIds.length === 1) {
+        const samePos = mode === 'exam'
+            ? (currentDate === dragItem.examDate && newStartTime === dragItem.startTime && dragItem.roomIds?.includes(roomId) && dragItem.roomIds.length === 1)
+            : (currentDay === dragItem.day && newStartTime === dragItem.startTime && dragItem.roomIds?.includes(roomId) && dragItem.roomIds.length === 1);
+        if (samePos) {
             setDragItem(null);
             return;
         }
@@ -431,11 +517,11 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, rea
         const candidate = {
             courseId: dragItem.courseId,
             roomIds: [roomId],
-            day: currentDay,
+            day: mode === 'exam' ? null : currentDay,
+            examDate: mode === 'exam' ? currentDate : null,
             startTime: newStartTime,
             endTime: newEndTime,
             type: mode,
-            ...(mode === 'exam' && dragItem.week != null ? { week: dragItem.week } : {}),
         };
 
         const result = detectConflicts(candidate, allModeSchedules, dragItem.id);
@@ -457,7 +543,8 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, rea
         try {
             const apiPayload = {
                 room_ids: [roomId],
-                day_of_week: currentDay,
+                day_of_week: mode === 'exam' ? null : currentDay,
+                exam_date: mode === 'exam' ? currentDate : null,
                 start_time: newStartTime,
                 end_time: newEndTime
             };
@@ -465,16 +552,17 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, rea
 
             dispatch({
                 type: ACTION_TYPES.UPDATE_SCHEDULE,
-                payload: { id: dragItem.id, day: currentDay, startTime: newStartTime, endTime: newEndTime, roomIds: [roomId] },
+                payload: { id: dragItem.id, day: currentDay, examDate: currentDate, startTime: newStartTime, endTime: newEndTime, roomIds: [roomId] },
             });
+            const moveLabel = mode === 'exam' ? formatDateLabel(currentDate, { weekday: 'short', month: 'short', day: 'numeric' }) : currentDay;
             addToast({
                 type: 'success',
                 title: 'Course Moved',
-                message: `${dragItem.courseCode || 'Course'} moved to ${currentDay} ${newStartTime}–${newEndTime}.`,
+                message: `${dragItem.courseCode || 'Course'} moved to ${moveLabel} ${newStartTime}–${newEndTime}.`,
             });
         } catch (err) {
             console.error('Drop error', err);
-            addToast({ type: 'error', title: 'API Sync Error', message: 'Failed to synchronize movement with server.' });
+            addToast({ type: 'error', title: 'Scheduling Error', message: err.message || 'Failed to synchronize movement with server.', duration: 8000 });
         }
 
         setDragItem(null);
@@ -532,7 +620,7 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, rea
                 </div>
                 <div className={styles.filterRight}>
                     <span className={styles.scheduleCount}>
-                        {daySchedules.length} {mode === 'lecture' ? 'lecture' : 'exam'}{daySchedules.length !== 1 ? 's' : ''} on {currentDay}
+                        {daySchedules.length} {mode === 'lecture' ? 'lecture' : 'exam'}{daySchedules.length !== 1 ? 's' : ''} on {mode === 'exam' ? (currentDate.startsWith('legacy:') ? currentDate.replace('legacy:', '') : formatDateLabel(currentDate, { day: 'numeric', month: 'short', year: 'numeric' })) : currentDay}
                         {visibleConflictCount > 0 && (
                             <span className={styles.conflictBadge}>
                                 ⚠ {visibleConflictCount} conflict{visibleConflictCount !== 1 ? 's' : ''}
@@ -542,53 +630,70 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, rea
                 </div>
             </div>
 
-            {/* Week Navigation (Exam mode only) */}
-            {mode === 'exam' && (
-                <div className={styles.weekBar}>
-                    <button
-                        className={styles.weekBtn}
-                        onClick={() => setCurrentWeek((w) => Math.max(1, w - 1))}
-                        disabled={currentWeek <= 1}
-                    >
-                        ← Prev
-                    </button>
-                    <span className={styles.weekLabel}>Week {currentWeek} of {totalWeeks}</span>
-                    <button
-                        className={styles.weekBtn}
-                        onClick={() => setCurrentWeek((w) => Math.min(totalWeeks, w + 1))}
-                        disabled={currentWeek >= totalWeeks}
-                    >
-                        Next →
-                    </button>
-                    <button
-                        className={`${styles.weekBtn} ${styles.weekBtnAdd}`}
-                        onClick={() => { setTotalWeeks((w) => w + 1); setCurrentWeek(totalWeeks + 1); }}
-                    >
-                        + Add Week
-                    </button>
+            {/* Day selector bar */}
+            {mode === 'exam' ? (
+                <div className={styles.dayBar}>
+                    {allActiveDates.length === 0 && <span style={{ color: 'var(--color-text-muted)', marginRight: '16px', fontSize: '0.9rem' }}>No exam dates scheduled yet.</span>}
+                    {allActiveDates.map(date => {
+                        const count = filteredModeSchedules.filter(s => s.examDate === date).length;
+                        return (
+                            <button
+                                key={date}
+                                className={`${styles.dayBtn} ${currentDate === date ? styles.dayBtnActive : ''}`}
+                                onClick={() => setCurrentDate(date)}
+                            >
+                                {date.startsWith('legacy:') ? `⚠ ${date.replace('legacy:', '')} (no date)` : formatDateLabel(date, { weekday: 'short', month: 'short', day: 'numeric' })}
+                                {count > 0 && <span className={styles.dayChip}>{count}</span>}
+                            </button>
+                        );
+                    })}
+                    {!readOnly && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: 'auto' }}>
+                            <input
+                                type="date"
+                                className="form-input"
+                                style={{ padding: '4px 8px', width: 'auto', fontSize: '0.85rem' }}
+                                id="exam-date-adder"
+                            />
+                            <button
+                                className={`${styles.dayBtn}`}
+                                style={{ whiteSpace: 'nowrap', fontWeight: 600 }}
+                                onClick={() => {
+                                    const input = document.getElementById('exam-date-adder');
+                                    const val = input?.value;
+                                    if (val) {
+                                        if (!allActiveDates.includes(val)) {
+                                            setAddedDates(prev => [...prev, val]);
+                                        }
+                                        setCurrentDate(val);
+                                        input.value = '';
+                                    }
+                                }}
+                            >
+                                + Add Date
+                            </button>
+                        </div>
+                    )}
+                </div>
+            ) : (
+                <div className={styles.dayBar}>
+                    {activeDays.map(day => {
+                        const count = filteredModeSchedules.filter(s => s.day === day).length;
+                        return (
+                            <button
+                                key={day}
+                                className={`${styles.dayBtn} ${currentDay === day ? styles.dayBtnActive : ''}`}
+                                onClick={() => setCurrentDay(day)}
+                            >
+                                {day}
+                                {count > 0 && (
+                                    <span className={styles.dayChip}>{count}</span>
+                                )}
+                            </button>
+                        );
+                    })}
                 </div>
             )}
-
-            {/* Day selector bar */}
-            <div className={styles.dayBar}>
-                {activeDays.map(day => {
-                    const count = filteredModeSchedules.filter(s => s.day === day).length;
-                    return (
-                        <button
-                            key={day}
-                            className={`${styles.dayBtn} ${currentDay === day ? styles.dayBtnActive : ''}`}
-                            onClick={() => setCurrentDay(day)}
-                        >
-                            {day}
-                            {count > 0 && (
-                                <span className={styles.dayChip}>
-                                    {count}
-                                </span>
-                            )}
-                        </button>
-                    );
-                })}
-            </div>
 
             {/* Grid */}
             <div className={styles.gridWrapper} id="timetable-grid">
@@ -653,17 +758,66 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, rea
                                             onDragLeave={handleCellDragLeave}
                                             onDrop={(e) => handleDrop(room.id, hour, e)}
                                         >
-                                            {isCellEmpty && <span className={styles.cellHint}>+ Add</span>}
-                                            <button
-                                                className={styles.quickAddBtn}
-                                                onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    handleCellClick(room.id, hour);
-                                                }}
-                                                title="Add course here"
-                                            >
-                                                +
-                                            </button>
+                                            {isCellEmpty && !readOnly && <span className={styles.cellHint}>+ Add</span>}
+                                            {!readOnly && (
+                                                <button
+                                                    className={styles.quickAddBtn}
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        handleCellClick(room.id, hour);
+                                                    }}
+                                                    title="Add course here"
+                                                >
+                                                    +
+                                                </button>
+                                            )}
+
+                                            {/* Blocked slot overlays */}
+                                            {activeBlockedSlots.filter(slot => {
+                                                if (slot.type === 'HOLIDAY') return true; // Full day
+                                                if (!slot.start_time || !slot.end_time) return false;
+                                                const slotStart = timeToMinutes(slot.start_time.slice(0, 5));
+                                                const slotEnd = timeToMinutes(slot.end_time.slice(0, 5));
+                                                const cellStart = hour * 60;
+                                                const cellEnd = (hour + 1) * 60;
+                                                return slotStart < cellEnd && slotEnd > cellStart;
+                                            }).map((slot, si) => {
+                                                let leftPct = 0;
+                                                let widthPct = 100;
+                                                if (slot.type !== 'HOLIDAY' && slot.start_time && slot.end_time) {
+                                                    const slotStart = timeToMinutes(slot.start_time.slice(0, 5));
+                                                    const slotEnd = timeToMinutes(slot.end_time.slice(0, 5));
+                                                    const cellStart = hour * 60;
+                                                    const cellEnd = (hour + 1) * 60;
+                                                    leftPct = Math.max(0, ((slotStart - cellStart) / 60) * 100);
+                                                    widthPct = Math.min(100, ((Math.min(slotEnd, cellEnd) - Math.max(slotStart, cellStart)) / 60) * 100);
+                                                }
+                                                return (
+                                                    <div
+                                                        key={`blocked-${slot.id}-${si}`}
+                                                        style={{
+                                                            position: 'absolute',
+                                                            top: 0,
+                                                            left: `${leftPct}%`,
+                                                            width: `${widthPct}%`,
+                                                            height: '100%',
+                                                            background: 'repeating-linear-gradient(45deg, rgba(239,68,68,0.10), rgba(239,68,68,0.10) 4px, rgba(239,68,68,0.05) 4px, rgba(239,68,68,0.05) 8px)',
+                                                            borderTop: '2px solid rgba(239,68,68,0.35)',
+                                                            borderBottom: '2px solid rgba(239,68,68,0.35)',
+                                                            zIndex: 1,
+                                                            pointerEvents: 'none',
+                                                            display: 'flex',
+                                                            alignItems: 'center',
+                                                            justifyContent: 'center',
+                                                        }}
+                                                        title={`Blocked: ${slot.name}`}
+                                                    >
+                                                        <span style={{ fontSize: '0.6rem', color: 'rgba(239,68,68,0.7)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                                                            {slot.name}
+                                                        </span>
+                                                    </div>
+                                                );
+                                            })}
 
                                             {/* Schedule blocks that START in this hour block */}
                                             {cellEvents.map((s) => {
@@ -793,28 +947,25 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, rea
                                 </div>
                             </div>
 
-                            <div className="form-group">
-                                <label className="form-label">Day</label>
-                                <select
-                                    className="form-select form-input"
-                                    value={modalForm.day}
-                                    onChange={(e) => updateForm({ day: e.target.value })}
-                                >
-                                    {activeDays.map((d) => <option key={d} value={d}>{d}</option>)}
-                                </select>
-                            </div>
-
-                            {mode === 'exam' && (
+                            {mode === 'exam' ? (
                                 <div className="form-group">
-                                    <label className="form-label">Week</label>
+                                    <label className="form-label">Exam Date</label>
+                                    <input
+                                        type="date"
+                                        className="form-input"
+                                        value={modalForm.examDate}
+                                        onChange={(e) => updateForm({ examDate: e.target.value })}
+                                    />
+                                </div>
+                            ) : (
+                                <div className="form-group">
+                                    <label className="form-label">Day</label>
                                     <select
                                         className="form-select form-input"
-                                        value={modalForm.week || currentWeek}
-                                        onChange={(e) => updateForm({ week: parseInt(e.target.value) })}
+                                        value={modalForm.day}
+                                        onChange={(e) => updateForm({ day: e.target.value })}
                                     >
-                                        {Array.from({ length: totalWeeks }, (_, i) => i + 1).map((w) => (
-                                            <option key={w} value={w}>Week {w}</option>
-                                        ))}
+                                        {activeDays.map((d) => <option key={d} value={d}>{d}</option>)}
                                     </select>
                                 </div>
                             )}

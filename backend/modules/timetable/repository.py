@@ -1,6 +1,7 @@
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from datetime import date
 from core.database import get_db
 from modules.timetable.models import Faculty, Room, Course, ScheduleItem, Department
 
@@ -87,12 +88,15 @@ class TimetableRepository:
 
     async def get_courses(self, faculty_id: str | None = None) -> list[Course]:
         if faculty_id:
-            # Get department IDs for this faculty, then filter courses
+            from sqlalchemy import or_
+            from modules.timetable.models import CourseScope
             dept_result = await self.db.execute(select(Department.id).where(Department.faculty_id == faculty_id))
             dept_ids = [r for r in dept_result.scalars().all()]
-            if not dept_ids:
-                return []
-            result = await self.db.execute(select(Course).where(Course.department_id.in_(dept_ids)))
+            conditions = [Course.scope.in_([CourseScope.INTERFACULTY, CourseScope.UNIVERSITY_WIDE])]
+            if dept_ids:
+                conditions.append(Course.department_id.in_(dept_ids))
+            query = select(Course).where(or_(*conditions))
+            result = await self.db.execute(query)
         else:
             result = await self.db.execute(select(Course))
         return list(result.scalars().all())
@@ -134,3 +138,46 @@ class TimetableRepository:
     async def delete_schedule_item(self, item: ScheduleItem) -> None:
         await self.db.delete(item)
         await self.db.flush()
+
+    # ---------- Blocked Slots ----------
+
+    async def create_blocked_slot(self, slot: 'BlockedSlot') -> 'BlockedSlot':
+        self.db.add(slot)
+        await self.db.flush()
+        return slot
+
+    async def get_blocked_slots(self, semester_id: int | None = None) -> list['BlockedSlot']:
+        from modules.timetable.models import BlockedSlot
+        query = select(BlockedSlot)
+        if semester_id:
+            query = query.where(BlockedSlot.semester_id == semester_id)
+        result = await self.db.execute(query)
+        return list(result.scalars().all())
+
+    async def get_relevant_blocked_slots(self, semester_id: int, day_of_week: str | None = None, exact_date: date | None = None) -> list['BlockedSlot']:
+        from modules.timetable.models import BlockedSlot
+        from sqlalchemy import or_
+        
+        conditions = [BlockedSlot.semester_id == semester_id]
+        or_conditions = []
+        if day_of_week:
+            or_conditions.append(BlockedSlot.day_of_week == day_of_week)
+        if exact_date:
+            or_conditions.append(BlockedSlot.date == exact_date)
+            
+        if not or_conditions:
+            return []
+        
+        conditions.append(or_(*or_conditions))
+        
+        result = await self.db.execute(select(BlockedSlot).where(*conditions))
+        return list(result.scalars().all())
+
+    async def delete_blocked_slot(self, slot: 'BlockedSlot') -> None:
+        await self.db.delete(slot)
+        await self.db.flush()
+
+    async def get_blocked_slot(self, id: int) -> 'BlockedSlot | None':
+        from modules.timetable.models import BlockedSlot
+        result = await self.db.execute(select(BlockedSlot).where(BlockedSlot.id == id))
+        return result.scalar_one_or_none()
