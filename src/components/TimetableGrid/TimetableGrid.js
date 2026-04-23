@@ -6,6 +6,7 @@ import { DAYS, EXAM_DAYS, timeToMinutes } from '@/lib/utils';
 import { apiClient } from '@/lib/apiClient';
 import { detectConflicts, detectAllConflicts } from '@/lib/conflicts';
 import { useToast } from '@/components/Toast/Toast';
+import SearchableSelect from '@/components/SearchableSelect/SearchableSelect';
 import styles from './TimetableGrid.module.css';
 
 /** Safely parse a YYYY-MM-DD string into a Date without timezone issues */
@@ -304,8 +305,8 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, rea
         setEditing(null);
         setModalConflicts([]);
         setModalForm({
-            courseId: modalCourses[0]?.id || '',
-            roomIds: [roomId || rooms[0]?.id || ''],
+            courseId: '',
+            roomIds: [''],
             day: currentDay,
             examDate: currentDate,
             startTime,
@@ -566,7 +567,7 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, rea
         }
 
         setDragItem(null);
-    }, [dragItem, allModeSchedules, mode, dispatch, addToast, currentDay]);
+    }, [dragItem, allModeSchedules, mode, dispatch, addToast, currentDay, currentDate]);
 
     const timeOptions = [];
     for (let h = 8; h <= 18; h++) {
@@ -898,16 +899,12 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, rea
 
                             <div className="form-group">
                                 <label className="form-label">Course</label>
-                                <select
-                                    className="form-select form-input"
+                                <SearchableSelect
+                                    options={modalCourses.map(c => ({ value: c.id, label: `${c.code} — ${c.title}` }))}
                                     value={modalForm.courseId}
-                                    onChange={(e) => updateForm({ courseId: e.target.value })}
-                                >
-                                    <option value="">Select a course...</option>
-                                    {modalCourses.map((c) => (
-                                        <option key={c.id} value={c.id}>{c.code} — {c.title}</option>
-                                    ))}
-                                </select>
+                                    onChange={(val) => updateForm({ courseId: val })}
+                                    placeholder="Select a course..."
+                                />
                             </div>
 
                             <div className="form-group">
@@ -915,16 +912,12 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, rea
                                 <div className={styles.locationList}>
                                     {modalForm.roomIds.map((rid, idx) => (
                                         <div key={idx} className={styles.locationRow}>
-                                            <select
-                                                className="form-select form-input"
+                                            <SearchableSelect
+                                                options={getAvailableRooms(idx).map(r => ({ value: r.id, label: `${r.name} (Cap: ${r.capacity})` }))}
                                                 value={rid}
-                                                onChange={(e) => updateRoom(idx, e.target.value)}
-                                            >
-                                                <option value="">Select a room...</option>
-                                                {getAvailableRooms(idx).map((r) => (
-                                                    <option key={r.id} value={r.id}>{r.name} (Cap: {r.capacity})</option>
-                                                ))}
-                                            </select>
+                                                onChange={(val) => updateRoom(idx, val)}
+                                                placeholder="Select a room..."
+                                            />
                                             {modalForm.roomIds.length > 1 && (
                                                 <button
                                                     type="button"
