@@ -158,11 +158,11 @@ def send_invitation_email_sync(to_email: str, token: str, role: str = "Staff", f
     
     # HTML version
     faculty_html = f'<div class="info-item"><span class="info-label">Faculty:</span> {faculty_name}</div>' if faculty_name else ""
-    html_content = HTML_INVITATION_TEMPLATE.format(
-        invite_link=invite_link,
-        recipient_email=to_email,
-        role=role,
-        faculty_html=faculty_html
+    html_content = (
+        HTML_INVITATION_TEMPLATE.replace("{invite_link}", invite_link)
+        .replace("{recipient_email}", to_email)
+        .replace("{role}", role)
+        .replace("{faculty_html}", faculty_html)
     )
     msg.add_alternative(html_content, subtype='html')
 
