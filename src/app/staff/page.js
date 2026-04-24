@@ -102,7 +102,7 @@ export default function StaffManagementPage() {
             fetchData(); // Reload constraints
         } catch (e) {
             console.error(e);
-            addToast({ type: 'error', title: 'API Error', message: 'Failed to construct token constraint.' });
+            addToast({ type: 'error', title: 'Invitation Failed', message: e.message || 'Failed to construct token constraint.' });
         } finally {
             setIsInviting(false);
         }
@@ -115,7 +115,7 @@ export default function StaffManagementPage() {
             addToast({ type: 'info', title: 'Deleted', message: 'User access immediately revoked.' });
             fetchData();
         } catch (e) {
-            addToast({ type: 'error', title: 'API Error', message: 'Failed to revoke permissions.' });
+            addToast({ type: 'error', title: 'API Error', message: e.message || 'Failed to revoke permissions.' });
         }
     };
 
@@ -126,7 +126,7 @@ export default function StaffManagementPage() {
             addToast({ type: 'info', title: 'Revoked', message: 'Invitation destroyed securely.' });
             fetchData();
         } catch (e) {
-            addToast({ type: 'error', title: 'API Error', message: 'Could not withdraw execution token.' });
+            addToast({ type: 'error', title: 'API Error', message: e.message || 'Could not withdraw execution token.' });
         }
     };
 
