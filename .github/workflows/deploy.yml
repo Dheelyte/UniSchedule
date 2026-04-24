@@ -32,6 +32,7 @@ jobs:
 
       - name: Run Alembic migrations
         env:
+          SECRET_KEY: ${{ secrets.SECRET_KEY }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
           uv run alembic upgrade head
