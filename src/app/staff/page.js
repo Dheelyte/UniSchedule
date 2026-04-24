@@ -257,7 +257,7 @@ export default function StaffManagementPage() {
                 <div className="modal-overlay" onClick={() => setIsInviteModalOpen(false)}>
                     <div className="modal" onClick={e => e.stopPropagation()}>
                         <div className="modal-header">
-                            <h3>Generate Setup Token</h3>
+                            <h3>Invite Staff</h3>
                             <button className="modal-close" onClick={() => setIsInviteModalOpen(false)}>✕</button>
                         </div>
                         <div className="modal-body">
@@ -280,8 +280,8 @@ export default function StaffManagementPage() {
                                     value={inviteForm.role}
                                     onChange={e => setInviteForm({ ...inviteForm, role: e.target.value })}
                                 >
-                                    <option value="FACULTY_EDITOR">Faculty Editor (Constrained)</option>
-                                    <option value="SUPER_ADMIN">Super Administrator (Global)</option>
+                                    <option value="FACULTY_EDITOR">Faculty Editor</option>
+                                    <option value="SUPER_ADMIN">Super Administrator</option>
                                 </select>
                             </div>
 
@@ -315,7 +315,7 @@ export default function StaffManagementPage() {
                         <div className="modal-footer">
                             <button className="btn btn-secondary" onClick={() => setIsInviteModalOpen(false)}>Cancel</button>
                             <button className="btn btn-primary" onClick={handleInvite} disabled={!inviteForm.email || (inviteForm.role === 'FACULTY_EDITOR' && !inviteForm.facultyId)}>
-                                Generate Setup Token
+                                Send Invitation Email
                             </button>
                         </div>
                     </div>
