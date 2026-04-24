@@ -66,6 +66,10 @@ from fastapi_mail import (
     MessageSchema,
     MessageType,
 )
+from fastapi_mail.schemas import MultipartSubtypeEnum
+from starlette.datastructures import UploadFile, Headers
+import base64
+import io
 
 from .config import settings
 from .assets import UNILAG_LOGO_BASE64
@@ -89,10 +93,16 @@ class EmailService:
         template_body = {
             "recipient_email": recipient_email,
             "role": role,
-            "faculty_name": faculty_name,
-            "invite_link": f"{settings.FRONTEND_URL}/register?token={token}",
-            "logo_base64": UNILAG_LOGO_BASE64
+            "faculty_name": faculty_name.replace("_", " ") if faculty_name else None,
+            "invite_link": f"{settings.FRONTEND_URL}/register?token={token}"
         }
+        
+        logo_bytes = base64.b64decode(UNILAG_LOGO_BASE64.split(",")[1])
+        logo_attachment = UploadFile(
+            filename="unilag_logo.png",
+            file=io.BytesIO(logo_bytes),
+            headers=Headers({"Content-ID": "<unilag_logo>", "Content-Disposition": "inline"})
+        )
         
         conf.TEMPLATE_FOLDER = settings.TEMPLATE_FOLDER
         
@@ -101,6 +111,8 @@ class EmailService:
             recipients=[recipient_email],
             template_body=template_body,
             subtype=MessageType.html,
+            attachments=[logo_attachment],
+            multipart_subtype=MultipartSubtypeEnum.related
         )
         
         fm = FastMail(conf)
