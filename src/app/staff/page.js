@@ -24,6 +24,7 @@ export default function StaffManagementPage() {
 
     // Modal states
     const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
+    const [isInviting, setIsInviting] = useState(false);
     const [inviteForm, setInviteForm] = useState({
         email: '',
         role: 'FACULTY_EDITOR',
@@ -86,6 +87,7 @@ export default function StaffManagementPage() {
             addToast({ type: 'warning', title: 'Validation', message: 'Email address is required.' });
             return;
         }
+        setIsInviting(true);
         try {
             const payload = {
                 email: inviteForm.email,
@@ -94,13 +96,15 @@ export default function StaffManagementPage() {
                 semester_id: inviteForm.semesterId ? parseInt(inviteForm.semesterId) : null
             };
             const response = await apiClient.post('/auth/invite', payload);
-            addToast({ type: 'success', title: 'Invitation Generated', message: 'New setup token generated successfully.' });
+            addToast({ type: 'success', title: 'Invitation Generated', message: 'Invitation email sent successfully.' });
             setIsInviteModalOpen(false);
             setInviteForm({ email: '', role: 'FACULTY_EDITOR', facultyId: '', semesterId: '' });
             fetchData(); // Reload constraints
         } catch (e) {
             console.error(e);
             addToast({ type: 'error', title: 'API Error', message: 'Failed to construct token constraint.' });
+        } finally {
+            setIsInviting(false);
         }
     };
 
@@ -313,9 +317,9 @@ export default function StaffManagementPage() {
 
                         </div>
                         <div className="modal-footer">
-                            <button className="btn btn-secondary" onClick={() => setIsInviteModalOpen(false)}>Cancel</button>
-                            <button className="btn btn-primary" onClick={handleInvite} disabled={!inviteForm.email || (inviteForm.role === 'FACULTY_EDITOR' && !inviteForm.facultyId)}>
-                                Send Invitation Email
+                            <button className="btn btn-secondary" onClick={() => setIsInviteModalOpen(false)} disabled={isInviting}>Cancel</button>
+                            <button className="btn btn-primary" onClick={handleInvite} disabled={!inviteForm.email || (inviteForm.role === 'FACULTY_EDITOR' && !inviteForm.facultyId) || isInviting}>
+                                {isInviting ? 'Sending...' : 'Send Invitation Email'}
                             </button>
                         </div>
                     </div>

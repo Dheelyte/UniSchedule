@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Invitation to Join University of Lagos Timetable Manager</title>
+    <style>
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            background-color: #f1f5f9;
+            margin: 0;
+            padding: 0;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        .container {
+            max-width: 600px;
+            margin: 40px auto;
+            background-color: #ffffff;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+        }
+
+        .header {
+            background-color: #6366f1;
+            padding: 32px;
+            text-align: center;
+        }
+
+        .header img {
+            width: 80px;
+            height: auto;
+            margin-bottom: 16px;
+        }
+
+        .header h1 {
+            color: #ffffff;
+            font-size: 24px;
+            margin: 0;
+            font-weight: 700;
+        }
+
+        .header h3 {
+            color: rgba(255, 255, 255, 0.9);
+            font-size: 18px;
+            margin: 8px 0 0 0;
+            font-weight: 600;
+        }
+
+        .content {
+            padding: 40px;
+            color: #0f172a;
+            line-height: 1.6;
+        }
+
+        .content p {
+            margin-bottom: 16px;
+            font-size: 16px;
+        }
+
+        .info-box {
+            background-color: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 24px 0;
+        }
+
+        .info-item {
+            margin-bottom: 8px;
+            font-size: 14px;
+            color: #475569;
+        }
+
+        .info-label {
+            font-weight: 600;
+            color: #0f172a;
+            width: 100px;
+            display: inline-block;
+        }
+
+        .btn-container {
+            text-align: center;
+            margin-top: 32px;
+            margin-bottom: 32px;
+        }
+
+        .btn {
+            background-color: #6366f1;
+            color: #ffffff !important;
+            padding: 14px 28px;
+            border-radius: 8px;
+            text-decoration: none;
+            font-weight: 600;
+            display: inline-block;
+            box-shadow: 0 2px 8px rgba(99, 102, 241, 0.3);
+        }
+
+        .footer {
+            background-color: #f8fafc;
+            padding: 24px;
+            text-align: center;
+            color: #94a3b8;
+            font-size: 14px;
+            border-top: 1px solid #e2e8f0;
+        }
+
+        .expiry-note {
+            color: #64748b;
+            font-size: 13px;
+            font-style: italic;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <div class="header">
+            <img src="{{ logo_base64 }}" alt="University of Lagos Logo">
+            <h1>University of Lagos</h1>
+            <h3>Timetable Manager</h3>
+        </div>
+        <div class="content">
+            <p>Hello,</p>
+            <p>You have been invited to join the <strong>University of Lagos Timetable Manager</strong> as a staff
+                member.</p>
+
+            <div class="info-box">
+                <div class="info-item"><span class="info-label">Email:</span> {{recipient_email}}</div>
+                <div class="info-item"><span class="info-label">Role:</span> {{role}}</div>
+                {% if faculty_name %}
+                <div class="info-item"><span class="info-label">Faculty:</span> {{ faculty_name }}</div>
+                {% endif %}
+
+            </div>
+
+            <p>Please click the button below to set up your password and access your dashboard:</p>
+            <div class="btn-container">
+                <a href="{{invite_link}}" class="btn">Set Up Account</a>
+            </div>
+            <p class="expiry-note">Note: This invitation link is personal and will expire securely in 7 days.</p>
+        </div>
+        <div class="footer">
+            <p>University of Lagos Timetable Manager</p>
+        </div>
+    </div>
+</body>
+
+</html>

@@ -5,7 +5,7 @@ from core.config import settings
 from api.dependencies.auth import RequireRole, get_current_user
 from modules.auth.models import RoleEnum
 from modules.timetable.repository import TimetableRepository
-from core.mail import send_invitation_email
+from core.mail import EmailService
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
 
@@ -46,8 +46,8 @@ async def invite_staff(
         if faculty:
             faculty_name = faculty.name
             
-    await send_invitation_email(
-        to_email=data.email, 
+    await EmailService.send_invitation_email(
+        recipient_email=data.email, 
         token=invite.token, 
         role=data.target_role.value, 
         faculty_name=faculty_name
