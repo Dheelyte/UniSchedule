@@ -152,6 +152,7 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, rea
         endTime: '10:00',
     });
 
+    const [isSaving, setIsSaving] = useState(false);
     const [modalConflicts, setModalConflicts] = useState([]);
     const [deleteTarget, setDeleteTarget] = useState(null);
 
@@ -400,6 +401,7 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, rea
 
         const payload = { ...formWithCleanRooms, type: mode };
 
+        setIsSaving(true);
         try {
             if (editing) {
                 const apiPayload = {
@@ -445,6 +447,8 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, rea
         } catch (e) {
             console.error('Failed to sync schedule', e);
             addToast({ type: 'error', title: 'Scheduling Error', message: e.message || 'Failed to synchronize with server.', duration: 8000 });
+        } finally {
+            setIsSaving(false);
         }
         setShowModal(false);
     };
@@ -992,17 +996,18 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, rea
                                     className="btn btn-danger"
                                     style={{ marginRight: 'auto' }}
                                     onClick={() => { setShowModal(false); setDeleteTarget(editing); }}
+                                    disabled={isSaving}
                                 >
                                     Delete
                                 </button>
                             )}
-                            <button className="btn btn-secondary" onClick={() => setShowModal(false)}>Cancel</button>
+                            <button className="btn btn-secondary" onClick={() => setShowModal(false)} disabled={isSaving}>Cancel</button>
                             <button
                                 className="btn btn-primary"
                                 onClick={handleSave}
-                                disabled={!modalForm.courseId || !modalForm.roomIds.some((r) => r)}
+                                disabled={!modalForm.courseId || !modalForm.roomIds.some((r) => r) || isSaving}
                             >
-                                {editing ? 'Save Changes' : 'Add to Timetable'}
+                                {isSaving ? 'Saving...' : (editing ? 'Save Changes' : 'Add to Timetable')}
                             </button>
                         </div>
                     </div>
