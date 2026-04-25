@@ -92,8 +92,8 @@ class EmailService:
     async def send_invitation_email(recipient_email: str, token: str, role: str, faculty_name: str | None = None):
         template_body = {
             "recipient_email": recipient_email,
-            "role": role,
-            "faculty_name": faculty_name.replace("_", " ") if faculty_name else None,
+            "role": role.replace("_", " "),
+            "faculty_name": faculty_name if faculty_name else None,
             "invite_link": f"{settings.FRONTEND_URL}/register?token={token}"
         }
         
