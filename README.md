@@ -90,9 +90,6 @@ We welcome contributions! Please follow the steps below:
 3. Commit your changes with descriptive messages.
 4. Push your branch and submit a Pull Request.
 
-Make sure to align your styles with our Indigo and Slate frontend design system, and keep all business logic tests updated in the backend.
 
-## Deployment
-
-- The frontend is optimized for deployment on [Vercel](https://vercel.com).
-- The backend can be packaged using the included `Dockerfile` and deployed on AWS Lambda.
+## Author
+- Delight Olu-Olagbuji ([LinkedIn](https://www.linkedin.com/in/delight-olu-olagbuji-990b61314))
