@@ -180,3 +180,31 @@
     background: var(--color-primary);
     box-shadow: 0 0 8px var(--color-primary);
 }
+
+@media (max-width: 768px) {
+    .sidebar {
+        width: var(--sidebar-width);
+        transform: translateX(-100%);
+        transition: transform var(--transition-base);
+        z-index: 110;
+        box-shadow: 4px 0 16px rgba(0, 0, 0, 0.08);
+    }
+
+    /* On mobile, .collapsed should not shrink the drawer — it just stays full-width and hidden */
+    .sidebar.collapsed {
+        width: var(--sidebar-width);
+    }
+
+    .sidebar.collapsed .brandText,
+    .sidebar.collapsed .brandSub {
+        display: flex;
+    }
+
+    .sidebar.collapsed .navLabel {
+        display: inline;
+    }
+
+    .mobileOpen {
+        transform: translateX(0);
+    }
+}

@@ -18,7 +18,7 @@ export const apiClient = {
 
         if (!response.ok) {
             if (response.status === 401 && typeof window !== 'undefined') {
-                if (!['/login', '/register'].includes(window.location.pathname)) {
+                if (!['/login', '/register', '/forgot-password'].includes(window.location.pathname)) {
                     window.location.href = '/login';
                 }
             }

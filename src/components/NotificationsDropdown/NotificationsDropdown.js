@@ -1,26 +1,29 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import { apiClient } from '@/lib/apiClient';
 import styles from './NotificationsDropdown.module.css';
+
+const POLL_INTERVAL_MS = 600_000;
 
 export default function NotificationsDropdown() {
     const [isOpen, setIsOpen] = useState(false);
     const [notifications, setNotifications] = useState([]);
-    const [hasUnread, setHasUnread] = useState(false);
     const dropdownRef = useRef(null);
+    const router = useRouter();
+
+    const refresh = useCallback(() => {
+        apiClient.get('/notifications')
+            .then((data) => { if (Array.isArray(data)) setNotifications(data); })
+            .catch((err) => console.error("Failed to fetch notifications", err));
+    }, []);
 
     useEffect(() => {
-        let mounted = true;
-        apiClient.get('/notifications').then((data) => {
-            if (mounted && Array.isArray(data)) {
-                setNotifications(data);
-                setHasUnread(data.some(n => !n.is_read));
-            }
-        }).catch(err => console.error("Failed to fetch notifications", err));
-
-        return () => { mounted = false; };
-    }, []);
+        refresh();
+        const id = setInterval(refresh, POLL_INTERVAL_MS);
+        return () => clearInterval(id);
+    }, [refresh]);
 
     useEffect(() => {
         function handleClickOutside(event) {
@@ -35,15 +38,30 @@ export default function NotificationsDropdown() {
     const markAsRead = async (id) => {
         try {
             await apiClient.patch(`/notifications/${id}/read`);
-            setNotifications(prev => {
-                const next = prev.map(n => n.id === id ? { ...n, is_read: true } : n);
-                setHasUnread(next.some(n => !n.is_read));
-                return next;
-            });
+            setNotifications(prev => prev.map(n => n.id === id ? { ...n, is_read: true } : n));
         } catch (e) {
             console.error("Failed to mark as read", e);
         }
     };
+
+    const markAllRead = async () => {
+        const unread = notifications.filter(n => !n.is_read);
+        if (unread.length === 0) return;
+        setNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
+        await Promise.all(
+            unread.map(n => apiClient.patch(`/notifications/${n.id}/read`).catch(err => console.error('mark-read failed', err)))
+        );
+    };
+
+    const handleItemClick = (notif) => {
+        if (!notif.is_read) markAsRead(notif.id);
+        if (notif.link) {
+            setIsOpen(false);
+            router.push(notif.link);
+        }
+    };
+
+    const hasUnread = notifications.some(n => !n.is_read);
 
     return (
         <div className={styles.container} ref={dropdownRef}>
@@ -72,7 +90,17 @@ export default function NotificationsDropdown() {
 
             {isOpen && (
                 <div className={styles.dropdown}>
-                    <div className={styles.header}>Notifications</div>
+                    <div className={styles.header}>
+                        <span>Notifications</span>
+                        <button
+                            type="button"
+                            className={styles.markAll}
+                            onClick={markAllRead}
+                            disabled={!hasUnread}
+                        >
+                            Mark all as read
+                        </button>
+                    </div>
                     <div className={styles.list}>
                         {notifications.length === 0 ? (
                             <div className={styles.empty}>No notifications yet</div>
@@ -81,12 +109,12 @@ export default function NotificationsDropdown() {
                                 <div
                                     key={notif.id}
                                     className={`${styles.item} ${!notif.is_read ? styles.unread : ''}`}
-                                    onClick={() => !notif.is_read && markAsRead(notif.id)}
+                                    onClick={() => handleItemClick(notif)}
                                 >
                                     <div className={styles.title}>{notif.title}</div>
                                     <div className={styles.message}>{notif.message}</div>
                                     <div className={styles.date}>
-                                        {new Date(notif.created_at).toLocaleDateString()}
+                                        {new Date(notif.created_at).toLocaleString()}
                                     </div>
                                 </div>
                             ))

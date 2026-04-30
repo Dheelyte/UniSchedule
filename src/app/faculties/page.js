@@ -6,6 +6,7 @@ import { apiClient } from '@/lib/apiClient';
 import { useToast } from '@/components/Toast/Toast';
 import { useAuth } from '@/context/AuthContext';
 import { FacultiesSkeleton } from '@/components/Skeleton/Skeleton';
+import { isViewerRole, isGsAdmin } from '@/lib/roles';
 import styles from './faculties.module.css';
 
 export default function FacultiesPage() {
@@ -151,7 +152,7 @@ export default function FacultiesPage() {
             <div className={styles.pageHeader}>
                 <div />
                 <div className={styles.headerActions}>
-                    {role !== 'FACULTY_VIEWER' && (
+                    {!isViewerRole(role) && !isGsAdmin(role) && (
                         <button className="btn btn-secondary" onClick={openAddDept}>
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
                             Add Department
@@ -241,7 +242,7 @@ export default function FacultiesPage() {
                                     <td style={{ fontWeight: 500, color: 'var(--color-text)' }}>{dept.name}</td>
                                     <td>{dept.facultyName}</td>
                                     <td>
-                                        {role !== 'FACULTY_VIEWER' ? (
+                                        {!isViewerRole(role) && !isGsAdmin(role) ? (
                                             <div className={styles.actions}>
                                                 <button className={styles.actionBtn} onClick={() => openEditDept(dept)} title="Edit">
                                                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" /><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" /></svg>

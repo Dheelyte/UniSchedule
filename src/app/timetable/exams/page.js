@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useApp, ACTION_TYPES } from '@/context/AppContext';
+import { useAuth } from '@/context/AuthContext';
 import { apiClient } from '@/lib/apiClient';
 import { detectAllConflicts } from '@/lib/conflicts';
 import { exportTimetablePDF } from '@/lib/pdfExport';
@@ -9,12 +10,18 @@ import { exportTimetableCSV } from '@/lib/csvExport';
 import TimetableGrid from '@/components/TimetableGrid/TimetableGrid';
 import { useToast } from '@/components/Toast/Toast';
 import ExportModal from '@/components/ExportModal/ExportModal';
+import TimetableStatusBadge from '@/components/TimetableStatusBadge/TimetableStatusBadge';
+import RequestEditModal from '@/components/RequestEditModal/RequestEditModal';
+import { isViewerRole } from '@/lib/roles';
+import { useConfirm } from '@/components/ConfirmModal/ConfirmContext';
 import { TimetableSkeleton } from '@/components/Skeleton/Skeleton';
 import styles from './exams.module.css';
 
 export default function ExamTimetablePage() {
     const { getSchedulesWithDetails, state, dispatch } = useApp();
+    const { user } = useAuth();
     const { addToast } = useToast();
+    const confirm = useConfirm();
 
     const [sessions, setSessions] = useState([]);
     const [semesters, setSemesters] = useState([]);
@@ -22,6 +29,36 @@ export default function ExamTimetablePage() {
     const [blockedSlots, setBlockedSlots] = useState([]);
     const [isExportModalOpen, setIsExportModalOpen] = useState(false);
     const [exportFormat, setExportFormat] = useState('pdf');
+    const [isLocked, setIsLocked] = useState(false);
+    const [lockBusy, setLockBusy] = useState(false);
+    const [isRequestModalOpen, setIsRequestModalOpen] = useState(false);
+    const [requestBusy, setRequestBusy] = useState(false);
+    const [enrollmentsByCourse, setEnrollmentsByCourse] = useState(new Map());
+
+    const handleRequestEditSubmit = async (reason) => {
+        if (selectedSemesterId === null || requestBusy) return;
+        setRequestBusy(true);
+        try {
+            await apiClient.post(
+                `/timetable/locks/exam/edit-requests?semester_id=${selectedSemesterId}`,
+                { reason },
+            );
+            setIsRequestModalOpen(false);
+            addToast({
+                type: 'success',
+                title: 'Request Sent',
+                message: 'Super admins have been notified of your request.',
+            });
+        } catch (e) {
+            addToast({
+                type: 'error',
+                title: 'Request Failed',
+                message: e?.message || 'Unable to submit edit request.',
+            });
+        } finally {
+            setRequestBusy(false);
+        }
+    };
 
     useEffect(() => {
         async function loadTerms() {
@@ -48,14 +85,18 @@ export default function ExamTimetablePage() {
     const loadSchedules = useCallback(async (semId) => {
         if (semId === null) return;
         try {
-            const [faculties, departments, rooms, courses, scheduleItems, blockedSlotsData] = await Promise.all([
-                apiClient.get('/timetable/faculties').catch(() => []),
-                apiClient.get('/timetable/departments').catch(() => []),
-                apiClient.get('/timetable/rooms').catch(() => []),
+            const [faculties, departments, rooms, courses, scheduleItems, blockedSlotsData, locks, enrollments] = await Promise.all([
+                apiClient.get('/timetable/faculties?all=true').catch(() => []),
+                apiClient.get('/timetable/departments?all=true').catch(() => []),
+                apiClient.get('/timetable/rooms?all=true').catch(() => []),
                 apiClient.get('/timetable/courses').catch(() => []),
                 apiClient.get(`/timetable/schedule-items?semester_id=${semId}`).catch(() => []),
-                apiClient.get(`/timetable/blocked-slots?semester_id=${semId}`).catch(() => [])
+                apiClient.get(`/timetable/blocked-slots?semester_id=${semId}`).catch(() => []),
+                apiClient.get(`/timetable/locks?semester_id=${semId}`).catch(() => []),
+                apiClient.get('/timetable/enrollments').catch(() => [])
             ]);
+            const examLock = (locks || []).find(l => l.timetable_type === 'exam');
+            setIsLocked(!!examLock?.is_locked);
             dispatch({
                 type: ACTION_TYPES.INIT_STATE,
                 payload: {
@@ -76,12 +117,61 @@ export default function ExamTimetablePage() {
                 }
             });
             setBlockedSlots(blockedSlotsData || []);
+            const map = new Map();
+            (enrollments || []).forEach((e) => {
+                if (!map.has(e.course_id)) map.set(e.course_id, []);
+                map.get(e.course_id).push(e);
+            });
+            setEnrollmentsByCourse(map);
         } catch (e) { console.error(e); }
     }, [dispatch]);
 
     useEffect(() => {
         if (selectedSemesterId !== null) loadSchedules(selectedSemesterId);
     }, [selectedSemesterId, loadSchedules]);
+  
+    const handleToggleLock = async () => {
+        if (selectedSemesterId === null || lockBusy) return;
+        const next = !isLocked;
+        const ok = await confirm(next ? {
+            title: 'Lock exam timetable?',
+            message: 'Marking this timetable as FINAL means:',
+            details: [
+                'No one - including superadmins - can add, edit, or delete exam sittings until you unlock.',
+                'Faculty editors lose all edit affordances on this timetable.',
+                'You can unlock at any time to resume editing.',
+            ],
+            confirmLabel: 'Lock Timetable',
+            tone: 'success',
+        } : {
+            title: 'Unlock exam timetable?',
+            message: 'Reverting to DRAFT means:',
+            details: [
+                'Superadmins and faculty editors can resume creating, editing, and deleting exam sittings.',
+                'The published timetable is no longer marked as final and may change without notice.',
+                'You can lock again once the changes are complete.',
+            ],
+            confirmLabel: 'Unlock Timetable',
+            tone: 'primary',
+        });
+        if (!ok) return;
+        setLockBusy(true);
+        try {
+            const res = await apiClient.put(`/timetable/locks/exam?semester_id=${selectedSemesterId}`, { is_locked: next });
+            setIsLocked(!!res?.is_locked);
+            addToast({
+                type: 'success',
+                title: next ? 'Timetable Locked' : 'Timetable Unlocked',
+                message: next
+                    ? 'The exam timetable is now read-only for all roles.'
+                    : 'The exam timetable can now be edited.'
+            });
+        } catch (e) {
+            addToast({ type: 'error', title: 'Lock Update Failed', message: e?.message || 'Unable to update lock state.' });
+        } finally {
+            setLockBusy(false);
+        }
+    };
 
     const handleExportInit = (format) => {
         const schedules = getSchedulesWithDetails.filter((s) => s.type === 'exam');
@@ -97,18 +187,42 @@ export default function ExamTimetablePage() {
         setIsExportModalOpen(true);
     };
 
-    const handleExportConfirm = async ({ session, semester, facultyId }) => {
+    const handleExportConfirm = async ({ session, semester, facultyId, departmentId, format = 'pdf' }) => {
         setIsExportModalOpen(false);
+        const deptIdNum = departmentId && departmentId !== 'ALL' ? Number(departmentId) : null;
         const allExams = getSchedulesWithDetails.filter((s) => s.type === 'exam');
-        const filteredSchedules = facultyId === 'ALL' ? allExams : allExams.filter(s => s.facultyId === facultyId);
+        const filteredSchedules = allExams.filter((s) => {
+            if (facultyId !== 'ALL' && s.facultyId !== facultyId) return false;
+            if (deptIdNum !== null && s.departmentId !== deptIdNum) return false;
+            return true;
+        });
         if (filteredSchedules.length === 0) {
-            addToast({ type: 'error', title: 'Export Failed', message: 'No schedules found for the selected faculty.' });
+            addToast({ type: 'error', title: 'Export Failed', message: 'No schedules found for the selected filters.' });
             return;
         }
 
         const facultyInfo = facultyId === 'ALL'
             ? 'All Faculties'
             : state.faculties.find(f => f.id === facultyId)?.name || 'Unknown Faculty';
+        const departmentInfo = deptIdNum === null
+            ? null
+            : state.departments.find(d => d.id === deptIdNum)?.name || 'Unknown Department';
+
+        if (format === 'csv') {
+            exportTimetableCSV({
+                schedules: filteredSchedules,
+                title: 'Examination Timetable',
+                session,
+                semester,
+                faculty: facultyInfo,
+                department: departmentInfo,
+                mode: 'exam',
+            });
+            addToast({ type: 'success', title: 'CSV Exported', message: 'Exam timetable downloaded as CSV.' });
+            return;
+        }
+
+        const blockedSlots = await apiClient.get(`/timetable/blocked-slots?semester_id=${selectedSemesterId}`).catch(() => []);
 
         if (exportFormat === 'csv') {
             exportTimetableCSV({
@@ -139,10 +253,26 @@ export default function ExamTimetablePage() {
 
     if (selectedSemesterId === null) return <TimetableSkeleton />;
 
+    const isCurrentSemester = semesters.find(s => s.id === selectedSemesterId)?.is_current === true;
+    const isViewer = isViewerRole(user?.role);
+    const readOnlyReasons = [];
+    if (isViewer) readOnlyReasons.push('Your role is view-only.');
+    if (!isCurrentSemester) readOnlyReasons.push('This semester is not the current one — only the current semester can be edited.');
+    if (isLocked) readOnlyReasons.push('The exam timetable has been locked (FINAL) by a super admin.');
+    const readOnly = readOnlyReasons.length > 0;
+
     return (
         <div className={styles.page}>
             <div className={styles.pageHeader}>
-                <div />
+                <TimetableStatusBadge
+                    isLocked={isLocked}
+                    canToggle={user?.role === 'SUPER_ADMIN' && isCurrentSemester}
+                    onToggle={handleToggleLock}
+                    disabled={lockBusy}
+                    canRequestEdit={isLocked && isCurrentSemester && user?.role === 'FACULTY_EDITOR'}
+                    onRequestEdit={() => setIsRequestModalOpen(true)}
+                    requestBusy={requestBusy}
+                />
                 <div className={styles.headerActions}>
                     {semesters.length > 0 && (
                         <select
@@ -153,7 +283,7 @@ export default function ExamTimetablePage() {
                         >
                             {semesters.map(s => (
                                 <option key={s.id} value={s.id}>
-                                    {s.sessionName} — {s.name}{s.is_current ? ' (Current)' : ''}
+                                    {s.sessionName} - {s.name}{s.is_current ? ' (Current)' : ''}
                                 </option>
                             ))}
                         </select>
@@ -172,15 +302,11 @@ export default function ExamTimetablePage() {
                             <polyline points="7 10 12 15 17 10" />
                             <line x1="12" y1="15" x2="12" y2="3" />
                         </svg>
-                        Export PDF
+                        Export Timetable
                     </button>
-                    <div className={styles.modeBadge}>
-                        <span className={styles.modeDot} />
-                        Examination Mode
-                    </div>
                 </div>
             </div>
-            <TimetableGrid mode="exam" semesterId={selectedSemesterId} blockedSlots={blockedSlots} readOnly={semesters.find(s => s.id === selectedSemesterId)?.is_current === false} />
+            <TimetableGrid mode="exam" semesterId={selectedSemesterId} blockedSlots={blockedSlots} readOnly={readOnly} readOnlyReasons={readOnlyReasons} enrollmentsByCourse={enrollmentsByCourse} />
             <ExportModal
                 isOpen={isExportModalOpen}
                 onClose={() => setIsExportModalOpen(false)}
@@ -188,6 +314,14 @@ export default function ExamTimetablePage() {
                 mode="exam"
                 sessions={sessions}
             />
+            {isRequestModalOpen && (
+                <RequestEditModal
+                    onClose={() => !requestBusy && setIsRequestModalOpen(false)}
+                    onSubmit={handleRequestEditSubmit}
+                    mode="exam"
+                    busy={requestBusy}
+                />
+            )}
         </div>
     );
 }

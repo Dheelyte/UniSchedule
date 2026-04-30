@@ -13,7 +13,7 @@ export function ToastProvider({ children }) {
         setToasts((prev) => [...prev, { id, ...toast }]);
 
         // Auto-remove after duration
-        const duration = toast.duration || 6000;
+        const duration = toast.duration || 15000;
         setTimeout(() => {
             setToasts((prev) => prev.filter((t) => t.id !== id));
         }, duration);

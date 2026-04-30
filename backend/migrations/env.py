@@ -16,7 +16,7 @@ from core.base_model import Base
 from core.config import settings
 
 # Import all model modules so their tables register on Base.metadata
-from modules.auth.models import User, Invitation
+from modules.auth.models import User, Invitation, PasswordResetToken
 from modules.calendar.models import AcademicSession, Semester
 from modules.timetable.models import Faculty, Room, Course, ScheduleItem, BlockedSlot
 from modules.notifications.models import Notification

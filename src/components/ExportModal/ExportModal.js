@@ -9,6 +9,7 @@ export default function ExportModal({ isOpen, onClose, onExport, mode, sessions 
     const [session, setSession] = useState('');
     const [semester, setSemester] = useState('1st Semester');
     const [facultyId, setFacultyId] = useState('ALL');
+    const [departmentId, setDepartmentId] = useState('ALL');
 
     useEffect(() => {
         if (isOpen) {
@@ -17,14 +18,23 @@ export default function ExportModal({ isOpen, onClose, onExport, mode, sessions 
             setSession(current ? current.name : '2025/2026');
             setSemester('1st Semester');
             setFacultyId('ALL');
+            setDepartmentId('ALL');
         }
     }, [isOpen, sessions]);
 
     if (!isOpen) return null;
 
-    const handleExport = (e) => {
+    const availableDepartments = facultyId === 'ALL'
+        ? state.departments
+        : state.departments.filter((d) => d.facultyId === facultyId);
+
+    const submit = (format) => {
+        onExport({ session, semester, facultyId, departmentId, format });
+    };
+
+    const handleSubmit = (e) => {
         e.preventDefault();
-        onExport({ session, semester, facultyId });
+        submit('pdf');
     };
 
     return (
@@ -36,7 +46,7 @@ export default function ExportModal({ isOpen, onClose, onExport, mode, sessions 
                     <button className={styles.closeBtn} onClick={onClose} aria-label="Close">✕</button>
                 </div>
 
-                <form className={styles.body} onSubmit={handleExport}>
+                <form className={styles.body} onSubmit={handleSubmit}>
                     <div className={styles.formGroup}>
                         <label className={styles.label}>Academic Session</label>
                         {sessions.length > 0 ? (
@@ -81,7 +91,7 @@ export default function ExportModal({ isOpen, onClose, onExport, mode, sessions 
                         <select
                             className={styles.input}
                             value={facultyId}
-                            onChange={(e) => setFacultyId(e.target.value)}
+                            onChange={(e) => { setFacultyId(e.target.value); setDepartmentId('ALL'); }}
                         >
                             <option value="ALL">All Faculties</option>
                             {state.faculties.map((f) => (
@@ -90,9 +100,23 @@ export default function ExportModal({ isOpen, onClose, onExport, mode, sessions 
                         </select>
                     </div>
 
+                    <div className={styles.formGroup}>
+                        <label className={styles.label}>Department Filter</label>
+                        <select
+                            className={styles.input}
+                            value={departmentId}
+                            onChange={(e) => setDepartmentId(e.target.value)}
+                        >
+                            <option value="ALL">All Departments</option>
+                            {availableDepartments.map((d) => (
+                                <option key={d.id} value={d.id}>{d.name}</option>
+                            ))}
+                        </select>
+                    </div>
+
                     <div className={styles.footer}>
-                        <button type="button" className={`btn btn-secondary ${styles.btn}`} onClick={onClose}>
-                            Cancel
+                        <button type="button" className={`btn btn-secondary ${styles.btn}`} onClick={() => submit('csv')}>
+                            Download CSV
                         </button>
                         <button type="submit" className={`btn btn-primary ${styles.btn}`}>
                             Download PDF

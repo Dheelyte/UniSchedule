@@ -210,3 +210,14 @@
         grid-template-columns: repeat(2, 1fr);
     }
 }
+
+@media (max-width: 768px) {
+    .page { padding: 16px 14px; }
+    .pageHeader { flex-direction: column; align-items: stretch; gap: 12px; }
+    .filters { flex-direction: column; align-items: stretch; gap: 10px; }
+    .searchWrap { width: 100%; }
+}
+
+@media (max-width: 480px) {
+    .statsRow { grid-template-columns: 1fr; }
+}

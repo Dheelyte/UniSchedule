@@ -89,10 +89,11 @@ export default function StaffManagementPage() {
         }
         setIsInviting(true);
         try {
+            const facultyScoped = inviteForm.role === 'FACULTY_EDITOR' || inviteForm.role === 'FACULTY_VIEWER';
             const payload = {
                 email: inviteForm.email,
                 target_role: inviteForm.role,
-                faculty_id: inviteForm.role === 'FACULTY_EDITOR' ? inviteForm.facultyId : null,
+                faculty_id: facultyScoped ? inviteForm.facultyId : null,
                 semester_id: inviteForm.semesterId ? parseInt(inviteForm.semesterId) : null
             };
             const response = await apiClient.post('/auth/invite', payload);
@@ -165,9 +166,7 @@ export default function StaffManagementPage() {
                                 <tr>
                                     <th>Target Email</th>
                                     <th>Assigned Role</th>
-                                    <th>Restricted Boundary</th>
-                                    <th>Semester Override</th>
-                                    <th>Register Token</th>
+                                    <th>Restriction</th>
                                     <th>Actions</th>
                                 </tr>
                             </thead>
@@ -181,24 +180,6 @@ export default function StaffManagementPage() {
                                             </span>
                                         </td>
                                         <td>{inv.faculty_id ? (faculties.find(f => f.id === inv.faculty_id)?.name || inv.faculty_id) : 'Global'}</td>
-                                        <td style={{ fontSize: '0.9rem', color: 'var(--color-text-muted)' }}>
-                                            {inv.semester_id ? (availableSemesters.find(s => s.id === inv.semester_id)?.name || `ID: ${inv.semester_id}`) : 'Global'}
-                                        </td>
-                                        <td>
-                                            {inv.is_used ? (
-                                                <span style={{ color: '#10b981', fontWeight: 'bold' }}>✓ Registered</span>
-                                            ) : (
-                                                <div className={styles.tokenField}>
-                                                    {inv.token.substring(0, 15)}...
-                                                    <button className={styles.copyBtn} onClick={() => handleCopyToken(inv.token)} title="Copy Full Token">
-                                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                            <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-                                                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-                                                        </svg>
-                                                    </button>
-                                                </div>
-                                            )}
-                                        </td>
                                         <td>
                                             <button className={styles.btnDangerOutlined} onClick={() => handleDeleteInvite(inv.id)}>Revoke</button>
                                         </td>
@@ -225,9 +206,9 @@ export default function StaffManagementPage() {
                             <thead>
                                 <tr>
                                     <th>Authorized User</th>
-                                    <th>Configured Role</th>
-                                    <th>Boundary Profile</th>
-                                    <th>Created Sequence</th>
+                                    <th>Role</th>
+                                    <th>Restriction</th>
+                                    <th>Access Date</th>
                                     <th>Actions</th>
                                 </tr>
                             </thead>
@@ -237,10 +218,10 @@ export default function StaffManagementPage() {
                                         <td style={{ fontWeight: 600 }}>{u.email}</td>
                                         <td>
                                             <span className={`${styles.roleBadge} ${u.role === 'SUPER_ADMIN' ? styles.roleBadgeAdmin : ''}`}>
-                                                {u.role.replace('_', ' ')}
+                                                {u.role === 'GS_ADMIN' ? 'GENERAL STUDIES' : u.role.replace('_', ' ')}
                                             </span>
                                         </td>
-                                        <td>{u.faculty_id ? (faculties.find(f => f.id === u.faculty_id)?.name || u.faculty_id) : 'Global Architecture'}</td>
+                                        <td>{u.faculty_id ? (faculties.find(f => f.id === u.faculty_id)?.name || u.faculty_id) : 'Global'}</td>
                                         <td style={{ color: '#64748b' }}>{new Date(u.created_at).toLocaleDateString()}</td>
                                         <td>
                                             {user.email !== u.email ? (
@@ -285,11 +266,14 @@ export default function StaffManagementPage() {
                                     onChange={e => setInviteForm({ ...inviteForm, role: e.target.value })}
                                 >
                                     <option value="FACULTY_EDITOR">Faculty Editor</option>
+                                    <option value="FACULTY_VIEWER">Faculty Viewer</option>
+                                    <option value="GS_ADMIN">General Studies Admin</option>
                                     <option value="SUPER_ADMIN">Super Administrator</option>
+                                    <option value="SUPER_VIEWER">Super Administrator (View only)</option>
                                 </select>
                             </div>
 
-                            {inviteForm.role === 'FACULTY_EDITOR' && (
+                            {(inviteForm.role === 'FACULTY_EDITOR' || inviteForm.role === 'FACULTY_VIEWER') && (
                                 <div className={styles.modalFormGroup}>
                                     <label className={styles.modalFormLabel}>Assign Faculty Constraint</label>
                                     <select
@@ -318,7 +302,7 @@ export default function StaffManagementPage() {
                         </div>
                         <div className="modal-footer">
                             <button className="btn btn-secondary" onClick={() => setIsInviteModalOpen(false)} disabled={isInviting}>Cancel</button>
-                            <button className="btn btn-primary" onClick={handleInvite} disabled={!inviteForm.email || (inviteForm.role === 'FACULTY_EDITOR' && !inviteForm.facultyId) || isInviting}>
+                            <button className="btn btn-primary" onClick={handleInvite} disabled={!inviteForm.email || ((inviteForm.role === 'FACULTY_EDITOR' || inviteForm.role === 'FACULTY_VIEWER') && !inviteForm.facultyId) || isInviting}>
                                 {isInviting ? 'Sending...' : 'Send Invitation Email'}
                             </button>
                         </div>
