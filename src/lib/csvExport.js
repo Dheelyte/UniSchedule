@@ -1,96 +1,82 @@
-/**
- * CSV timetable export.
- *
- * Lecture columns: Day, Start, End, Course Code, Course Title, Lecturers, Rooms, Faculty, Department, Week
- * Exam columns:    Date, Day, Start, End, Course Code, Course Title, Lecturers, Rooms, Faculty, Department
- *
- * A small metadata block (title, session, semester, faculty, department filter) is written above the
- * table so the file is self-describing when opened in a spreadsheet.
- */
-export function exportTimetableCSV({ schedules, title, session, semester, faculty, department, mode }) {
-    if (!schedules || schedules.length === 0) return;
+export function exportTimetableCSV({
+  schedules,
+  title,
+  session,
+  semester,
+  faculty,
+  mode,
+}) {
+  if (!schedules || schedules.length === 0) return;
 
-    const escape = (val) => {
-        if (val === null || val === undefined) return '';
-        const s = String(val);
-        if (/[",\r\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
-        return s;
-    };
-    const row = (cells) => cells.map(escape).join(',');
+  const headers =
+    mode === "exam"
+      ? ["Date", "Day", "Start Time", "End Time", "Room(s)", "Course Code", "Course Title", "Department", "Faculty", "Invigilators"]
+      : ["Day", "Start Time", "End Time", "Room(s)", "Course Code", "Course Title", "Department", "Faculty", "Lecturers"];
 
-    const isExam = mode === 'exam';
-    const ACTIVE_DAYS = isExam
-        ? ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
-        : ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+  const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
-    const sorted = [...schedules].sort((a, b) => {
-        if (isExam) {
-            const da = a.examDate || '';
-            const db = b.examDate || '';
-            if (da !== db) return da.localeCompare(db);
-        } else {
-            const ai = ACTIVE_DAYS.indexOf(a.day);
-            const bi = ACTIVE_DAYS.indexOf(b.day);
-            if (ai !== bi) return ai - bi;
-        }
-        return (a.startTime || '').localeCompare(b.startTime || '');
-    });
+  // Parse YYYY-MM-DD without timezone shift (same approach as pdfExport)
+  const parseLocalDate = (ds) => {
+    if (!ds) return null;
+    const [y, m, d] = ds.split("-").map(Number);
+    return new Date(y, m - 1, d);
+  };
 
-    const header = isExam
-        ? ['Date', 'Day', 'Start', 'End', 'Course Code', 'Course Title', 'Lecturers', 'Rooms', 'Faculty', 'Department']
-        : ['Day', 'Start', 'End', 'Course Code', 'Course Title', 'Lecturers', 'Rooms', 'Faculty', 'Department', 'Week'];
+  const sorted = [...schedules].sort((a, b) => {
+    if (mode === "exam") {
+      if (a.examDate < b.examDate) return -1;
+      if (a.examDate > b.examDate) return 1;
+    } else {
+      const dayDiff = DAYS.indexOf(a.day) - DAYS.indexOf(b.day);
+      if (dayDiff !== 0) return dayDiff;
+    }
+    return (a.startTime || "").localeCompare(b.startTime || "");
+  });
 
-    const dataRows = sorted.map((s) => {
-        const lecturers = Array.isArray(s.courseLecturers) ? s.courseLecturers.join('; ') : '';
-        if (isExam) {
-            const dateObj = s.examDate ? new Date(s.examDate) : null;
-            const dayName = dateObj ? dateObj.toLocaleDateString('en-GB', { weekday: 'long' }) : '';
-            return row([
-                s.examDate || '',
-                dayName,
-                s.startTime || '',
-                s.endTime || '',
-                s.courseCode || '',
-                s.courseTitle || '',
-                lecturers,
-                s.roomNames || '',
-                s.facultyName || '',
-                s.departmentName || '',
-            ]);
-        }
-        return row([
-            s.day || '',
-            s.startTime || '',
-            s.endTime || '',
-            s.courseCode || '',
-            s.courseTitle || '',
-            lecturers,
-            s.roomNames || '',
-            s.facultyName || '',
-            s.departmentName || '',
-            s.week || '',
-        ]);
-    });
+  const rows = sorted.map((s) => {
+    const lecturers = (s.courseLecturers || []).join("; ");
+    if (mode === "exam") {
+      const dateObj = parseLocalDate(s.examDate);
+      const dateStr = dateObj
+        ? dateObj.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })
+        : "";
+      const dayStr = dateObj
+        ? dateObj.toLocaleDateString("en-GB", { weekday: "long" })
+        : "";
+      return [dateStr, dayStr, s.startTime, s.endTime, s.roomNames, s.courseCode, s.courseTitle, s.departmentName, s.facultyName, lecturers];
+    }
+    return [s.day, s.startTime, s.endTime, s.roomNames, s.courseCode, s.courseTitle, s.departmentName, s.facultyName, lecturers];
+  });
 
-    const meta = [
-        row([title || (isExam ? 'Examination Timetable' : 'Lecture Timetable')]),
-        session ? row([`Session: ${session}`]) : null,
-        semester ? row([`Semester: ${semester}`]) : null,
-        faculty ? row([`Faculty: ${faculty}`]) : null,
-        department ? row([`Department: ${department}`]) : null,
-        '',
-    ].filter((line) => line !== null);
+  const escape = (val) => {
+    const str = val == null ? "" : String(val);
+    return str.includes(",") || str.includes('"') || str.includes("\n")
+      ? `"${str.replace(/"/g, '""')}"`
+      : str;
+  };
 
-    const csv = [...meta, row(header), ...dataRows].join('\r\n');
+  const metaLines = [
+    "University of Lagos",
+    [session, semester, faculty].filter(Boolean).join(" · "),
+    title,
+    `Generated: ${new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })}`,
+    "",
+  ].map((line) => escape(line));
 
-    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
-    const fileName = `${(title || 'timetable').replace(/\s+/g, '_').toLowerCase()}_${new Date().toISOString().slice(0, 10)}.csv`;
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = fileName;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+  const csvContent = [
+    ...metaLines,
+    headers.map(escape).join(","),
+    ...rows.map((row) => row.map(escape).join(",")),
+  ].join("\n");
+
+  // ﻿ BOM ensures Excel reads UTF-8 correctly
+  const blob = new Blob(["﻿" + csvContent], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `${title.replace(/\s+/g, "_").toLowerCase()}_${new Date().toISOString().slice(0, 10)}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 100);
 }

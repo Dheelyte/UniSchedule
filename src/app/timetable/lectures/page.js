@@ -29,6 +29,7 @@ export default function LectureTimetablePage() {
     const [semesterLabel, setSemesterLabel] = useState('');
     const [blockedSlots, setBlockedSlots] = useState([]);
     const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+    const [exportFormat, setExportFormat] = useState('pdf');
     const [isLocked, setIsLocked] = useState(false);
     const [lockBusy, setLockBusy] = useState(false);
     const [isRequestModalOpen, setIsRequestModalOpen] = useState(false);
@@ -110,7 +111,7 @@ export default function LectureTimetablePage() {
             if (sem) setSemesterLabel(`${sem.sessionName} - ${sem.name}`);
         }
     }, [selectedSemesterId, loadSchedules]);
-
+  
     const handleToggleLock = async () => {
         if (selectedSemesterId === null || lockBusy) return;
         const next = !isLocked;
@@ -179,7 +180,7 @@ export default function LectureTimetablePage() {
         }
     };
 
-    const handleExportInit = () => {
+    const handleExportInit = (format) => {
         const schedules = getSchedulesWithDetails.filter((s) => s.type === 'lecture');
         const conflictsMap = detectAllConflicts(schedules);
         const hasErrors = Array.from(conflictsMap.values()).some((conflicts) =>
@@ -189,6 +190,7 @@ export default function LectureTimetablePage() {
             addToast({ type: 'error', title: 'Export Failed', message: 'Please resolve all schedule conflicts before exporting.' });
             return;
         }
+        setExportFormat(format);
         setIsExportModalOpen(true);
     };
 
@@ -229,19 +231,31 @@ export default function LectureTimetablePage() {
 
         const blockedSlots = await apiClient.get(`/timetable/blocked-slots?semester_id=${selectedSemesterId}`).catch(() => []);
 
-        exportTimetablePDF({
-            schedules: filteredSchedules,
-            blockedSlots,
-            rooms: state.rooms,
-            title: 'Lecture Timetable',
-            session,
-            semester,
-            faculty: facultyInfo,
-            department: departmentInfo,
-            schoolName: 'University of Lagos',
-            mode: 'lecture',
-        });
-        addToast({ type: 'success', title: 'PDF Exported', message: 'Lecture timetable downloaded as PDF.' });
+        if (exportFormat === 'csv') {
+            exportTimetableCSV({
+                schedules: filteredSchedules,
+                title: 'Lecture Timetable',
+                session,
+                semester,
+                faculty: facultyInfo,
+                mode: 'lecture',
+            });
+            addToast({ type: 'success', title: 'CSV Exported', message: 'Lecture timetable downloaded as CSV.' });
+        } else {
+            const fetchedBlockedSlots = await apiClient.get(`/timetable/blocked-slots?semester_id=${selectedSemesterId}`).catch(() => []);
+            exportTimetablePDF({
+                schedules: filteredSchedules,
+                blockedSlots: fetchedBlockedSlots,
+                rooms: state.rooms,
+                title: 'Lecture Timetable',
+                session,
+                semester,
+                faculty: facultyInfo,
+                schoolName: 'University of Lagos',
+                mode: 'lecture',
+            });
+            addToast({ type: 'success', title: 'PDF Exported', message: 'Lecture timetable downloaded as PDF.' });
+        }
     };
 
     if (selectedSemesterId === null) return <TimetableSkeleton />;
@@ -281,7 +295,7 @@ export default function LectureTimetablePage() {
                             ))}
                         </select>
                     )}
-                    <button className="btn btn-secondary" onClick={handleExportInit}>
+                    <button className="btn btn-secondary" onClick={() => handleExportInit()}>
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
                             <polyline points="7 10 12 15 17 10" />
