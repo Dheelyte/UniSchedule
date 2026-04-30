@@ -1,5 +1,5 @@
 /* ========================================
-   UNILAG TIMETABLE — GLOBAL DESIGN SYSTEM
+   UNILAG TIMETABLE - GLOBAL DESIGN SYSTEM
    ======================================== */
 
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
@@ -27,7 +27,7 @@
   --color-info: #2563eb;
   --color-info-bg: rgba(37, 99, 235, 0.06);
 
-  /* Neutrals — LIGHT MODE */
+  /* Neutrals - LIGHT MODE */
   --color-bg: #f1f5f9;
   --color-bg-elevated: #ffffff;
   --color-bg-card: #ffffff;

@@ -24,6 +24,8 @@ class Settings(BaseSettings):
     COOKIE_SECURE: bool = False
     COOKIE_SAMESITE: str = "lax"
 
+    PASSWORD_RESET_CODE_EXPIRE_MINUTES: int = Field(default=10)
+
     CORS_ALLOWED_ORIGINS: list[str] = ["http://127.0.0.1:3000"]
 
     # --- Email Configuration ---

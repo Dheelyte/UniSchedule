@@ -51,3 +51,10 @@
     background: #6366f1;
     box-shadow: 0 0 8px rgba(99, 102, 241, 0.5);
 }
+
+@media (max-width: 768px) {
+    .page { padding: 14px 10px; }
+    .pageHeader { flex-direction: column; align-items: stretch; gap: 12px; margin-bottom: 16px; }
+    .headerActions { flex-wrap: wrap; gap: 8px; }
+    .headerActions select { flex: 1 1 100%; min-width: 0 !important; }
+}

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
 import { useAuth } from '@/context/AuthContext';
 import styles from './login.module.css';
 import { unilagLogoBase64 } from '@/lib/logo';
@@ -63,6 +64,11 @@ export default function LoginPage() {
                         {loading ? 'Authenticating...' : 'Sign In'}
                     </button>
                 </form>
+                <div style={{ marginTop: '20px', fontSize: '13px', textAlign: 'center' }}>
+                    <Link href="/forgot-password" style={{ color: '#2563eb', textDecoration: 'none' }}>
+                        Forgot your password?
+                    </Link>
+                </div>
             </div>
         </div>
     );

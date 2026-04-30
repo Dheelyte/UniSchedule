@@ -227,3 +227,12 @@
     border-color: #6366f1;
     box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
 }
+
+@media (max-width: 768px) {
+    .page { padding: 16px 14px; }
+    .pageHeader { flex-direction: column; align-items: stretch; gap: 12px; }
+    .headerActions { flex-wrap: wrap; }
+    .section { padding: 16px; }
+    .tableWrapper { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    .table { min-width: 640px; }
+}

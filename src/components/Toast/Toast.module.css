@@ -109,3 +109,17 @@
         transform: translateX(0) scale(1);
     }
 }
+
+@media (max-width: 480px) {
+    .container {
+        top: 12px;
+        left: 12px;
+        right: 12px;
+        max-width: none;
+    }
+
+    .toast {
+        min-width: 0;
+        width: 100%;
+    }
+}

@@ -23,11 +23,12 @@ conf = ConnectionConfig(
 class EmailService:
     @staticmethod
     async def send_invitation_email(recipient_email: str, token: str, role: str, faculty_name: str | None = None):
+        invite_link = f"{settings.FRONTEND_URL}/register?token={token}"
         template_body = {
             "recipient_email": recipient_email,
             "role": role.replace("_", " "),
             "faculty_name": faculty_name if faculty_name else None,
-            "invite_link": f"{settings.FRONTEND_URL}/register?token={token}"
+            "invite_link": invite_link
         }
         
         # logo_bytes = base64.b64decode(UNILAG_LOGO_BASE64.split(",")[1])
@@ -44,9 +45,71 @@ class EmailService:
         fm = FastMail(conf)
         
         if settings.ENVIRONMENT == "dev":
-            print(f"[DEBUG] Sending Welcome Email to {recipient_email}")
+            print(f"[DEBUG] Email to {recipient_email}: {invite_link}")
             if settings.MAIL_SERVER == "test":
                 print("[DEBUG] Mock Welcome Email Sent")
             return
-                 
+
         await fm.send_message(message, template_name="invitation_email.html")
+
+    @staticmethod
+    async def send_generic_notification(
+        recipients: list[str],
+        title: str,
+        message: str,
+        link: str | None = None,
+    ):
+        if not recipients:
+            return
+
+        template_body = {
+            "title": title,
+            "message": message,
+            "link": f"{settings.FRONTEND_URL}{link}" if link else None,
+        }
+
+        conf.TEMPLATE_FOLDER = settings.TEMPLATE_FOLDER
+
+        msg = MessageSchema(
+            subject=title,
+            recipients=recipients,
+            template_body=template_body,
+            subtype=MessageType.html,
+        )
+
+        if settings.ENVIRONMENT == "dev":
+            print(f"[DEBUG] Sending notification email to {recipients}: {title}")
+            if settings.MAIL_SERVER == "test":
+                print("[DEBUG] Mock notification email sent")
+            return
+
+        await FastMail(conf).send_message(msg, template_name="notification_email.html")
+
+    @staticmethod
+    async def send_password_reset_email(
+        recipients: list[str],
+        title: str,
+        code: str,
+    ):
+        template_body = {
+            "title": title,
+            "email": recipients[0],
+            "code": code,
+        }
+
+        conf.TEMPLATE_FOLDER = settings.TEMPLATE_FOLDER
+
+        msg = MessageSchema(
+            subject=title,
+            recipients=recipients,
+            template_body=template_body,
+            subtype=MessageType.html,
+        )
+
+        if settings.ENVIRONMENT == "dev":
+            print(f"[DEBUG] Sending notification email to {recipients}: {title}. Code: {code}")
+            if settings.MAIL_SERVER == "test":
+                print("[DEBUG] Mock notification email sent")
+            return
+
+        await FastMail(conf).send_message(msg, template_name="password_reset_email.html")

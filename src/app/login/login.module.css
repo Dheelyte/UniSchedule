@@ -106,3 +106,9 @@
     text-align: left;
     border-left: 3px solid #ef4444;
 }
+
+@media (max-width: 480px) {
+    .container { padding: 12px; }
+    .card { padding: 28px 20px; }
+    .title { font-size: 20px; }
+}

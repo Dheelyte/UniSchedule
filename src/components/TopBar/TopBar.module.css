@@ -85,3 +85,37 @@
     color: var(--color-danger);
     border-color: rgba(239, 68, 68, 0.3);
 }
+
+@media (max-width: 768px) {
+    .topbar {
+        left: 0;
+        padding: 0 12px;
+    }
+
+    .left {
+        gap: 10px;
+        min-width: 0;
+        flex: 1;
+    }
+
+    .titleInfo {
+        min-width: 0;
+    }
+
+    .title {
+        font-size: 1rem;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .right {
+        gap: 6px;
+    }
+}
+
+@media (max-width: 480px) {
+    .subtitle {
+        display: none;
+    }
+}

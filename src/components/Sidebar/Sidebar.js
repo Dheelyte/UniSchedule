@@ -22,7 +22,7 @@ const navItems = [
   {
     label: 'Faculties & Departments',
     href: '/faculties',
-    roles: ['SUPER_ADMIN', 'FACULTY_EDITOR', 'FACULTY_VIEWER'],
+    roles: ['SUPER_ADMIN', 'SUPER_VIEWER', 'FACULTY_EDITOR', 'FACULTY_VIEWER', 'GS_ADMIN'],
     icon: (
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <path d="M2 20V8l10-5 10 5v12" />
@@ -36,7 +36,7 @@ const navItems = [
   {
     label: 'Courses',
     href: '/courses',
-    roles: ['SUPER_ADMIN', 'FACULTY_EDITOR', 'FACULTY_VIEWER'],
+    roles: ['SUPER_ADMIN', 'SUPER_VIEWER', 'FACULTY_EDITOR', 'FACULTY_VIEWER', 'GS_ADMIN'],
     icon: (
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
@@ -49,7 +49,7 @@ const navItems = [
   {
     label: 'Rooms',
     href: '/rooms',
-    roles: ['SUPER_ADMIN', 'FACULTY_EDITOR', 'FACULTY_VIEWER'],
+    roles: ['SUPER_ADMIN', 'SUPER_VIEWER', 'FACULTY_EDITOR', 'FACULTY_VIEWER', 'GS_ADMIN'],
     icon: (
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
@@ -112,7 +112,7 @@ const navItems = [
   },
 ];
 
-export default function Sidebar({ isCollapsed, toggleCollapse }) {
+export default function Sidebar({ isCollapsed, isMobileOpen = false, onMobileClose }) {
   const pathname = usePathname();
   const { user } = useAuth();
   const role = user?.role;
@@ -123,8 +123,10 @@ export default function Sidebar({ isCollapsed, toggleCollapse }) {
     return item.roles.includes(role);
   };
 
+  const handleNavClick = () => { if (onMobileClose) onMobileClose(); };
+
   return (
-    <aside className={`${styles.sidebar} ${isCollapsed ? styles.collapsed : ''}`}>
+    <aside className={`${styles.sidebar} ${isCollapsed ? styles.collapsed : ''} ${isMobileOpen ? styles.mobileOpen : ''}`}>
       {/* Brand */}
       <div className={styles.brand}>
         <div className={styles.logo}>
@@ -162,6 +164,7 @@ export default function Sidebar({ isCollapsed, toggleCollapse }) {
               href={item.href}
               className={`${styles.navItem} ${isActive ? styles.navItemActive : ''} ${isCollapsed ? styles.navItemCollapsed : ''}`}
               title={isCollapsed ? item.label : undefined}
+              onClick={handleNavClick}
             >
               <span className={styles.navIcon}>{item.icon}</span>
               {!isCollapsed && <span className={styles.navLabel}>{item.label}</span>}

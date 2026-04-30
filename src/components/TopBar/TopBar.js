@@ -3,6 +3,7 @@
 import { usePathname } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import { useConfirm } from '@/components/ConfirmModal/ConfirmContext';
+import NotificationsDropdown from '@/components/NotificationsDropdown/NotificationsDropdown';
 import styles from './TopBar.module.css';
 
 const pageTitles = {
@@ -45,6 +46,7 @@ export default function TopBar({ isSidebarCollapsed, toggleCollapse }) {
             </div>
 
             <div className={styles.right}>
+                <NotificationsDropdown />
                 {/* Logout Button */}
                 <button className={styles.logoutBtn} onClick={async () => {
                     if (await confirm("Are you sure you want to log out?")) {

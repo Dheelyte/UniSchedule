@@ -117,3 +117,13 @@
     flex: 1;
     justify-content: center;
 }
+
+@media (max-width: 480px) {
+    .footer {
+        flex-wrap: wrap;
+    }
+
+    .btn {
+        flex: 1 1 100%;
+    }
+}

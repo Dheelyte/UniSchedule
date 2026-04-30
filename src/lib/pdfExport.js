@@ -2,7 +2,7 @@ import jsPDF from 'jspdf';
 import { unilagLogoBase64 } from '@/lib/logo';
 
 /**
- * PDF timetable — Rooms × Time grid
+ * PDF timetable - Rooms × Time grid
  *
  * Layout:
  *  - Rows    = Rooms  (spills over to next page if too many rooms)
@@ -11,7 +11,7 @@ import { unilagLogoBase64 } from '@/lib/logo';
  *
  * Course cards show: course code only.
  */
-export function exportTimetablePDF({ schedules, blockedSlots = [], rooms = [], title, session, semester, faculty, schoolName = 'University of Lagos', mode }) {
+export function exportTimetablePDF({ schedules, blockedSlots = [], rooms = [], title, session, semester, faculty, department, schoolName = 'University of Lagos', mode }) {
     if (!schedules || schedules.length === 0) return;
 
     const ACTIVE_DAYS = mode === 'exam'
@@ -173,7 +173,8 @@ export function exportTimetablePDF({ schedules, blockedSlots = [], rooms = [], t
             const metaText = [
                 session ? `${session} Session` : null,
                 semester,
-                faculty
+                faculty,
+                department
             ].filter(Boolean).join('   ·   ');
             if (metaText) {
                 pdf.text(metaText, pageW / 2, curY + 12, { align: 'center' });

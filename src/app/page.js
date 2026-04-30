@@ -248,7 +248,7 @@ export default function DashboardPage() {
           <div className={styles.panelHeader}>
             <span className={styles.panelTitle}>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></svg>
-              Today&apos;s Lectures {today && <span style={{ fontWeight: 400, color: 'var(--color-text-muted)' }}>— {today}</span>}
+              Today&apos;s Lectures {today && <span style={{ fontWeight: 400, color: 'var(--color-text-muted)' }}>- {today}</span>}
             </span>
             <Link href="/timetable/lectures" className={styles.panelLink}>View All →</Link>
           </div>
@@ -267,7 +267,7 @@ export default function DashboardPage() {
                     </span>
                     <span className={styles.timelineDot} style={{ background: TIMELINE_COLORS[i % TIMELINE_COLORS.length] }} />
                     <div className={styles.timelineContent}>
-                      <div className={styles.timelineCourse}>{s.courseCode} — {s.courseTitle}</div>
+                      <div className={styles.timelineCourse}>{s.courseCode} - {s.courseTitle}</div>
                       <div className={styles.timelineDetail}>
                         📍 {s.roomNames} &nbsp;·&nbsp; {s.startTime?.slice(0, 5)} – {s.endTime?.slice(0, 5)}
                       </div>

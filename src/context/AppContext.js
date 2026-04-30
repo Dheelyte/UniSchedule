@@ -222,7 +222,8 @@ export function AppProvider({ children }) {
             const faculty = dept ? state.faculties.find((f) => f.id === dept.facultyId) : null;
             return {
                 ...course,
-                departmentName: dept?.name || (course.scope === 'UNIVERSITY_WIDE' ? '—' : 'Unknown'),
+                facultyId: faculty?.id || null,
+                departmentName: dept?.name || (course.scope === 'UNIVERSITY_WIDE' ? '-' : 'Unknown'),
                 facultyName: faculty?.name || (course.scope === 'UNIVERSITY_WIDE' ? 'University' : 'Unknown'),
                 scope: course.scope || 'DEPARTMENTAL',
             };
@@ -245,13 +246,16 @@ export function AppProvider({ children }) {
                 courseTitle: course?.title || 'Unknown',
                 courseLecturers: course?.lecturers || [],
                 courseLocations: course?.locations || [],
+                courseLevel: course?.level ?? null,
+                courseScope: course?.scope ?? null,
+                courseDepartmentId: course?.departmentId ?? null,
                 // Multi-room display helpers
                 roomNames: resolvedRooms.map((r) => r.name).join(', ') || 'Unknown',
                 roomCapacity: resolvedRooms.reduce((sum, r) => sum + (r.capacity || 0), 0),
                 departmentId: dept?.id || null,
                 departmentName: dept?.name || 'Unknown',
-                facultyId: faculty?.id || null,
-                facultyName: faculty?.name || 'Unknown',
+                facultyId: item.facultyId || faculty?.id || null,
+                facultyName: state.faculties.find((f) => f.id === (item.facultyId || faculty?.id))?.name || 'Unknown',
             };
         });
     }, [state]);
