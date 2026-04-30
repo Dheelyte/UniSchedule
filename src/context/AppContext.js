@@ -211,7 +211,7 @@ export function AppProvider({ children }) {
     const getDepartmentsWithFaculty = useMemo(() => {
         return state.departments.map((dept) => {
             const faculty = state.faculties.find((f) => f.id === dept.facultyId);
-            return { ...dept, facultyName: faculty?.name || 'Unknown' };
+            return { ...dept, facultyName: faculty?.name || 'NIL' };
         });
     }, [state.departments, state.faculties]);
 
@@ -223,8 +223,8 @@ export function AppProvider({ children }) {
             return {
                 ...course,
                 facultyId: faculty?.id || null,
-                departmentName: dept?.name || (course.scope === 'UNIVERSITY_WIDE' ? '-' : 'Unknown'),
-                facultyName: faculty?.name || (course.scope === 'UNIVERSITY_WIDE' ? 'University' : 'Unknown'),
+                departmentName: dept?.name || (course.scope === 'UNIVERSITY_WIDE' ? '-' : 'NIL'),
+                facultyName: faculty?.name || (course.scope === 'UNIVERSITY_WIDE' ? 'University' : 'NIL'),
                 scope: course.scope || 'DEPARTMENTAL',
             };
         });
@@ -243,19 +243,19 @@ export function AppProvider({ children }) {
                 ...item,
                 roomIds: ids,
                 courseCode: course?.code || 'N/A',
-                courseTitle: course?.title || 'Unknown',
+                courseTitle: course?.title || 'NIL',
                 courseLecturers: course?.lecturers || [],
                 courseLocations: course?.locations || [],
                 courseLevel: course?.level ?? null,
                 courseScope: course?.scope ?? null,
                 courseDepartmentId: course?.departmentId ?? null,
                 // Multi-room display helpers
-                roomNames: resolvedRooms.map((r) => r.name).join(', ') || 'Unknown',
+                roomNames: resolvedRooms.map((r) => r.name).join(', ') || 'NIL',
                 roomCapacity: resolvedRooms.reduce((sum, r) => sum + (r.capacity || 0), 0),
                 departmentId: dept?.id || null,
-                departmentName: dept?.name || 'Unknown',
+                departmentName: dept?.name || 'NIL',
                 facultyId: item.facultyId || faculty?.id || null,
-                facultyName: state.faculties.find((f) => f.id === (item.facultyId || faculty?.id))?.name || 'Unknown',
+                facultyName: state.faculties.find((f) => f.id === (item.facultyId || faculty?.id))?.name || 'NIL',
             };
         });
     }, [state]);
