@@ -5,6 +5,7 @@ import { useApp, ACTION_TYPES } from '@/context/AppContext';
 import { apiClient } from '@/lib/apiClient';
 import { detectAllConflicts } from '@/lib/conflicts';
 import { exportTimetablePDF } from '@/lib/pdfExport';
+import { exportTimetableCSV } from '@/lib/csvExport';
 import TimetableGrid from '@/components/TimetableGrid/TimetableGrid';
 import { useToast } from '@/components/Toast/Toast';
 import ExportModal from '@/components/ExportModal/ExportModal';
@@ -21,6 +22,7 @@ export default function LectureTimetablePage() {
     const [semesterLabel, setSemesterLabel] = useState('');
     const [blockedSlots, setBlockedSlots] = useState([]);
     const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+    const [exportFormat, setExportFormat] = useState('pdf');
 
     // Load all sessions/semesters for the picker
     useEffect(() => {
@@ -88,7 +90,7 @@ export default function LectureTimetablePage() {
         }
     }, [selectedSemesterId, loadSchedules]);
 
-    const handleExportInit = () => {
+    const handleExportInit = (format) => {
         const schedules = getSchedulesWithDetails.filter((s) => s.type === 'lecture');
         const conflictsMap = detectAllConflicts(schedules);
         const hasErrors = Array.from(conflictsMap.values()).some((conflicts) =>
@@ -98,6 +100,7 @@ export default function LectureTimetablePage() {
             addToast({ type: 'error', title: 'Export Failed', message: 'Please resolve all schedule conflicts before exporting.' });
             return;
         }
+        setExportFormat(format);
         setIsExportModalOpen(true);
     };
 
@@ -110,24 +113,35 @@ export default function LectureTimetablePage() {
             return;
         }
 
-        const blockedSlots = await apiClient.get(`/timetable/blocked-slots?semester_id=${selectedSemesterId}`).catch(() => []);
-
         const facultyInfo = facultyId === 'ALL'
             ? 'All Faculties'
             : state.faculties.find(f => f.id === facultyId)?.name || 'Unknown Faculty';
 
-        exportTimetablePDF({
-            schedules: filteredSchedules,
-            blockedSlots,
-            rooms: state.rooms,
-            title: 'Lecture Timetable',
-            session,
-            semester,
-            faculty: facultyInfo,
-            schoolName: 'University of Lagos',
-            mode: 'lecture',
-        });
-        addToast({ type: 'success', title: 'PDF Exported', message: 'Lecture timetable downloaded as PDF.' });
+        if (exportFormat === 'csv') {
+            exportTimetableCSV({
+                schedules: filteredSchedules,
+                title: 'Lecture Timetable',
+                session,
+                semester,
+                faculty: facultyInfo,
+                mode: 'lecture',
+            });
+            addToast({ type: 'success', title: 'CSV Exported', message: 'Lecture timetable downloaded as CSV.' });
+        } else {
+            const fetchedBlockedSlots = await apiClient.get(`/timetable/blocked-slots?semester_id=${selectedSemesterId}`).catch(() => []);
+            exportTimetablePDF({
+                schedules: filteredSchedules,
+                blockedSlots: fetchedBlockedSlots,
+                rooms: state.rooms,
+                title: 'Lecture Timetable',
+                session,
+                semester,
+                faculty: facultyInfo,
+                schoolName: 'University of Lagos',
+                mode: 'lecture',
+            });
+            addToast({ type: 'success', title: 'PDF Exported', message: 'Lecture timetable downloaded as PDF.' });
+        }
     };
 
     if (selectedSemesterId === null) return <TimetableSkeleton />;
@@ -151,7 +165,15 @@ export default function LectureTimetablePage() {
                             ))}
                         </select>
                     )}
-                    <button className="btn btn-secondary" onClick={handleExportInit}>
+                    <button className="btn btn-secondary" onClick={() => handleExportInit('csv')}>
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                            <polyline points="7 10 12 15 17 10" />
+                            <line x1="12" y1="15" x2="12" y2="3" />
+                        </svg>
+                        Export CSV
+                    </button>
+                    <button className="btn btn-secondary" onClick={() => handleExportInit('pdf')}>
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
                             <polyline points="7 10 12 15 17 10" />
