@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ title }}</title>
+    <style>
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            background-color: #f1f5f9;
+            margin: 0;
+            padding: 0;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        .container {
+            max-width: 600px;
+            margin: 40px auto;
+            background-color: #ffffff;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+        }
+
+        .header {
+            background-color: #6366f1;
+            padding: 32px;
+            text-align: center;
+        }
+
+        .header h1 {
+            color: #ffffff;
+            font-size: 24px;
+            margin: 0;
+            font-weight: 700;
+        }
+
+        .header h3 {
+            color: rgba(255, 255, 255, 0.9);
+            font-size: 18px;
+            margin: 8px 0 0 0;
+            font-weight: 600;
+        }
+
+        .content {
+            padding: 32px;
+            color: #0f172a;
+            line-height: 1.6;
+        }
+
+        .content h2 {
+            font-size: 20px;
+            margin: 0 0 16px 0;
+            color: #0f172a;
+        }
+
+        .content p {
+            margin: 0 0 16px 0;
+            font-size: 16px;
+            color: #334155;
+            white-space: pre-wrap;
+        }
+
+        .btn-container {
+            text-align: center;
+            margin-top: 32px;
+            margin-bottom: 8px;
+        }
+
+        .btn {
+            background-color: #6366f1;
+            color: #ffffff !important;
+            padding: 14px 28px;
+            border-radius: 8px;
+            text-decoration: none;
+            font-weight: 600;
+            display: inline-block;
+            box-shadow: 0 2px 8px rgba(99, 102, 241, 0.3);
+        }
+
+        .footer {
+            background-color: #f8fafc;
+            padding: 24px;
+            text-align: center;
+            color: #94a3b8;
+            font-size: 14px;
+            border-top: 1px solid #e2e8f0;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>University of Lagos</h1>
+            <h3>Timetable Manager</h3>
+        </div>
+        <div class="content">
+            <h2>{{ title }}</h2>
+            <p>{{ message }}</p>
+            {% if link %}
+            <div class="btn-container">
+                <a href="{{ link }}" class="btn">Open Timetable Manager</a>
+            </div>
+            {% endif %}
+        </div>
+        <div class="footer">
+            <p>University of Lagos Timetable Manager</p>
+        </div>
+    </div>
+</body>
+
+</html>

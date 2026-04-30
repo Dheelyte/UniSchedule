@@ -24,6 +24,25 @@
     font-weight: 700;
     font-size: 0.9rem;
     color: var(--color-text);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.markAll {
+    background: transparent;
+    border: none;
+    color: var(--color-primary);
+    font-size: 0.75rem;
+    font-weight: 500;
+    cursor: pointer;
+    padding: 0;
+}
+
+.markAll:disabled {
+    color: var(--color-text-muted);
+    cursor: default;
 }
 
 .list {
@@ -75,4 +94,12 @@
     text-align: center;
     color: var(--color-text-muted);
     font-size: 0.8rem;
+}
+
+@media (max-width: 480px) {
+    .dropdown {
+        width: calc(100vw - 24px);
+        right: 12px;
+        max-height: 70vh;
+    }
 }

@@ -6,6 +6,8 @@ import { apiClient } from '@/lib/apiClient';
 import { useToast } from '@/components/Toast/Toast';
 import { useAuth } from '@/context/AuthContext';
 import styles from '../login/login.module.css';
+import { unilagLogoBase64 } from '@/lib/logo';
+
 
 export default function RegisterPage() {
     const router = useRouter();
@@ -61,7 +63,7 @@ export default function RegisterPage() {
         return (
             <div className={styles.container}>
                 <div className={styles.card}>
-                    <div className={styles.logo}>🏫 UniSchedule</div>
+                    <div className={styles.logo}>University of Lagos</div>
                     <p style={{ textAlign: 'center', color: '#ef4444', padding: '20px' }}>Invalid or missing registration token.</p>
                 </div>
             </div>
@@ -71,8 +73,12 @@ export default function RegisterPage() {
     return (
         <div className={styles.container}>
             <div className={styles.card}>
-                <div className={styles.logo}>🏫 UniSchedule</div>
-                <h1 className={styles.title}>Complete Setup</h1>
+                <div className={styles.logo} style={{ display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+                    <img src={unilagLogoBase64} alt="UNILAG Logo" width="100" height="100" style={{ borderRadius: '4px', objectFit: 'contain' }} />
+                </div>
+                <h1 className={styles.title}>University of Lagos</h1>
+                <p className={styles.subtitle} style={{ fontSize: '1rem', fontWeight: 'bold', letterSpacing: '1px' }}>Timetable Manager</p>
+
                 <p className={styles.subtitle}>Welcome! Enter a new robust password to activate your staff profile account.</p>
 
                 <form className={styles.form} onSubmit={handleSubmit}>

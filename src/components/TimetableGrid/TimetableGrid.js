@@ -2,11 +2,13 @@
 
 import { useState, useMemo, useEffect, useCallback } from 'react';
 import { useApp, ACTION_TYPES } from '@/context/AppContext';
+import { useAuth } from '@/context/AuthContext';
 import { DAYS, EXAM_DAYS, timeToMinutes } from '@/lib/utils';
 import { apiClient } from '@/lib/apiClient';
 import { detectConflicts, detectAllConflicts } from '@/lib/conflicts';
 import { useToast } from '@/components/Toast/Toast';
 import SearchableSelect from '@/components/SearchableSelect/SearchableSelect';
+import { hasGlobalScope, isGsAdmin, isViewerRole } from '@/lib/roles';
 import styles from './TimetableGrid.module.css';
 
 /** Safely parse a YYYY-MM-DD string into a Date without timezone issues */
@@ -120,10 +122,18 @@ function computeVerticalOverlapLayout(events) {
     return assignments;
 }
 
-export default function TimetableGrid({ mode = 'lecture', semesterId = null, readOnly = false, blockedSlots = [] }) {
+export default function TimetableGrid({ mode = 'lecture', semesterId = null, readOnly = false, readOnlyReasons = [], blockedSlots = [], enrollmentsByCourse = null }) {
     const { state, dispatch, getSchedulesWithDetails } = useApp();
     const { faculties, departments, courses, rooms } = state;
     const { addToast } = useToast();
+    const { user } = useAuth();
+    const isOwnItem = useCallback((schedule) => {
+        if (!schedule) return false;
+        if (isViewerRole(user?.role)) return false;
+        if (user?.role === 'SUPER_ADMIN') return true;
+        if (isGsAdmin(user?.role)) return schedule.courseScope === 'UNIVERSITY_WIDE';
+        return !!user?.faculty_id && schedule.facultyId === user.faculty_id;
+    }, [user?.role, user?.faculty_id]);
 
     const activeDays = mode === 'exam' ? EXAM_DAYS : DAYS;
 
@@ -201,14 +211,24 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, rea
     }, [getSchedulesWithDetails, mode]);
 
     const conflictMap = useMemo(() => {
-        return detectAllConflicts(allModeSchedules);
-    }, [allModeSchedules]);
+        return detectAllConflicts(allModeSchedules, enrollmentsByCourse);
+    }, [allModeSchedules, enrollmentsByCourse]);
+
+    // Rooms to render: own-faculty rooms + any room referenced by a visible schedule item.
+    // Global-scope users see everything; this trims the grid for FACULTY editors/viewers.
+    const displayedRooms = useMemo(() => {
+        if (hasGlobalScope(user?.role) || !user?.faculty_id) return rooms;
+        const referenced = new Set();
+        allModeSchedules.forEach((s) => (s.roomIds || []).forEach((rid) => referenced.add(rid)));
+        return rooms.filter((r) => r.faculty_id === user.faculty_id || r.faculty_id === null || referenced.has(r.id));
+    }, [rooms, allModeSchedules, user?.role, user?.faculty_id]);
 
     // Filtered mode schedules (respecting faculty, dept, week) but independent of day
     const filteredModeSchedules = useMemo(() => {
+        const deptId = filterDept ? Number(filterDept) : null;
         return allModeSchedules.filter((s) => {
             if (filterFaculty && s.facultyId !== filterFaculty) return false;
-            if (filterDept && s.departmentId !== filterDept) return false;
+            if (deptId !== null && s.departmentId !== deptId) return false;
             return true;
         });
     }, [allModeSchedules, filterFaculty, filterDept]);
@@ -282,10 +302,27 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, rea
     const modalCourses = useMemo(() => {
         let filteredCourses = courses;
         if (filterDept) {
-            filteredCourses = courses.filter((c) => c.departmentId === filterDept);
+            const deptId = Number(filterDept);
+            filteredCourses = courses.filter((c) => c.departmentId === deptId);
         } else if (filterFaculty) {
             const deptIds = departments.filter((d) => d.facultyId === filterFaculty).map((d) => d.id);
             filteredCourses = courses.filter((c) => deptIds.includes(c.departmentId));
+        }
+
+        // Hide interfaculty courses originating from another faculty unless this faculty has enrolled in them.
+        // Global-scope users (SUPER_ADMIN / SUPER_VIEWER) see everything.
+        if (!hasGlobalScope(user?.role) && user?.faculty_id) {
+            filteredCourses = filteredCourses.filter((c) => {
+                if (c.scope !== 'INTERFACULTY') return true;
+                const dept = departments.find((d) => d.id === c.departmentId);
+                const isOwnFaculty = dept?.facultyId === user.faculty_id;
+                return isOwnFaculty;
+            });
+        }
+
+        // GS admins can only schedule university-wide courses.
+        if (isGsAdmin(user?.role) && !editing) {
+            filteredCourses = filteredCourses.filter((c) => c.scope === 'UNIVERSITY_WIDE');
         }
 
         if (mode === 'exam') {
@@ -296,7 +333,7 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, rea
             return filteredCourses.filter(c => !scheduledCourseIds.has(c.id));
         }
         return filteredCourses;
-    }, [courses, departments, filterFaculty, filterDept, mode, allModeSchedules, editing]);
+    }, [courses, departments, filterFaculty, filterDept, mode, allModeSchedules, editing, user?.role, user?.faculty_id]);
 
     const handleCellClick = (roomId, hour) => {
         if (readOnly) return;
@@ -318,26 +355,43 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, rea
 
     const handleEventClick = (schedule, e) => {
         e.stopPropagation();
-        if (readOnly) return; // viewing historical semester — no edits
+        if (readOnly) return; // viewing historical semester - no edits
+        if (!isOwnItem(schedule)) return; // taking faculty: read-only on this item
         setEditing(schedule);
         setModalConflicts([]);
+        const trimSec = (t) => (typeof t === 'string' ? t.slice(0, 5) : t);
         setModalForm({
             courseId: schedule.courseId,
-            roomIds: schedule.roomIds || (schedule.roomId ? [schedule.roomId] : ['']),
-            day: schedule.day,
+            roomIds: (schedule.roomIds && schedule.roomIds.length > 0)
+                ? schedule.roomIds
+                : (schedule.roomId ? [schedule.roomId] : ['']),
+            day: schedule.day || 'Monday',
             examDate: schedule.examDate || currentDate,
-            startTime: schedule.startTime,
-            endTime: schedule.endTime,
+            startTime: trimSec(schedule.startTime),
+            endTime: trimSec(schedule.endTime),
         });
         setShowModal(true);
+    };
+
+    const enrichCandidate = (formData) => {
+        const c = courses.find((cc) => cc.id === formData.courseId);
+        return {
+            ...formData,
+            type: mode,
+            courseId: formData.courseId,
+            courseDepartmentId: c?.departmentId ?? null,
+            courseLevel: c?.level ?? null,
+            courseScope: c?.scope ?? null,
+        };
     };
 
     const validateForm = (formData) => {
         if (!formData.courseId || !formData.roomIds?.some((r) => r)) return;
         const result = detectConflicts(
-            { ...formData, type: mode },
+            enrichCandidate(formData),
             allModeSchedules,
-            editing?.id || null
+            editing?.id || null,
+            enrollmentsByCourse,
         );
         setModalConflicts(result.conflicts);
     };
@@ -371,9 +425,10 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, rea
         const formWithCleanRooms = { ...modalForm, roomIds: validRoomIds };
 
         const result = detectConflicts(
-            { ...formWithCleanRooms, type: mode },
+            enrichCandidate(formWithCleanRooms),
             allModeSchedules,
-            editing?.id || null
+            editing?.id || null,
+            enrollmentsByCourse,
         );
 
         if (result.hasConflict) {
@@ -527,9 +582,12 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, rea
             startTime: newStartTime,
             endTime: newEndTime,
             type: mode,
+            courseDepartmentId: dragItem.courseDepartmentId ?? null,
+            courseLevel: dragItem.courseLevel ?? null,
+            courseScope: dragItem.courseScope ?? null,
         };
 
-        const result = detectConflicts(candidate, allModeSchedules, dragItem.id);
+        const result = detectConflicts(candidate, allModeSchedules, dragItem.id, enrollmentsByCourse);
 
         if (result.hasConflict) {
             result.conflicts.filter((c) => c.severity === 'error').forEach((c) => {
@@ -571,7 +629,7 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, rea
         }
 
         setDragItem(null);
-    }, [dragItem, allModeSchedules, mode, dispatch, addToast, currentDay, currentDate]);
+    }, [dragItem, allModeSchedules, mode, dispatch, addToast, currentDay, currentDate, enrollmentsByCourse]);
 
     const timeOptions = [];
     for (let h = 8; h <= 18; h++) {
@@ -583,18 +641,33 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, rea
 
     const getAvailableRooms = (currentIndex) => {
         const selectedIds = modalForm.roomIds.filter((_, i) => i !== currentIndex);
-        return rooms.filter((r) => !selectedIds.includes(r.id));
+        let pool = rooms;
+        // Faculty editors can only schedule into their own faculty's rooms (and shared/unassigned ones).
+        if (!hasGlobalScope(user?.role) && user?.faculty_id) {
+            pool = pool.filter((r) => r.faculty_id === user.faculty_id || r.faculty_id === null);
+        }
+        return pool.filter((r) => !selectedIds.includes(r.id));
     };
 
     return (
         <div className={styles.container}>
-            {readOnly && (
+            {readOnly && readOnlyReasons.length > 0 && (
                 <div style={{
                     background: '#fef9c3', border: '1px solid #fcd34d', borderRadius: '8px',
                     padding: '10px 16px', marginBottom: '12px', fontSize: '0.875rem',
-                    color: '#92400e', display: 'flex', alignItems: 'center', gap: '8px'
+                    color: '#92400e', display: 'flex', alignItems: 'flex-start', gap: '8px'
                 }}>
-                    🔒 <strong>Read-only view</strong> — this is a historical semester. Switch to the current semester to make changes.
+                    <span aria-hidden>🔒</span>
+                    <div>
+                        <strong>Read-only view</strong>
+                        {readOnlyReasons.length === 1 ? (
+                            <span>: {readOnlyReasons[0]}</span>
+                        ) : (
+                            <ul style={{ margin: '4px 0 0 0px', padding: 0 }}>
+                                {readOnlyReasons.map((r, i) => <li key={i}>{r}</li>)}
+                            </ul>
+                        )}
+                    </div>
                 </div>
             )}
             {/* Filter Bar */}
@@ -721,7 +794,7 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, rea
                     ))}
 
                     {/* Room rows */}
-                    {rooms.map((room) => {
+                    {displayedRooms.map((room) => {
                         const roomSchedules = daySchedules.filter((s) =>
                             s.roomIds?.includes(room.id) || s.roomId === room.id
                         );
@@ -857,11 +930,11 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, rea
                                                             background: hasError ? 'rgba(239, 68, 68, 0.15)' : color.bg,
                                                             borderLeftColor: hasError ? '#ef4444' : color.border,
                                                         }}
-                                                        draggable
+                                                        draggable={!readOnly && isOwnItem(s)}
                                                         onDragStart={(e) => handleDragStart(s, e)}
                                                         onDragEnd={handleDragEnd}
                                                         onClick={(e) => handleEventClick(s, e)}
-                                                        title={hasConflict ? itemConflicts.map((c) => c.message).join('\n') : `${s.courseCode} — ${s.roomNames}`}
+                                                        title={hasConflict ? itemConflicts.map((c) => c.message).join('\n') : `${s.courseCode} - ${s.roomNames}${!isOwnItem(s) ? ' (read-only — owned by another faculty)' : ''}`}
                                                     >
                                                         <span className={styles.eventCode} style={{ color: hasError ? '#f87171' : color.border }}>
                                                             {hasError && '⚠ '}{s.courseCode}
@@ -904,7 +977,7 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, rea
                             <div className="form-group">
                                 <label className="form-label">Course</label>
                                 <SearchableSelect
-                                    options={modalCourses.map(c => ({ value: c.id, label: `${c.code} — ${c.title}` }))}
+                                    options={modalCourses.map(c => ({ value: c.id, label: `${c.code} - ${c.title}` }))}
                                     value={modalForm.courseId}
                                     onChange={(val) => updateForm({ courseId: val })}
                                     placeholder="Select a course..."

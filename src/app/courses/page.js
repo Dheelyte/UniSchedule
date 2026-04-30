@@ -6,7 +6,11 @@ import { apiClient } from '@/lib/apiClient';
 import { useToast } from '@/components/Toast/Toast';
 import { useAuth } from '@/context/AuthContext';
 import { TablePageSkeleton } from '@/components/Skeleton/Skeleton';
+import { isViewerRole, isGsAdmin } from '@/lib/roles';
+import CourseEnrollmentModal from '@/components/CourseEnrollmentModal/CourseEnrollmentModal';
 import styles from './courses.module.css';
+
+const LEVELS = [100, 200, 300, 400, 500, 600, 700];
 
 const SCOPES = {
     DEPARTMENTAL: 'DEPARTMENTAL',
@@ -33,17 +37,21 @@ export default function CoursesPage() {
     const [deleteConfirm, setDeleteConfirm] = useState(null);
 
     // Form state
-    const [form, setForm] = useState({ code: '', title: '', creditLoad: 3, lecturers: '', departmentId: '', scope: SCOPES.DEPARTMENTAL });
+    const [form, setForm] = useState({ code: '', title: '', creditLoad: 3, lecturers: '', departmentId: '', scope: SCOPES.DEPARTMENTAL, level: 100 });
     const [loading, setLoading] = useState(true);
+    // course_id -> [{ id, course_id, department_id, level }]
+    const [enrollmentsByCourse, setEnrollmentsByCourse] = useState(new Map());
+    const [manageCourse, setManageCourse] = useState(null);
 
     useEffect(() => {
         let mounted = true;
         async function loadCourses() {
             try {
-                const [courses, faculties, departments] = await Promise.all([
+                const [courses, faculties, departments, enrollments] = await Promise.all([
                     apiClient.get('/timetable/courses').catch(() => []),
-                    apiClient.get('/timetable/faculties').catch(() => []),
-                    apiClient.get('/timetable/departments').catch(() => [])
+                    apiClient.get('/timetable/faculties?all=true').catch(() => []),
+                    apiClient.get('/timetable/departments?all=true').catch(() => []),
+                    apiClient.get('/timetable/enrollments').catch(() => [])
                 ]);
                 if (mounted) {
                     dispatch({
@@ -59,6 +67,12 @@ export default function CoursesPage() {
                             departments: (departments || []).map(d => ({ ...d, facultyId: d.faculty_id }))
                         }
                     });
+                    const map = new Map();
+                    (enrollments || []).forEach((e) => {
+                        if (!map.has(e.course_id)) map.set(e.course_id, []);
+                        map.get(e.course_id).push(e);
+                    });
+                    setEnrollmentsByCourse(map);
                     setLoading(false);
                 }
             } catch (e) {
@@ -92,7 +106,8 @@ export default function CoursesPage() {
         setForm({
             code: '', title: '', creditLoad: 3, lecturers: '',
             departmentId: departments[0]?.id || '',
-            scope: SCOPES.DEPARTMENTAL,
+            scope: isGsAdmin(role) ? SCOPES.UNIVERSITY_WIDE : SCOPES.DEPARTMENTAL,
+            level: isGsAdmin(role) ? null : 100,
         });
         setShowModal(true);
     };
@@ -106,6 +121,7 @@ export default function CoursesPage() {
             lecturers: course.lecturers.join(', '),
             departmentId: course.departmentId || departments[0]?.id || '',
             scope: course.scope || SCOPES.DEPARTMENTAL,
+            level: course.level ?? 100,
         });
         setShowModal(true);
     };
@@ -114,6 +130,11 @@ export default function CoursesPage() {
         if (!form.code.trim() || !form.title.trim()) return;
         // Department required for non-university-wide courses
         if (form.scope !== SCOPES.UNIVERSITY_WIDE && !form.departmentId) return;
+        // Level required for departmental and interfaculty
+        if (form.scope !== SCOPES.UNIVERSITY_WIDE && (form.level === null || form.level === '' || form.level === undefined)) {
+            addToast({ type: 'warning', title: 'Validation', message: 'Level is required for departmental and interfaculty courses.' });
+            return;
+        }
 
         try {
             const payload = {
@@ -123,19 +144,20 @@ export default function CoursesPage() {
                 lecturers: form.lecturers.split(',').map((l) => l.trim()).filter(Boolean),
                 department_id: form.scope === SCOPES.UNIVERSITY_WIDE ? null : (typeof form.departmentId === 'string' ? parseInt(form.departmentId) : form.departmentId),
                 scope: form.scope,
+                level: form.scope === SCOPES.UNIVERSITY_WIDE ? (form.level || null) : parseInt(form.level, 10),
             };
 
             if (editing) {
                 await apiClient.put(`/timetable/courses/${editing.id}`, payload);
                 dispatch({
                     type: ACTION_TYPES.UPDATE_COURSE,
-                    payload: { id: editing.id, code: payload.code, title: payload.title, creditLoad: payload.credit_load, lecturers: payload.lecturers, departmentId: payload.department_id, scope: payload.scope }
+                    payload: { id: editing.id, code: payload.code, title: payload.title, creditLoad: payload.credit_load, lecturers: payload.lecturers, departmentId: payload.department_id, scope: payload.scope, level: payload.level }
                 });
             } else {
                 const res = await apiClient.post('/timetable/courses', payload);
                 dispatch({
                     type: ACTION_TYPES.ADD_COURSE,
-                    payload: { id: res.id, code: res.code, title: res.title, creditLoad: res.credit_load, lecturers: res.lecturers, departmentId: res.department_id, scope: res.scope }
+                    payload: { id: res.id, code: res.code, title: res.title, creditLoad: res.credit_load, lecturers: res.lecturers, departmentId: res.department_id, scope: res.scope, level: res.level }
                 });
             }
         } catch (e) {
@@ -157,6 +179,20 @@ export default function CoursesPage() {
         }
     };
 
+    // Departments offered to the Manage modal — own faculty for editor, all for admin.
+    const manageableDepartments = role === 'SUPER_ADMIN'
+        ? departments
+        : (user?.faculty_id ? departments.filter((d) => d.facultyId === user.faculty_id) : []);
+
+    const handleEnrollmentSaved = (courseId, fresh) => {
+        setEnrollmentsByCourse((prev) => {
+            const next = new Map(prev);
+            if (fresh.length === 0) next.delete(courseId);
+            else next.set(courseId, fresh);
+            return next;
+        });
+    };
+
     // Scope badge renderer
     const ScopeBadge = ({ scope }) => {
         if (scope === SCOPES.UNIVERSITY_WIDE) return <span className={styles.generalBadge}>General</span>;
@@ -176,6 +212,7 @@ export default function CoursesPage() {
     const scopeOptions = role === 'SUPER_ADMIN'
         ? [SCOPES.DEPARTMENTAL, SCOPES.INTERFACULTY, SCOPES.UNIVERSITY_WIDE]
         : [SCOPES.DEPARTMENTAL, SCOPES.INTERFACULTY];
+    const canAddCourse = !isViewerRole(role) && (isGsAdmin(role) || role === 'SUPER_ADMIN' || role === 'FACULTY_EDITOR');
 
     if (loading) return <TablePageSkeleton columns={5} rows={6} />;
 
@@ -184,7 +221,7 @@ export default function CoursesPage() {
             {/* Header */}
             <div className={styles.pageHeader}>
                 <div />
-                {role !== 'FACULTY_VIEWER' && (
+                {canAddCourse && (
                     <button className="btn btn-primary" onClick={openAdd}>
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
                         Add Course
@@ -254,6 +291,7 @@ export default function CoursesPage() {
                             <tr key={c.id}>
                                 <td>
                                     <span className={styles.courseCode}>{c.code}</span>
+                                    {c.level && <span className={styles.levelBadge}>{c.level}L</span>}
                                     <ScopeBadge scope={c.scope} />
                                 </td>
                                 <td style={{ fontWeight: 500, color: 'var(--color-text)' }}>{c.title}</td>
@@ -268,18 +306,47 @@ export default function CoursesPage() {
                                 <td>{c.departmentName}</td>
                                 <td style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)' }}>{c.facultyName}</td>
                                 <td>
-                                    {role !== 'FACULTY_VIEWER' ? (
-                                        <div className={styles.actions}>
-                                            <button className={styles.actionBtn} onClick={() => openEdit(c)} title="Edit">
-                                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" /><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" /></svg>
-                                            </button>
-                                            <button className={`${styles.actionBtn} ${styles.deleteBtn}`} onClick={() => setDeleteConfirm(c)} title="Delete">
-                                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /></svg>
-                                            </button>
-                                        </div>
-                                    ) : (
-                                        <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Read Only</span>
-                                    )}
+                                    {(() => {
+                                        const isOwnCourse = role === 'SUPER_ADMIN'
+                                            || (isGsAdmin(role) && c.scope === SCOPES.UNIVERSITY_WIDE)
+                                            || (user?.faculty_id && c.facultyId === user.faculty_id);
+                                        const isCrossEnrollable = (c.scope === SCOPES.INTERFACULTY || c.scope === SCOPES.UNIVERSITY_WIDE) && !isOwnCourse;
+                                        const enrollments = enrollmentsByCourse.get(c.id) || [];
+                                        const myEnrollments = role === 'SUPER_ADMIN'
+                                            ? enrollments
+                                            : enrollments.filter((e) => {
+                                                const dept = departments.find((d) => d.id === e.department_id);
+                                                return dept && dept.facultyId === user?.faculty_id;
+                                            });
+
+                                        if (isOwnCourse && !isViewerRole(role)) {
+                                            return (
+                                                <div className={styles.actions}>
+                                                    <button className={styles.actionBtn} onClick={() => openEdit(c)} title="Edit">
+                                                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" /><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" /></svg>
+                                                    </button>
+                                                    <button className={`${styles.actionBtn} ${styles.deleteBtn}`} onClick={() => setDeleteConfirm(c)} title="Delete">
+                                                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /></svg>
+                                                    </button>
+                                                </div>
+                                            );
+                                        }
+                                        if (isCrossEnrollable && (role === 'FACULTY_EDITOR' || role === 'SUPER_ADMIN')) {
+                                            return (
+                                                <button
+                                                    className={`btn ${myEnrollments.length > 0 ? 'btn-secondary' : 'btn-primary'}`}
+                                                    style={{ padding: '4px 10px', fontSize: '0.78rem' }}
+                                                    onClick={() => setManageCourse(c)}
+                                                >
+                                                    {myEnrollments.length > 0 ? `Manage (${myEnrollments.length})` : 'Take'}
+                                                </button>
+                                            );
+                                        }
+                                        if (isCrossEnrollable && myEnrollments.length > 0) {
+                                            return <span style={{ fontSize: '0.78rem', color: '#16a34a', fontWeight: 500 }}>Taken ({myEnrollments.length})</span>;
+                                        }
+                                        return <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>—</span>;
+                                    })()}
                                 </td>
                             </tr>
                         ))}
@@ -334,6 +401,22 @@ export default function CoursesPage() {
                                 </div>
                             )}
 
+                            {/* Info notes per scope */}
+                            {form.scope === SCOPES.INTERFACULTY && (
+                                <div className={styles.infoNote} style={{ background: 'rgba(99, 102, 241, 0.08)', borderColor: 'rgba(99, 102, 241, 0.18)', color: '#818cf8' }}>
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><line x1="12" y1="16" x2="12" y2="12" /><line x1="12" y1="8" x2="12.01" y2="8" /></svg>
+                                    This course belongs to the selected department but will be visible to all faculties.
+                                </div>
+                            )}
+
+
+                            {form.scope === SCOPES.UNIVERSITY_WIDE && (
+                                <div className={styles.infoNote}>
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><line x1="12" y1="16" x2="12" y2="12" /><line x1="12" y1="8" x2="12.01" y2="8" /></svg>
+                                    This is a central university course - no department required. Visible to all faculties.
+                                </div>
+                            )}
+
                             <div className="form-group">
                                 <label className="form-label">Course Code</label>
                                 <input className="form-input" value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} placeholder={getPlaceholder('code')} autoFocus />
@@ -360,19 +443,21 @@ export default function CoursesPage() {
                                 )}
                             </div>
 
-                            {/* Info notes per scope */}
-                            {form.scope === SCOPES.INTERFACULTY && (
-                                <div className={styles.infoNote} style={{ background: 'rgba(99, 102, 241, 0.08)', borderColor: 'rgba(99, 102, 241, 0.18)', color: '#818cf8' }}>
-                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><line x1="12" y1="16" x2="12" y2="12" /><line x1="12" y1="8" x2="12.01" y2="8" /></svg>
-                                    This course belongs to the selected department but will be visible to all faculties.
-                                </div>
-                            )}
-                            {form.scope === SCOPES.UNIVERSITY_WIDE && (
-                                <div className={styles.infoNote}>
-                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><line x1="12" y1="16" x2="12" y2="12" /><line x1="12" y1="8" x2="12.01" y2="8" /></svg>
-                                    This is a central university course — no department required. Visible to all faculties.
-                                </div>
-                            )}
+                            <div className="form-group">
+                                <label className="form-label">
+                                    Level {form.scope !== SCOPES.UNIVERSITY_WIDE && <span style={{ color: 'var(--color-danger)' }}>*</span>}
+                                </label>
+                                <select
+                                    className="form-select form-input"
+                                    value={form.level ?? ''}
+                                    onChange={(e) => setForm({ ...form, level: e.target.value === '' ? null : parseInt(e.target.value, 10) })}
+                                >
+                                    {form.scope === SCOPES.UNIVERSITY_WIDE && <option value="">All levels</option>}
+                                    {LEVELS.map((l) => (
+                                        <option key={l} value={l}>{l} Level</option>
+                                    ))}
+                                </select>
+                            </div>
 
                             <div className="form-group">
                                 <label className="form-label">Lecturers (comma-separated)</label>
@@ -381,12 +466,36 @@ export default function CoursesPage() {
                         </div>
                         <div className="modal-footer">
                             <button className="btn btn-secondary" onClick={() => setShowModal(false)}>Cancel</button>
-                            <button className="btn btn-primary" onClick={handleSave} disabled={!form.code.trim() || !form.title.trim()}>
+                            <button
+                                className="btn btn-primary"
+                                onClick={handleSave}
+                                disabled={
+                                    !form.code.trim() ||
+                                    !form.title.trim() ||
+                                    (form.scope !== SCOPES.UNIVERSITY_WIDE && (form.level === null || form.level === ''))
+                                }
+                            >
                                 {editing ? 'Save Changes' : 'Add Course'}
                             </button>
                         </div>
                     </div>
                 </div>
+            )}
+
+            {manageCourse && (
+                <CourseEnrollmentModal
+                    course={manageCourse}
+                    departments={manageableDepartments}
+                    faculties={faculties}
+                    currentEnrollments={(enrollmentsByCourse.get(manageCourse.id) || []).filter((e) => {
+                        if (role === 'SUPER_ADMIN') return true;
+                        const dept = departments.find((d) => d.id === e.department_id);
+                        return dept && dept.facultyId === user?.faculty_id;
+                    })}
+                    isSuperAdmin={role === 'SUPER_ADMIN'}
+                    onClose={() => setManageCourse(null)}
+                    onSaved={(fresh) => handleEnrollmentSaved(manageCourse.id, fresh)}
+                />
             )}
 
             {/* Delete Confirmation */}
@@ -399,7 +508,7 @@ export default function CoursesPage() {
                         </div>
                         <div className="modal-body">
                             <p style={{ color: 'var(--color-text-secondary)', lineHeight: 1.6 }}>
-                                Are you sure you want to delete <strong style={{ color: 'var(--color-text)' }}>{deleteConfirm.code} — {deleteConfirm.title}</strong>?
+                                Are you sure you want to delete <strong style={{ color: 'var(--color-text)' }}>{deleteConfirm.code} - {deleteConfirm.title}</strong>?
                                 <br /><span style={{ color: 'var(--color-danger)', fontSize: '0.85rem' }}>⚠ All schedule items for this course will also be removed.</span>
                             </p>
                         </div>

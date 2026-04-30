@@ -120,6 +120,22 @@
     font-style: italic;
 }
 
+/* Level Badge */
+.levelBadge {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 8px;
+    border-radius: 50px;
+    font-size: 0.65rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    background: rgba(99, 102, 241, 0.10);
+    color: #4f46e5;
+    border: 1px solid rgba(99, 102, 241, 0.22);
+    margin-left: 8px;
+    white-space: nowrap;
+}
+
 /* General Course Badge */
 .generalBadge {
     display: inline-flex;
@@ -213,7 +229,7 @@
     color: #eab308;
     font-size: 0.78rem;
     line-height: 1.5;
-    margin-bottom: 4px;
+    margin-bottom: 20px;
 }
 
 .infoNote svg {
@@ -310,4 +326,10 @@
     .filters {
         grid-template-columns: 1fr;
     }
+}
+
+@media (max-width: 768px) {
+    .page { padding: 16px 14px; }
+    .pageHeader { flex-direction: column; align-items: stretch; gap: 12px; }
+    .filters { padding: 12px 14px; gap: 10px; }
 }

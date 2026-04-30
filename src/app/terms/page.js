@@ -187,7 +187,7 @@ export default function TermsPage() {
 
                 <div style={{ marginBottom: '20px', display: 'flex', gap: '8px' }}>
                     <select className="form-input" value={sessionName} onChange={(e) => setSessionName(e.target.value)}>
-                        <option value="">— Select Academic Session —</option>
+                        <option value="">- Select Academic Session -</option>
                         {sessionOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
                     </select>
                     <button className="btn btn-primary" onClick={handleAddSession} disabled={!sessionName}>
@@ -248,7 +248,7 @@ export default function TermsPage() {
                                                     addingSemFor === s.id ? (
                                                         <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
                                                             <select className="form-input" value={semName} onChange={(e) => setSemName(e.target.value)}>
-                                                                <option value="">— Select Semester —</option>
+                                                                <option value="">- Select Semester -</option>
                                                                 {availSemOpts.map(opt => <option key={opt} value={opt}>{opt}</option>)}
                                                             </select>
                                                             <button className="btn btn-primary" onClick={() => handleAddSemester(s.id)} disabled={!semName}>
@@ -274,7 +274,7 @@ export default function TermsPage() {
                                             </>
                                         ) : (
                                             <p style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)', marginTop: '8px' }}>
-                                                🔒 View only — semesters can only be added to the current session.
+                                                🔒 View only - semesters can only be added to the current session.
                                             </p>
                                         )}
                                     </div>

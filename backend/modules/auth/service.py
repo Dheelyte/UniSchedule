@@ -1,7 +1,13 @@
+import secrets
+from datetime import datetime, timezone, timedelta
+
 from fastapi import Depends, HTTPException
-from modules.auth.repository import AuthRepository
-from modules.auth.models import User, RoleEnum, Invitation
-from core.security import verify_password, create_access_token, get_password_hash
+
+from core.mail import EmailService
+from modules.auth.repository import AuthRepository, PasswordRepository
+from modules.auth.models import PasswordResetToken, User, RoleEnum, Invitation
+from core.security import TokenGenerator, verify_password, create_access_token, get_password_hash, hash_code
+from core.config import settings
 
 class AuthService:
     def __init__(self, repo: AuthRepository = Depends()):
@@ -18,10 +24,6 @@ class AuthService:
         return token
 
     async def generate_invite(self, email: str, target_role: RoleEnum, faculty_id: str | None = None, semester_id: int | None = None) -> Invitation:
-        import secrets
-        from datetime import datetime, timedelta, timezone
-        from modules.auth.models import Invitation
-
         existing_user = await self.repo.get_user_by_email(email)
         if existing_user:
             raise HTTPException(status_code=400, detail="User with this email already exists")
@@ -43,9 +45,6 @@ class AuthService:
         return await self.repo.create_invitation(invitation)
 
     async def process_invitation(self, token: str, password: str) -> User:
-        from core.security import get_password_hash
-        from datetime import datetime, timezone
-
         invite = await self.repo.get_invitation_by_token(token)
         if not invite or invite.is_used or invite.expires_at < datetime.now(timezone.utc):
             raise HTTPException(status_code=400, detail="Invalid or expired invitation")
@@ -64,30 +63,14 @@ class AuthService:
         created_user = await self.repo.create_user(new_user)
         invite.is_used = True
         await self.repo.db.flush()
-        
-        # Notify super admins
-        from modules.auth.models import RoleEnum
-        from modules.notifications.service import NotificationService
-        from modules.notifications.repository import NotificationRepository
-        from modules.notifications.schemas import NotificationCreate
-        
-        super_admins = await self.repo.get_users_by_role(RoleEnum.SUPER_ADMIN)
-        if super_admins:
-            notif_repo = NotificationRepository(self.repo.db)
-            notif_service = NotificationService(notif_repo)
-            notifs = [
-                NotificationCreate(
-                    user_id=admin.id,
-                    title="Staff Joined",
-                    message=f"Staff member {new_user.email} has accepted their invitation and joined the system."
-                ) for admin in super_admins
-            ]
-            await notif_service.create_bulk_notifications(notifs)
 
         return created_user
 
     async def get_all_users(self) -> list[User]:
         return await self.repo.get_all_users()
+    
+    async def get_user_by_email(self, email: str) -> User:
+        return await self.repo.get_user_by_email(email)
 
     async def get_all_invitations(self) -> list[Invitation]:
         return await self.repo.get_all_invitations()
@@ -103,3 +86,61 @@ class AuthService:
         if not invitation: return False
         await self.repo.delete_invitation(invitation)
         return True
+
+class PasswordResetService:
+    def __init__(self, repo: PasswordRepository = Depends()):
+        self.repo = repo
+    
+    async def create_reset_code(self, user: User) -> str:
+        """
+        Create a password reset code for user.
+        Invalidates all previous codes.
+
+        Returns: The unhashed code to send to user
+        """
+        # Invalidate all previous unused codes for this user
+        await self.invalidate_unused_verification_codes(user)
+        code = TokenGenerator.generate_code()
+        code_hash = hash_code(code)
+        token = PasswordResetToken(
+            code_hash=code_hash,
+            user_id=user.id,
+            expires_at=datetime.now(timezone.utc)
+            + timedelta(minutes=settings.PASSWORD_RESET_CODE_EXPIRE_MINUTES),
+            is_used=False,
+        )
+        await self.repo.add(token)
+        return code
+
+    async def verify_reset_code(
+        self, code: str, email: str
+    ) -> PasswordResetToken | None:
+        """
+        Return the valid PasswordResetToken DB object (not boolean).
+        This is preferred so the caller can access token.user_id etc
+        and so we can mark it used atomically in reset_password_with_token.
+        """
+        code_hash = hash_code(code)
+        return await self.repo.get_token(code_hash, email)
+
+    async def reset_password_with_token(
+        self, token_obj: PasswordResetToken, new_password: str
+    ):
+        """
+        Update the user's password and mark the token used.
+        """
+        user: User = token_obj.user
+        user.hashed_password = get_password_hash(new_password)
+        token_obj.is_used = True
+        await self.repo.db.flush()
+
+    async def invalidate_unused_verification_codes(self, user: User):
+        """Invalidate other unused tokens"""
+        await self.repo.update_token(user.id)
+
+    async def send_password_reset_email(self, user: User, code: str):
+        await EmailService.send_password_reset_email(
+            recipients=[user.email],
+            title="Reset your password",
+            code=code
+        )

@@ -2,9 +2,9 @@
  * Conflict Detection Engine
  *
  * Detects three types of conflicts:
- * 1. Room Conflict — any shared room booked for overlapping times on the same day
- * 2. Course Conflict — same course scheduled at overlapping times on the same day
- * 3. Time Conflict — scheduling outside standard operating hours (8 AM – 6 PM)
+ * 1. Room Conflict - any shared room booked for overlapping times on the same day
+ * 2. Course Conflict - same course scheduled at overlapping times on the same day
+ * 3. Time Conflict - scheduling outside standard operating hours (8 AM – 6 PM)
  *
  * Schedule items use `roomIds` (array) to support multiple locations per session.
  */
@@ -27,13 +27,61 @@ function getRoomLabel(s) {
 }
 
 /**
+ * Compute the (department, level) audiences that an item targets.
+ * Originating audience comes from the joined course; additional audiences come from
+ * `course_enrollments` via the `enrollmentsByCourse` lookup map.
+ */
+const UW_DEPT = 'university-wide';
+
+function audiencesOf(item, enrollmentsByCourse) {
+    const out = [];
+    if (item.courseScope === 'UNIVERSITY_WIDE') {
+        // UW courses target every department at the course's level (null level = all levels).
+        out.push({ deptId: UW_DEPT, level: item.courseLevel ?? null });
+    } else if (item.courseDepartmentId) {
+        out.push({ deptId: item.courseDepartmentId, level: item.courseLevel ?? null });
+    }
+    const extras = enrollmentsByCourse?.get(item.courseId) || [];
+    extras.forEach((e) => {
+        out.push({ deptId: e.department_id, level: e.level });
+    });
+    return out;
+}
+
+/**
+ * (department, level) overlap. NULL level acts as a wildcard ("all levels").
+ * `UW_DEPT` acts as a wildcard department (every student at that level).
+ */
+function audienceOverlaps(a, b) {
+    if (a.deptId !== b.deptId && a.deptId !== UW_DEPT && b.deptId !== UW_DEPT) return false;
+    if (a.level === null || b.level === null) return true;
+    return a.level === b.level;
+}
+
+function findAudienceClash(a, b, enrollmentsByCourse) {
+    const aAud = audiencesOf(a, enrollmentsByCourse);
+    if (aAud.length === 0) return null;
+    const bAud = audiencesOf(b, enrollmentsByCourse);
+    if (bAud.length === 0) return null;
+    for (const x of aAud) {
+        for (const y of bAud) {
+            if (audienceOverlaps(x, y)) {
+                const concreteDept = x.deptId !== UW_DEPT ? x.deptId : (y.deptId !== UW_DEPT ? y.deptId : UW_DEPT);
+                return { deptId: concreteDept, level: x.level ?? y.level ?? null };
+            }
+        }
+    }
+    return null;
+}
+
+/**
  * Check all conflicts for a given schedule item against existing schedules.
  * @param {Object} candidate - The schedule item to check { courseId, roomIds, day, startTime, endTime, type }
  * @param {Array} allSchedules - All existing schedule items (with details)
  * @param {string|null} excludeId - ID to exclude (for editing existing items)
  * @returns {{ hasConflict: boolean, conflicts: Array<{type: string, message: string, severity: string}> }}
  */
-export function detectConflicts(candidate, allSchedules, excludeId = null) {
+export function detectConflicts(candidate, allSchedules, excludeId = null, enrollmentsByCourse = null) {
     const conflicts = [];
 
     // For exam mode: check for duplicate course across ALL weeks/days
@@ -59,7 +107,7 @@ export function detectConflicts(candidate, allSchedules, excludeId = null) {
         return true;
     });
 
-    // 1. Room Conflict — any shared room in overlapping time (Exams are allowed to share rooms)
+    // 1. Room Conflict - any shared room in overlapping time (Exams are allowed to share rooms)
     if (candidate.type !== 'exam') {
         const roomConflicts = relevantSchedules.filter(
             (s) =>
@@ -101,7 +149,29 @@ export function detectConflicts(candidate, allSchedules, excludeId = null) {
         });
     }
 
-    // 3. Time Conflict (outside operating hours)
+    // 3. Audience Conflict (same department × level scheduled at the same time = student double-booking)
+    relevantSchedules.forEach((s) => {
+        const overlap = timesOverlap(
+            { startTime: candidate.startTime, endTime: candidate.endTime },
+            { startTime: s.startTime, endTime: s.endTime },
+        );
+        if (!overlap) return;
+        const clash = findAudienceClash(candidate, s, enrollmentsByCourse);
+        if (clash) {
+            const isUW = clash.deptId === 'university-wide';
+            const levelSuffix = clash.level ? ` (${clash.level}L)` : '';
+            const audienceLabel = isUW
+                ? `all students${levelSuffix}`
+                : `dept ${clash.deptId}${levelSuffix}`;
+            conflicts.push({
+                type: 'audience',
+                severity: 'error',
+                message: `Audience clash: ${s.courseCode || 'a course'} also targets ${audienceLabel} on ${s.day || s.examDate} ${s.startTime}–${s.endTime}.`,
+            });
+        }
+    });
+
+    // 4. Time Conflict (outside operating hours)
     if (isOutsideOperatingHours(candidate.startTime, candidate.endTime)) {
         conflicts.push({
             type: 'time',
@@ -123,7 +193,7 @@ export function detectConflicts(candidate, allSchedules, excludeId = null) {
  * @param {Array} allSchedules - All schedule items with details
  * @returns {Map<string, Array>}
  */
-export function detectAllConflicts(allSchedules) {
+export function detectAllConflicts(allSchedules, enrollmentsByCourse = null) {
     const conflictMap = new Map();
 
     for (let i = 0; i < allSchedules.length; i++) {
@@ -162,7 +232,7 @@ export function detectAllConflicts(allSchedules) {
 
             if (!overlaps) continue;
 
-            // Room conflict — any shared room (Exams can share rooms)
+            // Room conflict - any shared room (Exams can share rooms)
             if (a.type !== 'exam' && sharesRoom(a, b)) {
                 itemConflicts.push({
                     type: 'room',
@@ -172,7 +242,7 @@ export function detectAllConflicts(allSchedules) {
                 });
             }
 
-            // Course conflict (only for lectures — exam duplicates already handled above)
+            // Course conflict (only for lectures - exam duplicates already handled above)
             if (a.type === 'lecture' && a.courseId === b.courseId) {
                 itemConflicts.push({
                     type: 'course',
@@ -180,6 +250,23 @@ export function detectAllConflicts(allSchedules) {
                     message: `${b.courseCode} is scheduled again at ${b.startTime}–${b.endTime}`,
                     relatedId: b.id,
                 });
+            }
+
+            // Audience conflict — same dept × level booked twice in the same time window
+            if (a.courseId !== b.courseId) {
+                const clash = findAudienceClash(a, b, enrollmentsByCourse);
+                if (clash) {
+                    const isUW = clash.deptId === 'university-wide';
+                    const audienceLabel = isUW
+                        ? 'all students (university-wide course)'
+                        : `dept ${clash.deptId}${clash.level ? ` (${clash.level}L)` : ''}`;
+                    itemConflicts.push({
+                        type: 'audience',
+                        severity: 'error',
+                        message: `Audience clash with ${b.courseCode} — ${audienceLabel} double-booked at ${b.startTime}–${b.endTime}`,
+                        relatedId: b.id,
+                    });
+                }
             }
         }
 

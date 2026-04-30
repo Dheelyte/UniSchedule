@@ -1,5 +1,6 @@
 from pydantic import BaseModel, ConfigDict, model_validator
-from datetime import time, date as date_type
+from datetime import time, date as date_type, datetime
+from typing import Literal
 from modules.timetable.models import CourseScope
 
 class FacultyCreate(BaseModel):
@@ -57,6 +58,7 @@ class CourseCreate(BaseModel):
     lecturers: list[str] = []
     department_id: int | None = None
     scope: str = CourseScope.DEPARTMENTAL.value
+    level: int | None = None
 
     @model_validator(mode='after')
     def validate_scope_department(self):
@@ -64,6 +66,8 @@ class CourseCreate(BaseModel):
             self.department_id = None
         elif not self.department_id:
             raise ValueError('department_id is required for departmental and interfaculty courses')
+        if self.scope in (CourseScope.DEPARTMENTAL.value, CourseScope.INTERFACULTY.value) and self.level is None:
+            raise ValueError('level is required for departmental and interfaculty courses')
         return self
 
 class CourseResponse(BaseModel):
@@ -74,6 +78,7 @@ class CourseResponse(BaseModel):
     lecturers: list[str]
     department_id: int | None
     scope: str
+    level: int | None = None
     model_config = ConfigDict(from_attributes=True)
 
 class CourseUpdate(BaseModel):
@@ -83,12 +88,13 @@ class CourseUpdate(BaseModel):
     lecturers: list[str] | None = None
     department_id: int | None = None
     scope: str | None = None
+    level: int | None = None
 
 
 class ScheduleItemCreate(BaseModel):
     course_id: int
     room_ids: list[int]
-    faculty_id: str
+    faculty_id: str | None = None
     day_of_week: str | None = None
     start_time: time
     end_time: time
@@ -152,4 +158,36 @@ class BlockedSlotResponse(BaseModel):
     end_time: time | None
     applies_to: str
     semester_id: int
+    model_config = ConfigDict(from_attributes=True)
+
+
+class TimetableLockResponse(BaseModel):
+    semester_id: int
+    timetable_type: Literal["lecture", "exam"]
+    is_locked: bool
+    locked_by: int | None
+    locked_at: datetime | None
+    model_config = ConfigDict(from_attributes=True)
+
+
+class TimetableLockUpdate(BaseModel):
+    is_locked: bool
+
+
+class EditRequestCreate(BaseModel):
+    reason: str | None = None
+
+
+class CourseEnrollmentCreate(BaseModel):
+    course_id: int
+    department_id: int
+    level: int
+
+
+class CourseEnrollmentResponse(BaseModel):
+    id: int
+    course_id: int
+    department_id: int
+    level: int
+    enrolled_at: datetime
     model_config = ConfigDict(from_attributes=True)

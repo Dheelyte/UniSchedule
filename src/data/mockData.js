@@ -1,5 +1,5 @@
 // ============================================
-// MOCK DATA — University Timetable Management
+// MOCK DATA - University Timetable Management
 // ============================================
 
 // ---- FACULTIES ----

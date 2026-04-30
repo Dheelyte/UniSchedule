@@ -44,7 +44,7 @@ class CalendarRepository:
         )
 
     async def disable_all_current_semesters(self):
-        """Demote ALL semesters globally — used when a new session takes over."""
+        """Demote ALL semesters globally - used when a new session takes over."""
         await self.db.execute(
             update(Semester)
             .values(is_current=False)

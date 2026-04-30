@@ -1,9 +1,9 @@
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
-from datetime import date
+from sqlalchemy import select, or_
+from datetime import date, datetime, timezone
 from core.database import get_db
-from modules.timetable.models import Faculty, Room, Course, ScheduleItem, Department
+from modules.timetable.models import Faculty, Room, Course, ScheduleItem, Department, TimetableLock, CourseEnrollment
 
 class TimetableRepository:
     def __init__(self, db: AsyncSession = Depends(get_db)):
@@ -124,7 +124,15 @@ class TimetableRepository:
         if semester_id is not None:
             query = query.where(ScheduleItem.semester_id == semester_id)
         if faculty_id is not None:
-            query = query.where(ScheduleItem.faculty_id == faculty_id)
+            enrolled_subq = (
+                select(CourseEnrollment.course_id)
+                .join(Department, Department.id == CourseEnrollment.department_id)
+                .where(Department.faculty_id == faculty_id)
+            )
+            query = query.where(or_(
+                ScheduleItem.faculty_id == faculty_id,
+                ScheduleItem.course_id.in_(enrolled_subq),
+            ))
         result = await self.db.execute(query)
         return list(result.scalars().all())
 
@@ -182,3 +190,79 @@ class TimetableRepository:
         from modules.timetable.models import BlockedSlot
         result = await self.db.execute(select(BlockedSlot).where(BlockedSlot.id == id))
         return result.scalar_one_or_none()
+
+    # ---------- Timetable Locks ----------
+
+    async def get_lock(self, semester_id: int, timetable_type: str) -> TimetableLock | None:
+        result = await self.db.execute(
+            select(TimetableLock).where(
+                TimetableLock.semester_id == semester_id,
+                TimetableLock.timetable_type == timetable_type,
+            )
+        )
+        return result.scalar_one_or_none()
+
+    async def list_locks(self, semester_id: int) -> list[TimetableLock]:
+        result = await self.db.execute(
+            select(TimetableLock).where(TimetableLock.semester_id == semester_id)
+        )
+        return list(result.scalars().all())
+
+    async def upsert_lock(self, semester_id: int, timetable_type: str, is_locked: bool, user_id: int | None) -> TimetableLock:
+        lock = await self.get_lock(semester_id, timetable_type)
+        now = datetime.now(timezone.utc) if is_locked else None
+        actor = user_id if is_locked else None
+        if lock is None:
+            lock = TimetableLock(
+                semester_id=semester_id,
+                timetable_type=timetable_type,
+                is_locked=is_locked,
+                locked_by=actor,
+                locked_at=now,
+            )
+            self.db.add(lock)
+        else:
+            lock.is_locked = is_locked
+            lock.locked_by = actor
+            lock.locked_at = now
+        await self.db.flush()
+        return lock
+
+    # ---------- Course Enrollments (per dept × level) ----------
+
+    async def list_enrollments(
+        self,
+        faculty_id: str | None = None,
+        course_id: int | None = None,
+        department_id: int | None = None,
+    ) -> list[CourseEnrollment]:
+        query = select(CourseEnrollment)
+        if course_id is not None:
+            query = query.where(CourseEnrollment.course_id == course_id)
+        if department_id is not None:
+            query = query.where(CourseEnrollment.department_id == department_id)
+        if faculty_id is not None:
+            query = query.join(Department, Department.id == CourseEnrollment.department_id).where(
+                Department.faculty_id == faculty_id
+            )
+        result = await self.db.execute(query)
+        return list(result.scalars().all())
+
+    async def get_enrollment(self, course_id: int, department_id: int, level: int) -> CourseEnrollment | None:
+        result = await self.db.execute(
+            select(CourseEnrollment).where(
+                CourseEnrollment.course_id == course_id,
+                CourseEnrollment.department_id == department_id,
+                CourseEnrollment.level == level,
+            )
+        )
+        return result.scalar_one_or_none()
+
+    async def create_enrollment(self, enrollment: CourseEnrollment) -> CourseEnrollment:
+        self.db.add(enrollment)
+        await self.db.flush()
+        return enrollment
+
+    async def delete_enrollment(self, enrollment: CourseEnrollment) -> None:
+        await self.db.delete(enrollment)
+        await self.db.flush()
