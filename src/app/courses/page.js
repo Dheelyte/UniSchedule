@@ -104,9 +104,12 @@ export default function CoursesPage() {
 
     const openAdd = () => {
         setEditing(null);
+        const allowedDepts = role === 'FACULTY_EDITOR' && user?.faculty_id
+            ? departments.filter((d) => d.facultyId === user.faculty_id)
+            : departments;
         setForm({
             code: '', title: '', creditLoad: 3, lecturers: '',
-            departmentId: departments[0]?.id || '',
+            departmentId: allowedDepts[0]?.id || '',
             scope: isGsAdmin(role) ? SCOPES.UNIVERSITY_WIDE : SCOPES.DEPARTMENTAL,
             level: isGsAdmin(role) ? null : 100,
             semester: '',
@@ -443,9 +446,6 @@ export default function CoursesPage() {
                                     placeholder={getPlaceholder('code')}
                                     autoFocus
                                 />
-                                <small style={{ color: 'var(--color-text-muted)', fontSize: '0.75rem' }}>
-                                    Must be a single word with no spaces.
-                                </small>
                             </div>
                             <div className="form-group">
                                 <label className="form-label">Course Title</label>
@@ -460,10 +460,12 @@ export default function CoursesPage() {
                                     <div className="form-group">
                                         <label className="form-label">Department</label>
                                         <select className="form-select form-input" value={form.departmentId} onChange={(e) => setForm({ ...form, departmentId: e.target.value })}>
-                                            {departments.map((d) => {
-                                                const fac = faculties.find((f) => f.id === d.facultyId);
-                                                return <option key={d.id} value={d.id}>{d.name} ({fac?.name})</option>;
-                                            })}
+                                            {departments
+                                                .filter((d) => role === 'FACULTY_EDITOR' && user?.faculty_id ? d.facultyId === user.faculty_id : true)
+                                                .map((d) => {
+                                                    const fac = faculties.find((f) => f.id === d.facultyId);
+                                                    return <option key={d.id} value={d.id}>{d.name} ({fac?.name})</option>;
+                                                })}
                                         </select>
                                     </div>
                                 )}

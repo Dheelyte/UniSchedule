@@ -7,6 +7,7 @@ import { DAYS, EXAM_DAYS, timeToMinutes } from '@/lib/utils';
 import { apiClient } from '@/lib/apiClient';
 import { detectConflicts, detectAllConflicts } from '@/lib/conflicts';
 import { useToast } from '@/components/Toast/Toast';
+import { useConfirm } from '@/components/ConfirmModal/ConfirmContext';
 import SearchableSelect from '@/components/SearchableSelect/SearchableSelect';
 import { hasGlobalScope, isGsAdmin, isViewerRole } from '@/lib/roles';
 import styles from './TimetableGrid.module.css';
@@ -126,6 +127,7 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
     const { state, dispatch, getSchedulesWithDetails } = useApp();
     const { faculties, departments, courses, rooms } = state;
     const { addToast } = useToast();
+    const confirm = useConfirm();
     const { user } = useAuth();
     const isOwnItem = useCallback((schedule) => {
         if (!schedule) return false;
@@ -509,7 +511,21 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
             return;
         }
 
-        if (result.hasWarning) {
+        const overrides = result.conflicts.filter((c) => c.priorityOverride);
+        if (overrides.length > 0) {
+            const candidateCourse = courses.find((c) => c.id === modalForm.courseId);
+            const ok = await confirm({
+                title: 'Higher-priority schedule will override',
+                message:
+                    `Saving "${candidateCourse?.code || 'this course'}" will create the following conflict(s) with lower-priority courses. ` +
+                    `It will still be scheduled, but the affected faculty editors will be notified by email to reschedule. Continue?`,
+                details: overrides.map((c) => c.message),
+                confirmLabel: 'Schedule anyway',
+                cancelLabel: 'Cancel',
+                tone: 'primary',
+            });
+            if (!ok) return;
+        } else if (result.hasWarning) {
             result.conflicts.filter((c) => c.severity === 'warning').forEach((c) => {
                 addToast({
                     type: 'warning',
@@ -663,7 +679,23 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
             return;
         }
 
-        if (result.hasWarning) {
+        const overrides = result.conflicts.filter((c) => c.priorityOverride);
+        if (overrides.length > 0) {
+            const ok = await confirm({
+                title: 'Higher-priority schedule will override',
+                message:
+                    `Moving "${dragItem.courseCode || 'this course'}" here will create the following conflict(s) with the courses below. ` +
+                    `It will still be moved, but the affected faculty editors will be notified by email to reschedule. Continue?`,
+                details: overrides.map((c) => c.message),
+                confirmLabel: 'Move anyway',
+                cancelLabel: 'Cancel',
+                tone: 'primary',
+            });
+            if (!ok) {
+                setDragItem(null);
+                return;
+            }
+        } else if (result.hasWarning) {
             result.conflicts.filter((c) => c.severity === 'warning').forEach((c) => {
                 addToast({ type: 'warning', title: 'Schedule Warning', message: c.message, duration: 6000 });
             });

@@ -45,6 +45,17 @@ class AuthRepository:
         result = await self.db.execute(select(User).where(User.id.in_(ids)))
         return list(result.scalars().all())
 
+    async def get_faculty_editors_in_faculties(self, faculty_ids: list[str]) -> list[User]:
+        if not faculty_ids:
+            return []
+        result = await self.db.execute(
+            select(User).where(
+                User.role == RoleEnum.FACULTY_EDITOR,
+                User.faculty_id.in_(faculty_ids),
+            )
+        )
+        return list(result.scalars().all())
+
 
     async def get_all_invitations(self) -> list[Invitation]:
         result = await self.db.execute(select(Invitation).where(Invitation.is_used.is_(False)))

@@ -323,7 +323,7 @@ export default function TermsPage() {
                                         <td style={{ fontWeight: 500 }}>{slot.name}</td>
                                         <td>
                                             <span className={`badge ${slot.applies_to === 'EXAM_ONLY' ? styles.badgeHoliday : styles.badgeExtracurricular}`}>
-                                                {slot.applies_to === 'LECTURE_ONLY' ? '📚 Lectures' : slot.applies_to === 'EXAM_ONLY' ? '📝 Exams' : '📋 Both'}
+                                                {slot.applies_to === 'LECTURE_ONLY' ? ' Lectures' : slot.applies_to === 'EXAM_ONLY' ? 'Exams' : 'Both'}
                                             </span>
                                         </td>
                                         <td>{slot.date || slot.day_of_week}</td>

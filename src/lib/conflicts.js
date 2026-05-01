@@ -33,6 +33,15 @@ function getRoomLabel(s) {
  */
 const UW_DEPT = 'university-wide';
 
+// Higher number = higher scheduling priority. A higher-priority schedule may be
+// saved despite an error-level conflict with a lower-priority one (the conflict
+// is downgraded to a warning so the save proceeds; both items remain flagged on
+// the timetable, and the backend notifies the affected faculty editors).
+const SCOPE_PRIORITY = { UNIVERSITY_WIDE: 3, INTERFACULTY: 2, DEPARTMENTAL: 1 };
+function scopePriority(scope) {
+    return SCOPE_PRIORITY[scope] || 0;
+}
+
 function audiencesOf(item, enrollmentsByCourse) {
     const out = [];
     if (item.courseScope === 'UNIVERSITY_WIDE') {
@@ -105,12 +114,23 @@ export function detectConflicts(candidate, allSchedules, excludeId = null, enrol
         }
     }
 
-    // For room/time overlap checks: scope to same day + same type
-    // In exam mode, also scope to same week
+    // For room/time overlap checks: scope to same calendar slot + same type.
+    // Lectures match by day_of_week; exams match by examDate (falling back to
+    // legacy day_of_week for items that pre-date date-based exam scheduling).
+    // In exam mode, also scope to same week.
     const relevantSchedules = allSchedules.filter((s) => {
         if (s.id === excludeId) return false;
-        if (s.day !== candidate.day || s.type !== candidate.type) return false;
-        if (candidate.type === 'exam' && s.week !== candidate.week) return false;
+        if (s.type !== candidate.type) return false;
+        if (candidate.type === 'exam') {
+            if (candidate.examDate && s.examDate) {
+                if (s.examDate !== candidate.examDate) return false;
+            } else if (s.day && candidate.day && s.day !== candidate.day) {
+                return false;
+            }
+            if (s.week !== candidate.week) return false;
+        } else if (s.day !== candidate.day) {
+            return false;
+        }
         return true;
     });
 
@@ -136,6 +156,7 @@ export function detectConflicts(candidate, allSchedules, excludeId = null, enrol
         conflicts.push({
             type: 'room',
             severity: 'error',
+            otherScope: s.courseScope || null,
             message: candidate.type === 'exam'
                 ? `Room conflict: "${getRoomLabel(s)}" is already booked for ${s.courseCode || 'a course'} (${s.facultyName || s.facultyId}) on ${s.day} ${s.startTime}–${s.endTime}. Exams may only share a venue within the same faculty.`
                 : `Room conflict: "${getRoomLabel(s)}" is already booked for ${s.courseCode || 'a course'} on ${s.day} ${s.startTime}–${s.endTime}.`,
@@ -159,6 +180,7 @@ export function detectConflicts(candidate, allSchedules, excludeId = null, enrol
             conflicts.push({
                 type: 'course',
                 severity: 'error',
+                otherScope: s.courseScope || null,
                 message: `Course conflict: "${s.courseCode || 'Course'}" is already scheduled on ${s.day} ${s.startTime}–${s.endTime}.`,
             });
         });
@@ -182,6 +204,7 @@ export function detectConflicts(candidate, allSchedules, excludeId = null, enrol
             conflicts.push({
                 type: 'audience',
                 severity: 'error',
+                otherScope: s.courseScope || null,
                 message: `Audience clash: ${s.courseCode || 'a course'} also targets ${audienceLabel} on ${s.day || s.examDate} ${s.startTime}–${s.endTime}.`,
             });
         }
@@ -193,6 +216,22 @@ export function detectConflicts(candidate, allSchedules, excludeId = null, enrol
             type: 'time',
             severity: 'warning',
             message: `Time warning: This slot (${candidate.startTime}–${candidate.endTime}) falls outside standard operating hours (08:00–18:00).`,
+        });
+    }
+
+    // Priority override: if the candidate's scope outranks the colliding item's
+    // scope, the save is allowed. Demote the conflict to a warning and tag it so
+    // the UI can explain that affected faculty editors will be notified.
+    const candidatePriority = scopePriority(candidate.courseScope);
+    if (candidatePriority > 1) {
+        conflicts.forEach((c) => {
+            if (c.severity !== 'error' || !c.otherScope) return;
+            const otherPriority = scopePriority(c.otherScope);
+            if (candidatePriority > otherPriority) {
+                c.severity = 'warning';
+                c.priorityOverride = true;
+                c.message = `${c.message}`;
+            }
         });
     }
 
@@ -244,9 +283,19 @@ export function detectAllConflicts(allSchedules, enrollmentsByCourse = null, dep
             if (i === j) continue;
             const b = allSchedules[j];
 
-            if (a.day !== b.day || a.type !== b.type) continue;
-            // In exam mode, room/time conflicts only within same week
-            if (a.type === 'exam' && a.week !== b.week) continue;
+            if (a.type !== b.type) continue;
+            if (a.type === 'exam') {
+                if (a.examDate && b.examDate) {
+                    if (a.examDate !== b.examDate) continue;
+                } else if (a.day && b.day && a.day !== b.day) {
+                    continue;
+                } else if (!a.examDate && !b.examDate && (a.day !== b.day)) {
+                    continue;
+                }
+                if (a.week !== b.week) continue;
+            } else if (a.day !== b.day) {
+                continue;
+            }
 
             const overlaps = timesOverlap(
                 { startTime: a.startTime, endTime: a.endTime },

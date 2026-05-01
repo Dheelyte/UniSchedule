@@ -1,4 +1,4 @@
-from fastapi import Depends, HTTPException, BackgroundTasks
+from fastapi import Depends, HTTPException
 from datetime import date, datetime, timezone
 from modules.timetable.repository import TimetableRepository
 from modules.calendar.repository import CalendarRepository
@@ -10,6 +10,7 @@ from modules.timetable.schemas import (
 from modules.auth.models import RoleEnum
 from modules.auth.repository import AuthRepository
 from modules.notifications.service import NotificationService
+from modules.audit.service import AuditService
 from sqlalchemy.exc import IntegrityError
 
 
@@ -21,6 +22,27 @@ def _is_gs_admin(user: dict) -> bool:
     return user.get("role") == RoleEnum.GS_ADMIN.value
 
 
+# Higher number = higher scheduling priority. A higher-priority item is allowed to
+# overlap with a lower-priority one — the lower-priority item's faculty editors are
+# notified so they can reschedule.
+_SCOPE_PRIORITY = {
+    CourseScope.UNIVERSITY_WIDE.value: 3,
+    CourseScope.INTERFACULTY.value: 2,
+    CourseScope.DEPARTMENTAL.value: 1,
+}
+
+
+def _scope_priority(scope) -> int:
+    if scope is None:
+        return 0
+    val = scope.value if hasattr(scope, 'value') else str(scope)
+    return _SCOPE_PRIORITY.get(val, 0)
+
+
+def _times_overlap(a_start, a_end, b_start, b_end) -> bool:
+    return a_start < b_end and b_start < a_end
+
+
 class TimetableService:
     def __init__(
         self,
@@ -28,15 +50,26 @@ class TimetableService:
         cal_repo: CalendarRepository = Depends(),
         auth_repo: AuthRepository = Depends(),
         notification_service: NotificationService = Depends(),
+        audit_service: AuditService = Depends(),
     ):
         self.repo = repo
         self.cal_repo = cal_repo
         self.auth_repo = auth_repo
         self.notification_service = notification_service
+        self.audit_service = audit_service
         
-    async def create_faculty(self, data: FacultyCreate) -> Faculty:
+    async def create_faculty(self, data: FacultyCreate, current_user: dict | None = None) -> Faculty:
         faculty = Faculty(id=data.id, name=data.name)
-        return await self.repo.create_faculty(faculty)
+        created = await self.repo.create_faculty(faculty)
+        await self.audit_service.log(
+            current_user=current_user,
+            action="faculty.create",
+            entity_type="faculty",
+            entity_id=created.id,
+            description=f"Created faculty {created.id} ({created.name})",
+            extra={"id": created.id, "name": created.name},
+        )
+        return created
 
     async def get_faculties(self, current_user: dict, all: bool = False) -> list[Faculty]:
         if all:
@@ -50,24 +83,49 @@ class TimetableService:
         faculty = await self.repo.get_faculty(id)
         if not faculty: raise HTTPException(status_code=404, detail="Faculty not found")
         if data.name is not None: faculty.name = data.name
-        return await self.repo.update_faculty(faculty)
+        updated = await self.repo.update_faculty(faculty)
+        await self.audit_service.log(
+            current_user=current_user,
+            action="faculty.update",
+            entity_type="faculty",
+            entity_id=updated.id,
+            description=f"Updated faculty {updated.id} ({updated.name})",
+            extra=data.model_dump(exclude_unset=True),
+        )
+        return updated
 
     async def delete_faculty(self, id: str, current_user: dict) -> None:
         if current_user.get("role") != RoleEnum.SUPER_ADMIN.value:
             raise HTTPException(status_code=403, detail="Not authorized")
         faculty = await self.repo.get_faculty(id)
-        if faculty: 
+        if faculty:
             try:
                 await self.repo.delete_faculty(faculty)
             except IntegrityError:
                 raise HTTPException(status_code=400, detail="Cannot delete faculty because it is currently referenced by other records (such as departments or schedule items). Please remove them first.")
+            await self.audit_service.log(
+                current_user=current_user,
+                action="faculty.delete",
+                entity_type="faculty",
+                entity_id=faculty.id,
+                description=f"Deleted faculty {faculty.id} ({faculty.name})",
+            )
 
     async def create_department(self, data: DepartmentCreate, current_user: dict) -> Department:
         if current_user.get("role") == RoleEnum.FACULTY_EDITOR.value:
             if current_user.get("faculty_id") != data.faculty_id:
                 raise HTTPException(status_code=403, detail="Not authorized")
         dept = Department(name=data.name, faculty_id=data.faculty_id)
-        return await self.repo.create_department(dept)
+        created = await self.repo.create_department(dept)
+        await self.audit_service.log(
+            current_user=current_user,
+            action="department.create",
+            entity_type="department",
+            entity_id=created.id,
+            description=f"Created department '{created.name}' in faculty {created.faculty_id}",
+            extra={"name": created.name, "faculty_id": created.faculty_id},
+        )
+        return created
 
     async def get_departments(self, current_user: dict, all: bool = False) -> list[Department]:
         if all:
@@ -86,7 +144,16 @@ class TimetableService:
             if current_user.get("role") == RoleEnum.FACULTY_EDITOR.value and current_user.get("faculty_id") != data.faculty_id:
                 raise HTTPException(status_code=403, detail="Not authorized")
             dept.faculty_id = data.faculty_id
-        return await self.repo.update_department(dept)
+        updated = await self.repo.update_department(dept)
+        await self.audit_service.log(
+            current_user=current_user,
+            action="department.update",
+            entity_type="department",
+            entity_id=updated.id,
+            description=f"Updated department {updated.id} ({updated.name})",
+            extra=data.model_dump(exclude_unset=True),
+        )
+        return updated
 
     async def delete_department(self, id: int, current_user: dict) -> None:
         dept = await self.repo.get_department(id)
@@ -98,6 +165,13 @@ class TimetableService:
             await self.repo.delete_department(dept)
         except IntegrityError:
             raise HTTPException(status_code=400, detail="Cannot delete department because it is currently referenced by other records (such as courses). Please remove them first.")
+        await self.audit_service.log(
+            current_user=current_user,
+            action="department.delete",
+            entity_type="department",
+            entity_id=dept.id,
+            description=f"Deleted department {dept.id} ({dept.name})",
+        )
 
     async def create_room(self, data: RoomCreate, current_user: dict) -> Room:
         if current_user.get("role") == RoleEnum.FACULTY_EDITOR.value:
@@ -108,9 +182,18 @@ class TimetableService:
                 raise HTTPException(status_code=403, detail="General Studies admins can only create rooms not bound to a faculty")
         room = Room(name=data.name, capacity=data.capacity, faculty_id=data.faculty_id)
         try:
-            return await self.repo.create_room(room)
+            created = await self.repo.create_room(room)
         except IntegrityError:
             raise HTTPException(status_code=400, detail=f"Room '{data.name}' already exists.")
+        await self.audit_service.log(
+            current_user=current_user,
+            action="room.create",
+            entity_type="room",
+            entity_id=created.id,
+            description=f"Created room '{created.name}' (capacity {created.capacity})",
+            extra={"name": created.name, "capacity": created.capacity, "faculty_id": created.faculty_id},
+        )
+        return created
 
     async def get_rooms(self, current_user: dict, all: bool = False) -> list[Room]:
         if all:
@@ -136,9 +219,18 @@ class TimetableService:
                 raise HTTPException(status_code=403, detail="Not authorized")
             room.faculty_id = data.faculty_id
         try:
-            return await self.repo.update_room(room)
+            updated = await self.repo.update_room(room)
         except IntegrityError:
             raise HTTPException(status_code=400, detail=f"Room name must be unique.")
+        await self.audit_service.log(
+            current_user=current_user,
+            action="room.update",
+            entity_type="room",
+            entity_id=updated.id,
+            description=f"Updated room {updated.id} ({updated.name})",
+            extra=data.model_dump(exclude_unset=True),
+        )
+        return updated
 
     async def delete_room(self, id: int, current_user: dict) -> None:
         room = await self.repo.get_room(id)
@@ -152,6 +244,13 @@ class TimetableService:
             await self.repo.delete_room(room)
         except IntegrityError:
             raise HTTPException(status_code=400, detail="Cannot delete room because it is currently referenced by other records (such as schedule items). Please remove them first.")
+        await self.audit_service.log(
+            current_user=current_user,
+            action="room.delete",
+            entity_type="room",
+            entity_id=room.id,
+            description=f"Deleted room {room.id} ({room.name})",
+        )
 
     async def reorder_rooms(self, data: RoomReorderRequest, current_user: dict) -> list[Room]:
         if current_user.get("role") not in [RoleEnum.SUPER_ADMIN.value, RoleEnum.FACULTY_EDITOR.value]:
@@ -182,6 +281,13 @@ class TimetableService:
         if data.scope == CourseScope.UNIVERSITY_WIDE.value:
             if current_user.get("role") not in (RoleEnum.SUPER_ADMIN.value, RoleEnum.GS_ADMIN.value):
                 raise HTTPException(status_code=403, detail="Only Super Admins or General Studies admins can create university-wide courses")
+        # Faculty editors may only add courses to departments within their own faculty
+        if current_user.get("role") == RoleEnum.FACULTY_EDITOR.value and data.department_id is not None:
+            dept = await self.repo.get_department(data.department_id)
+            if not dept:
+                raise HTTPException(status_code=400, detail="Department not found")
+            if dept.faculty_id != current_user.get("faculty_id"):
+                raise HTTPException(status_code=403, detail="Faculty editors can only add courses to departments in their own faculty")
         course = Course(
             code=data.code,
             title=data.title,
@@ -193,9 +299,25 @@ class TimetableService:
             semester=data.semester,
         )
         try:
-            return await self.repo.create_course(course)
+            created = await self.repo.create_course(course)
         except IntegrityError:
             raise HTTPException(status_code=400, detail=f"Course code '{data.code}' already exists.")
+        await self.audit_service.log(
+            current_user=current_user,
+            action="course.create",
+            entity_type="course",
+            entity_id=created.id,
+            description=f"Created course {created.code} ({created.title})",
+            extra={
+                "code": created.code,
+                "title": created.title,
+                "scope": created.scope.value if hasattr(created.scope, 'value') else str(created.scope),
+                "department_id": created.department_id,
+                "level": created.level,
+                "semester": created.semester,
+            },
+        )
+        return created
 
     async def get_courses(self, current_user: dict) -> list[Course]:
         faculty_id = None if _has_global_scope(current_user) else current_user.get('faculty_id')
@@ -214,6 +336,18 @@ class TimetableService:
         if data.scope == CourseScope.UNIVERSITY_WIDE.value:
             if current_user.get("role") not in (RoleEnum.SUPER_ADMIN.value, RoleEnum.GS_ADMIN.value):
                 raise HTTPException(status_code=403, detail="Only Super Admins or General Studies admins can set university-wide scope")
+        # Faculty editors may only edit courses in their own faculty, and cannot move them out.
+        if current_user.get("role") == RoleEnum.FACULTY_EDITOR.value:
+            user_faculty = current_user.get("faculty_id")
+            current_dept = await self.repo.get_department(course.department_id) if course.department_id else None
+            if current_dept and current_dept.faculty_id != user_faculty:
+                raise HTTPException(status_code=403, detail="Faculty editors can only edit courses in their own faculty")
+            if data.department_id is not None:
+                target_dept = await self.repo.get_department(data.department_id)
+                if not target_dept:
+                    raise HTTPException(status_code=400, detail="Department not found")
+                if target_dept.faculty_id != user_faculty:
+                    raise HTTPException(status_code=403, detail="Faculty editors can only assign courses to departments in their own faculty")
         if data.code is not None: course.code = data.code
         if data.title is not None: course.title = data.title
         if data.credit_load is not None: course.credit_load = data.credit_load
@@ -228,9 +362,18 @@ class TimetableService:
         # `semester` is nullable — accept None to clear, distinguish from "not provided" via model_fields_set
         if 'semester' in data.model_fields_set: course.semester = data.semester
         try:
-            return await self.repo.update_course(course)
+            updated = await self.repo.update_course(course)
         except IntegrityError:
             raise HTTPException(status_code=400, detail="A course with this code already exists.")
+        await self.audit_service.log(
+            current_user=current_user,
+            action="course.update",
+            entity_type="course",
+            entity_id=updated.id,
+            description=f"Updated course {updated.code} ({updated.title})",
+            extra=data.model_dump(exclude_unset=True),
+        )
+        return updated
 
     async def delete_course(self, id: int, current_user: dict) -> None:
         course = await self.repo.get_course(id)
@@ -241,6 +384,13 @@ class TimetableService:
                 await self.repo.delete_course(course)
             except IntegrityError:
                 raise HTTPException(status_code=400, detail="Cannot delete course because it is currently referenced by schedule items. Please remove them first.")
+            await self.audit_service.log(
+                current_user=current_user,
+                action="course.delete",
+                entity_type="course",
+                entity_id=course.id,
+                description=f"Deleted course {course.code} ({course.title})",
+            )
 
     async def _check_blocked_slots(self, item_type: str, day_of_week: str | None, exam_date: date | None, start_time, end_time, semester_id: int):
         """Raise HTTPException if the proposed time overlaps any blocked slot."""
@@ -276,6 +426,115 @@ class TimetableService:
                     status_code=400,
                     detail=f"Time conflict with blocked slot '{slot.name}' ({slot.start_time.strftime('%H:%M')}–{slot.end_time.strftime('%H:%M')})"
                 )
+
+    async def _notify_priority_overrides(
+        self,
+        new_item: ScheduleItem,
+    ) -> None:
+        """If `new_item` collides with lower-priority items, notify the affected faculty editors.
+
+        Collisions considered: same day/exam_date + overlapping time AND
+        (shared room OR same course OR overlapping student audience).
+        Lower priority is determined by the originating course scope.
+        """
+        new_course = await self.repo.get_course(new_item.course_id)
+        if not new_course:
+            return
+        new_priority = _scope_priority(new_course.scope)
+        if new_priority <= 1:
+            return  # Departmental items can't override anything
+
+        sem_id = new_item.semester_id
+        if sem_id is None:
+            current_sem = await self.cal_repo.get_current_semester()
+            sem_id = current_sem.id if current_sem else None
+        if sem_id is None:
+            return
+        siblings = await self.repo.get_schedule_items(semester_id=sem_id)
+
+        # Audience: a UW course targets every (dept, level); a scoped course targets
+        # its own (dept, level). Two items "share an audience" if either side is UW
+        # or if their (dept_id, level) match (with NULL level acting as a wildcard).
+        def audience_overlaps(a_course: Course, b_course: Course) -> bool:
+            a_uw = a_course.scope == CourseScope.UNIVERSITY_WIDE
+            b_uw = b_course.scope == CourseScope.UNIVERSITY_WIDE
+            if a_uw or b_uw:
+                if a_course.level is None or b_course.level is None:
+                    return True
+                return a_course.level == b_course.level
+            if a_course.department_id != b_course.department_id:
+                return False
+            if a_course.level is None or b_course.level is None:
+                return True
+            return a_course.level == b_course.level
+
+        new_rooms = set(new_item.room_ids or [])
+        affected: list[tuple[ScheduleItem, Course]] = []
+        for s in siblings:
+            if s.id == new_item.id or s.type != new_item.type:
+                continue
+            # Same calendar slot
+            if new_item.type == "exam":
+                if (s.exam_date or None) != (new_item.exam_date or None):
+                    continue
+            else:
+                if (s.day_of_week or None) != (new_item.day_of_week or None):
+                    continue
+            if not _times_overlap(new_item.start_time, new_item.end_time, s.start_time, s.end_time):
+                continue
+
+            other_course = await self.repo.get_course(s.course_id)
+            if not other_course:
+                continue
+            if _scope_priority(other_course.scope) >= new_priority:
+                continue
+
+            shares_room = bool(new_rooms.intersection(set(s.room_ids or [])))
+            same_course = s.course_id == new_item.course_id
+            shares_audience = audience_overlaps(new_course, other_course)
+            if not (shares_room or same_course or shares_audience):
+                continue
+
+            affected.append((s, other_course))
+
+        if not affected:
+            return
+
+        # Collect faculty ids to notify: prefer schedule item's faculty, fall back to dept's faculty.
+        faculty_ids: set[str] = set()
+        for s, c in affected:
+            if s.faculty_id:
+                faculty_ids.add(s.faculty_id)
+            elif c.department_id:
+                dept = await self.repo.get_department(c.department_id)
+                if dept and dept.faculty_id:
+                    faculty_ids.add(dept.faculty_id)
+
+        if not faculty_ids:
+            return
+        editors = await self.auth_repo.get_faculty_editors_in_faculties(list(faculty_ids))
+        editor_ids = [u.id for u in editors]
+        if not editor_ids:
+            return
+
+        course_lines = ", ".join(f"{c.code} ({c.title})" for _, c in affected)
+        title = "Timetable conflict: please review"
+        message = (
+            f"{new_course.code} ({new_course.scope.value.replace('_', '-').title()}) "
+            f"was scheduled and now conflicts with {course_lines}. "
+            f"Please reschedule the affected course(s) to resolve the clash."
+        )
+        link = "/timetable/exams" if new_item.type == "exam" else "/timetable/lectures"
+        # Lambda-friendly: send the email inline rather than via BackgroundTasks,
+        # which is unreliable on AWS Lambda (the worker can be frozen after the
+        # response is returned).
+        await self.notification_service.notify(
+            user_ids=editor_ids,
+            title=title,
+            message=message,
+            link=link,
+            send_email=True,
+        )
 
     async def _assert_not_locked(self, semester_id: int | None, item_type: str) -> None:
         if semester_id is None:
@@ -316,9 +575,31 @@ class TimetableService:
             type=data.type,
             week=data.week,
             exam_date=getattr(data, 'exam_date', None),
-            semester_id=data.semester_id
+            semester_id=sem_id,
         )
-        return await self.repo.create_schedule_item(item)
+        created = await self.repo.create_schedule_item(item)
+        await self._notify_priority_overrides(created)
+        course = await self.repo.get_course(created.course_id)
+        await self.audit_service.log(
+            current_user=current_user,
+            action=f"schedule_item.{created.type}.create",
+            entity_type="schedule_item",
+            entity_id=created.id,
+            description=f"Scheduled {created.type} for {course.code if course else f'course #{created.course_id}'} on {created.exam_date or created.day_of_week} {created.start_time}-{created.end_time}",
+            extra={
+                "course_id": created.course_id,
+                "course_code": course.code if course else None,
+                "type": created.type,
+                "day_of_week": created.day_of_week,
+                "exam_date": created.exam_date.isoformat() if created.exam_date else None,
+                "start_time": str(created.start_time),
+                "end_time": str(created.end_time),
+                "room_ids": created.room_ids,
+                "faculty_id": created.faculty_id,
+                "semester_id": created.semester_id,
+            },
+        )
+        return created
 
     async def get_schedule_items(self, current_user: dict, semester_id: int | None = None) -> list[ScheduleItem]:
         faculty_id = None if _has_global_scope(current_user) else current_user.get('faculty_id')
@@ -348,7 +629,18 @@ class TimetableService:
         if data.exam_date is not None: item.exam_date = data.exam_date
         if data.start_time is not None: item.start_time = data.start_time
         if data.end_time is not None: item.end_time = data.end_time
-        return await self.repo.update_schedule_item(item)
+        updated = await self.repo.update_schedule_item(item)
+        await self._notify_priority_overrides(updated)
+        course = await self.repo.get_course(updated.course_id)
+        await self.audit_service.log(
+            current_user=current_user,
+            action=f"schedule_item.{updated.type}.update",
+            entity_type="schedule_item",
+            entity_id=updated.id,
+            description=f"Updated {updated.type} for {course.code if course else f'course #{updated.course_id}'}",
+            extra=data.model_dump(exclude_unset=True, mode='json'),
+        )
+        return updated
 
     async def delete_schedule_item(self, id: int, current_user: dict) -> None:
         item = await self.repo.get_schedule_item(id)
@@ -361,11 +653,19 @@ class TimetableService:
             if not course or course.scope != CourseScope.UNIVERSITY_WIDE:
                 raise HTTPException(status_code=403, detail="General Studies admins can only delete university-wide schedule items")
         await self._assert_not_locked(item.semester_id, item.type)
+        course = await self.repo.get_course(item.course_id)
         await self.repo.delete_schedule_item(item)
+        await self.audit_service.log(
+            current_user=current_user,
+            action=f"schedule_item.{item.type}.delete",
+            entity_type="schedule_item",
+            entity_id=item.id,
+            description=f"Removed {item.type} for {course.code if course else f'course #{item.course_id}'} from {item.exam_date or item.day_of_week} {item.start_time}-{item.end_time}",
+        )
 
     # ---------- Blocked Slots ----------
 
-    async def create_blocked_slot(self, data: BlockedSlotCreate) -> BlockedSlot:
+    async def create_blocked_slot(self, data: BlockedSlotCreate, current_user: dict | None = None) -> BlockedSlot:
         slot = BlockedSlot(
             name=data.name,
             type=data.type,
@@ -376,16 +676,40 @@ class TimetableService:
             applies_to=data.applies_to,
             semester_id=data.semester_id,
         )
-        return await self.repo.create_blocked_slot(slot)
+        created = await self.repo.create_blocked_slot(slot)
+        await self.audit_service.log(
+            current_user=current_user,
+            action="blocked_slot.create",
+            entity_type="blocked_slot",
+            entity_id=created.id,
+            description=f"Added blocked slot '{created.name}' ({created.applies_to})",
+            extra={
+                "name": created.name,
+                "applies_to": created.applies_to,
+                "day_of_week": created.day_of_week,
+                "date": created.date.isoformat() if created.date else None,
+                "start_time": str(created.start_time) if created.start_time else None,
+                "end_time": str(created.end_time) if created.end_time else None,
+                "semester_id": created.semester_id,
+            },
+        )
+        return created
 
     async def get_blocked_slots(self, semester_id: int | None = None) -> list[BlockedSlot]:
         return await self.repo.get_blocked_slots(semester_id=semester_id)
 
-    async def delete_blocked_slot(self, id: int) -> None:
+    async def delete_blocked_slot(self, id: int, current_user: dict | None = None) -> None:
         slot = await self.repo.get_blocked_slot(id)
         if not slot:
             raise HTTPException(status_code=404, detail="Blocked slot not found")
         await self.repo.delete_blocked_slot(slot)
+        await self.audit_service.log(
+            current_user=current_user,
+            action="blocked_slot.delete",
+            entity_type="blocked_slot",
+            entity_id=slot.id,
+            description=f"Removed blocked slot '{slot.name}'",
+        )
 
     # ---------- Timetable Locks ----------
 
@@ -409,9 +733,18 @@ class TimetableService:
         sub = current_user.get("sub")
         user_id = int(sub) if sub is not None else None
         try:
-            return await self.repo.upsert_lock(semester_id, timetable_type, is_locked, user_id)
+            lock = await self.repo.upsert_lock(semester_id, timetable_type, is_locked, user_id)
         except IntegrityError:
             raise HTTPException(status_code=404, detail="Semester not found")
+        await self.audit_service.log(
+            current_user=current_user,
+            action=f"timetable.{'lock' if is_locked else 'unlock'}",
+            entity_type="timetable_lock",
+            entity_id=f"{semester_id}:{timetable_type}",
+            description=f"{'Locked' if is_locked else 'Unlocked'} {timetable_type} timetable for semester {semester_id}",
+            extra={"semester_id": semester_id, "timetable_type": timetable_type, "is_locked": is_locked},
+        )
+        return lock
 
     async def request_edit(
         self,
@@ -419,7 +752,6 @@ class TimetableService:
         timetable_type: str,
         reason: str | None,
         current_user: dict,
-        background_tasks: BackgroundTasks,
     ) -> None:
         if timetable_type not in ("lecture", "exam"):
             raise HTTPException(status_code=400, detail="timetable_type must be 'lecture' or 'exam'")
@@ -456,7 +788,14 @@ class TimetableService:
             message=message,
             link=link,
             send_email=False,
-            background_tasks=background_tasks,
+        )
+        await self.audit_service.log(
+            current_user=current_user,
+            action="timetable.edit_request",
+            entity_type="timetable_lock",
+            entity_id=f"{semester_id}:{timetable_type}",
+            description=f"Requested edit access to {timetable_type} timetable for semester {semester_id}",
+            extra={"reason": reason},
         )
 
     # ---------- Course Enrollments (per dept × level) ----------

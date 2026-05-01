@@ -39,7 +39,7 @@ async def invite_staff(
     timetable_repo: TimetableRepository = Depends(),
     current_user: dict = Depends(RequireRole([RoleEnum.SUPER_ADMIN.value]))
 ):
-    invite = await service.generate_invite(data.email, data.target_role, data.faculty_id, data.semester_id)
+    invite = await service.generate_invite(data.email, data.target_role, data.faculty_id, data.semester_id, current_user)
     
     faculty_name = None
     if data.faculty_id:
@@ -76,13 +76,13 @@ async def get_invitations(service: AuthService = Depends(), user: dict = Depends
 async def delete_user(user_id: int, service: AuthService = Depends(), user: dict = Depends(RequireRole([RoleEnum.SUPER_ADMIN.value]))):
     if str(user_id) == str(user.get("sub", "")):
         raise HTTPException(status_code=400, detail="You cannot revoke your own active tracking session.")
-    if not await service.delete_user(user_id):
+    if not await service.delete_user(user_id, user):
         raise HTTPException(status_code=404, detail="User not found")
     return {"message": "User deleted"}
 
 @router.delete("/invitations/{inv_id}")
 async def delete_invitation(inv_id: int, service: AuthService = Depends(), user: dict = Depends(RequireRole([RoleEnum.SUPER_ADMIN.value]))):
-    if not await service.delete_invitation(inv_id):
+    if not await service.delete_invitation(inv_id, user):
         raise HTTPException(status_code=404, detail="Invitation not found")
     return {"message": "Invitation deleted"}
 
