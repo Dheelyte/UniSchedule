@@ -20,6 +20,7 @@ from modules.auth.models import User, Invitation, PasswordResetToken
 from modules.calendar.models import AcademicSession, Semester
 from modules.timetable.models import Faculty, Room, Course, ScheduleItem, BlockedSlot
 from modules.notifications.models import Notification
+from modules.audit.models import ActivityLog
 
 DATABASE_URL = settings.DATABASE_URL
 

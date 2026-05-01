@@ -1,12 +1,13 @@
 'use client';
 
-import { useState, useMemo, useEffect, useCallback } from 'react';
+import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { useApp, ACTION_TYPES } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
 import { DAYS, EXAM_DAYS, timeToMinutes } from '@/lib/utils';
 import { apiClient } from '@/lib/apiClient';
 import { detectConflicts, detectAllConflicts } from '@/lib/conflicts';
 import { useToast } from '@/components/Toast/Toast';
+import { useConfirm } from '@/components/ConfirmModal/ConfirmContext';
 import SearchableSelect from '@/components/SearchableSelect/SearchableSelect';
 import { hasGlobalScope, isGsAdmin, isViewerRole } from '@/lib/roles';
 import styles from './TimetableGrid.module.css';
@@ -122,10 +123,11 @@ function computeVerticalOverlapLayout(events) {
     return assignments;
 }
 
-export default function TimetableGrid({ mode = 'lecture', semesterId = null, readOnly = false, readOnlyReasons = [], blockedSlots = [], enrollmentsByCourse = null }) {
+export default function TimetableGrid({ mode = 'lecture', semesterId = null, semesterName = null, readOnly = false, readOnlyReasons = [], blockedSlots = [], enrollmentsByCourse = null }) {
     const { state, dispatch, getSchedulesWithDetails } = useApp();
     const { faculties, departments, courses, rooms } = state;
     const { addToast } = useToast();
+    const confirm = useConfirm();
     const { user } = useAuth();
     const isOwnItem = useCallback((schedule) => {
         if (!schedule) return false;
@@ -210,9 +212,61 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, rea
         return getSchedulesWithDetails.filter((s) => s.type === mode);
     }, [getSchedulesWithDetails, mode]);
 
+    const departmentsById = useMemo(() => {
+        const m = new Map();
+        departments.forEach((d) => m.set(d.id, d.name));
+        return m;
+    }, [departments]);
+
     const conflictMap = useMemo(() => {
-        return detectAllConflicts(allModeSchedules, enrollmentsByCourse);
-    }, [allModeSchedules, enrollmentsByCourse]);
+        return detectAllConflicts(allModeSchedules, enrollmentsByCourse, departmentsById);
+    }, [allModeSchedules, enrollmentsByCourse, departmentsById]);
+
+    // First schedule item (in render order) that has at least one error-severity conflict.
+    const firstConflictItem = useMemo(() => {
+        return allModeSchedules.find((s) => {
+            const list = conflictMap.get(s.id);
+            return list && list.some((c) => c.severity === 'error');
+        }) || null;
+    }, [allModeSchedules, conflictMap]);
+
+    const totalConflictCount = useMemo(() => {
+        let n = 0;
+        for (const list of conflictMap.values()) {
+            if (list.some((c) => c.severity === 'error')) n++;
+        }
+        return n;
+    }, [conflictMap]);
+
+    const [flashScheduleId, setFlashScheduleId] = useState(null);
+    const flashTimerRef = useRef(null);
+    const eventNodeRefs = useRef(new Map());
+
+    useEffect(() => () => {
+        if (flashTimerRef.current) clearTimeout(flashTimerRef.current);
+    }, []);
+
+    const jumpToFirstConflict = () => {
+        if (!firstConflictItem) return;
+        // Clear filters that could be hiding the conflicting item.
+        setFilterFaculty('');
+        setFilterDept('');
+        if (mode === 'exam') {
+            setCurrentDate(firstConflictItem.examDate || `legacy:${firstConflictItem.day}`);
+        } else if (firstConflictItem.day) {
+            setCurrentDay(firstConflictItem.day);
+        }
+        setFlashScheduleId(firstConflictItem.id);
+        // Allow the grid to re-render after the day/date change before scrolling.
+        requestAnimationFrame(() => {
+            const node = eventNodeRefs.current.get(firstConflictItem.id);
+            if (node && typeof node.scrollIntoView === 'function') {
+                node.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
+            }
+        });
+        if (flashTimerRef.current) clearTimeout(flashTimerRef.current);
+        flashTimerRef.current = setTimeout(() => setFlashScheduleId(null), 2400);
+    };
 
     // Rooms to render: own-faculty rooms + any room referenced by a visible schedule item.
     // Global-scope users see everything; this trims the grid for FACULTY editors/viewers.
@@ -266,9 +320,14 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, rea
                     if (currentDate.startsWith('legacy:')) {
                         return slot.day_of_week === currentDate.replace('legacy:', '');
                     }
-                    // For date-based exams, compare the weekday
-                    const examDay = parseLocalDate(currentDate).toLocaleDateString('en-US', { weekday: 'long' });
-                    return slot.day_of_week === examDay;
+                    // Date-based blocks (EXAM_ONLY) match exact exam date
+                    if (slot.date) return slot.date === currentDate;
+                    // Day-of-week blocks (BOTH) match weekday of exam date
+                    if (slot.day_of_week) {
+                        const examDay = parseLocalDate(currentDate).toLocaleDateString('en-US', { weekday: 'long' });
+                        return slot.day_of_week === examDay;
+                    }
+                    return false;
                 }
                 return slot.day_of_week === currentDay;
             }
@@ -301,12 +360,17 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, rea
 
     const modalCourses = useMemo(() => {
         let filteredCourses = courses;
+        // Restrict to courses offered in the current semester. Legacy courses with
+        // no semester set are still shown so older data remains schedulable.
+        if (semesterName) {
+            filteredCourses = filteredCourses.filter((c) => !c.semester || c.semester === semesterName);
+        }
         if (filterDept) {
             const deptId = Number(filterDept);
-            filteredCourses = courses.filter((c) => c.departmentId === deptId);
+            filteredCourses = filteredCourses.filter((c) => c.departmentId === deptId);
         } else if (filterFaculty) {
             const deptIds = departments.filter((d) => d.facultyId === filterFaculty).map((d) => d.id);
-            filteredCourses = courses.filter((c) => deptIds.includes(c.departmentId));
+            filteredCourses = filteredCourses.filter((c) => deptIds.includes(c.departmentId));
         }
 
         // Hide interfaculty courses originating from another faculty unless this faculty has enrolled in them.
@@ -333,7 +397,7 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, rea
             return filteredCourses.filter(c => !scheduledCourseIds.has(c.id));
         }
         return filteredCourses;
-    }, [courses, departments, filterFaculty, filterDept, mode, allModeSchedules, editing, user?.role, user?.faculty_id]);
+    }, [courses, departments, filterFaculty, filterDept, mode, allModeSchedules, editing, user?.role, user?.faculty_id, semesterName]);
 
     const handleCellClick = (roomId, hour) => {
         if (readOnly) return;
@@ -344,7 +408,7 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, rea
         setModalConflicts([]);
         setModalForm({
             courseId: '',
-            roomIds: [''],
+            roomIds: roomId ? [roomId] : [''],
             day: currentDay,
             examDate: currentDate,
             startTime,
@@ -375,6 +439,7 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, rea
 
     const enrichCandidate = (formData) => {
         const c = courses.find((cc) => cc.id === formData.courseId);
+        const dept = c ? departments.find((d) => d.id === c.departmentId) : null;
         return {
             ...formData,
             type: mode,
@@ -382,6 +447,7 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, rea
             courseDepartmentId: c?.departmentId ?? null,
             courseLevel: c?.level ?? null,
             courseScope: c?.scope ?? null,
+            facultyId: dept?.facultyId ?? null,
         };
     };
 
@@ -392,6 +458,7 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, rea
             allModeSchedules,
             editing?.id || null,
             enrollmentsByCourse,
+            departmentsById,
         );
         setModalConflicts(result.conflicts);
     };
@@ -429,6 +496,7 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, rea
             allModeSchedules,
             editing?.id || null,
             enrollmentsByCourse,
+            departmentsById,
         );
 
         if (result.hasConflict) {
@@ -443,7 +511,21 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, rea
             return;
         }
 
-        if (result.hasWarning) {
+        const overrides = result.conflicts.filter((c) => c.priorityOverride);
+        if (overrides.length > 0) {
+            const candidateCourse = courses.find((c) => c.id === modalForm.courseId);
+            const ok = await confirm({
+                title: 'Higher-priority schedule will override',
+                message:
+                    `Saving "${candidateCourse?.code || 'this course'}" will create the following conflict(s) with lower-priority courses. ` +
+                    `It will still be scheduled, but the affected faculty editors will be notified by email to reschedule. Continue?`,
+                details: overrides.map((c) => c.message),
+                confirmLabel: 'Schedule anyway',
+                cancelLabel: 'Cancel',
+                tone: 'primary',
+            });
+            if (!ok) return;
+        } else if (result.hasWarning) {
             result.conflicts.filter((c) => c.severity === 'warning').forEach((c) => {
                 addToast({
                     type: 'warning',
@@ -587,7 +669,7 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, rea
             courseScope: dragItem.courseScope ?? null,
         };
 
-        const result = detectConflicts(candidate, allModeSchedules, dragItem.id, enrollmentsByCourse);
+        const result = detectConflicts(candidate, allModeSchedules, dragItem.id, enrollmentsByCourse, departmentsById);
 
         if (result.hasConflict) {
             result.conflicts.filter((c) => c.severity === 'error').forEach((c) => {
@@ -597,7 +679,23 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, rea
             return;
         }
 
-        if (result.hasWarning) {
+        const overrides = result.conflicts.filter((c) => c.priorityOverride);
+        if (overrides.length > 0) {
+            const ok = await confirm({
+                title: 'Higher-priority schedule will override',
+                message:
+                    `Moving "${dragItem.courseCode || 'this course'}" here will create the following conflict(s) with the courses below. ` +
+                    `It will still be moved, but the affected faculty editors will be notified by email to reschedule. Continue?`,
+                details: overrides.map((c) => c.message),
+                confirmLabel: 'Move anyway',
+                cancelLabel: 'Cancel',
+                tone: 'primary',
+            });
+            if (!ok) {
+                setDragItem(null);
+                return;
+            }
+        } else if (result.hasWarning) {
             result.conflicts.filter((c) => c.severity === 'warning').forEach((c) => {
                 addToast({ type: 'warning', title: 'Schedule Warning', message: c.message, duration: 6000 });
             });
@@ -703,6 +801,17 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, rea
                             <span className={styles.conflictBadge}>
                                 ⚠ {visibleConflictCount} conflict{visibleConflictCount !== 1 ? 's' : ''}
                             </span>
+                        )}
+                        {totalConflictCount > 0 && firstConflictItem && (
+                            <button
+                                type="button"
+                                className="btn btn-secondary"
+                                style={{ marginLeft: 8, padding: '2px 10px', fontSize: '0.78rem' }}
+                                onClick={jumpToFirstConflict}
+                                title={`Jump to ${firstConflictItem.courseCode}`}
+                            >
+                                Go to conflict → {firstConflictItem.courseCode}
+                            </button>
                         )}
                     </span>
                 </div>
@@ -853,7 +962,7 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, rea
                                             {/* Blocked slot overlays */}
                                             {activeBlockedSlots.filter(slot => {
                                                 if (slot.type === 'HOLIDAY') return true; // Full day
-                                                if (!slot.start_time || !slot.end_time) return false;
+                                                if (!slot.start_time || !slot.end_time) return true; // Whole-day block
                                                 const slotStart = timeToMinutes(slot.start_time.slice(0, 5));
                                                 const slotEnd = timeToMinutes(slot.end_time.slice(0, 5));
                                                 const cellStart = hour * 60;
@@ -918,9 +1027,14 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, rea
                                                 const leftPct = ((startCol - cellStartCol) / 2) * 100;
                                                 const widthPct = (span / 2) * 100;
 
+                                                const isFlashing = flashScheduleId === s.id;
                                                 return (
                                                     <div
                                                         key={s.id}
+                                                        ref={(el) => {
+                                                            if (el) eventNodeRefs.current.set(s.id, el);
+                                                            else eventNodeRefs.current.delete(s.id);
+                                                        }}
                                                         className={`${styles.event} ${hasError ? styles.eventConflict : ''} ${dragItem?.id === s.id ? styles.eventDragging : ''}`}
                                                         style={{
                                                             top: `calc(${topOffset}% + 4px)`,
@@ -929,6 +1043,10 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, rea
                                                             width: `calc(${widthPct}% - 4px)`,
                                                             background: hasError ? 'rgba(239, 68, 68, 0.15)' : color.bg,
                                                             borderLeftColor: hasError ? '#ef4444' : color.border,
+                                                            outline: isFlashing ? '3px solid #f59e0b' : undefined,
+                                                            boxShadow: isFlashing ? '0 0 0 4px rgba(245, 158, 11, 0.35)' : undefined,
+                                                            transition: 'outline 0.2s, box-shadow 0.2s',
+                                                            zIndex: isFlashing ? 5 : undefined,
                                                         }}
                                                         draggable={!readOnly && isOwnItem(s)}
                                                         onDragStart={(e) => handleDragStart(s, e)}

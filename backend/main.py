@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from core.config import settings
 from core.database import get_db, async_session_maker
-from api.v1 import dummy, auth, calendar, timetable, export, notifications
+from api.v1 import dummy, auth, calendar, timetable, export, notifications, audit
 from modules.auth.models import User, RoleEnum
 from core.security import get_password_hash
 
@@ -54,6 +54,7 @@ app.include_router(calendar.router, prefix="/api/v1")
 app.include_router(timetable.router, prefix="/api/v1")
 app.include_router(export.router, prefix="/api/v1")
 app.include_router(notifications.router, prefix="/api/v1")
+app.include_router(audit.router, prefix="/api/v1")
 
 @app.get("/health")
 async def health_check(db: AsyncSession = Depends(get_db)):

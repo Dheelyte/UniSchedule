@@ -14,9 +14,7 @@ import { unilagLogoBase64 } from '@/lib/logo';
 export function exportTimetablePDF({ schedules, blockedSlots = [], rooms = [], title, session, semester, faculty, department, schoolName = 'University of Lagos', mode }) {
     if (!schedules || schedules.length === 0) return;
 
-    const ACTIVE_DAYS = mode === 'exam'
-        ? ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
-        : ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+    const ACTIVE_DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
     const START_H = 8;       // 08:00
     const END_H = 18;      // 18:00
     const SLOTS = END_H - START_H;   // 10 one-hour columns
@@ -267,7 +265,7 @@ export function exportTimetablePDF({ schedules, blockedSlots = [], rooms = [], t
             }) || [];
             dayBlocks.forEach(b => {
                 pdf.setFillColor(254, 242, 242); // Very light red
-                if (b.type === 'HOLIDAY') {
+                if (b.type === 'HOLIDAY' || !b.start_time || !b.end_time) {
                     pdf.rect(tableX + roomLabelW, rowY, tableW - roomLabelW, ROW_H, 'F');
                 } else if (b.type === 'EXTRACURRICULAR' && b.start_time && b.end_time) {
                     const [sH, sM] = b.start_time.split(':').map(Number);
@@ -364,6 +362,10 @@ export function exportTimetablePDF({ schedules, blockedSlots = [], rooms = [], t
                     const tx = tableX + roomLabelW + (tableW - roomLabelW) / 2;
                     const ty = curY + gridH / 2;
                     pdf.text(`HOLIDAY: ${b.name.toUpperCase()}`, tx, ty, { align: 'center', angle: -35 });
+                } else if (!b.start_time || !b.end_time) {
+                    const tx = tableX + roomLabelW + (tableW - roomLabelW) / 2;
+                    const ty = curY + gridH / 2;
+                    pdf.text(`${b.name.toUpperCase()}`, tx, ty, { align: 'center', angle: -35 });
                 } else if (b.type === 'EXTRACURRICULAR' && b.start_time && b.end_time) {
                     const [sH, sM] = b.start_time.split(':').map(Number);
                     const [eH, eM] = b.end_time.split(':').map(Number);

@@ -59,6 +59,7 @@ class EmailService:
         message: str,
         link: str | None = None,
     ):
+        print("Email service triggered")
         if not recipients:
             return
 

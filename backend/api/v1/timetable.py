@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Query, BackgroundTasks
+from fastapi import APIRouter, Depends, Query
 from typing import Optional, Literal
 from modules.timetable.service import TimetableService
 from modules.timetable.schemas import (
@@ -22,7 +22,7 @@ async def create_fac(
     service: TimetableService = Depends(),
     user: dict = Depends(RequireRole([RoleEnum.SUPER_ADMIN.value]))
 ):
-    return await service.create_faculty(data)
+    return await service.create_faculty(data, user)
 
 @router.get("/faculties", response_model=list[FacultyResponse])
 async def get_facs(
@@ -201,7 +201,7 @@ async def create_blocked_slot(
     service: TimetableService = Depends(),
     user: dict = Depends(RequireRole([RoleEnum.SUPER_ADMIN.value]))
 ):
-    return await service.create_blocked_slot(data)
+    return await service.create_blocked_slot(data, user)
 
 @router.get("/blocked-slots", response_model=list[BlockedSlotResponse])
 async def get_blocked_slots(
@@ -217,7 +217,7 @@ async def delete_blocked_slot(
     service: TimetableService = Depends(),
     user: dict = Depends(RequireRole([RoleEnum.SUPER_ADMIN.value]))
 ):
-    await service.delete_blocked_slot(id)
+    await service.delete_blocked_slot(id, user)
     return {"message": "Deleted"}
 
 # ---------- Locks ----------
@@ -244,12 +244,11 @@ async def set_lock(
 async def request_timetable_edit(
     timetable_type: Literal["lecture", "exam"],
     data: EditRequestCreate,
-    background_tasks: BackgroundTasks,
     semester_id: int = Query(...),
     service: TimetableService = Depends(),
     user: dict = Depends(get_current_user),
 ):
-    await service.request_edit(semester_id, timetable_type, data.reason, user, background_tasks)
+    await service.request_edit(semester_id, timetable_type, data.reason, user)
     return None
 
 # ---------- Course Enrollments (per dept × level) ----------

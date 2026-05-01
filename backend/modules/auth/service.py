@@ -8,10 +8,12 @@ from modules.auth.repository import AuthRepository, PasswordRepository
 from modules.auth.models import PasswordResetToken, User, RoleEnum, Invitation
 from core.security import TokenGenerator, verify_password, create_access_token, get_password_hash, hash_code
 from core.config import settings
+from modules.audit.service import AuditService
 
 class AuthService:
-    def __init__(self, repo: AuthRepository = Depends()):
+    def __init__(self, repo: AuthRepository = Depends(), audit_service: AuditService = Depends()):
         self.repo = repo
+        self.audit_service = audit_service
 
     async def authenticate_user(self, email: str, password: str) -> str:
         user = await self.repo.get_user_by_email(email)
@@ -19,11 +21,18 @@ class AuthService:
             raise HTTPException(status_code=401, detail="Invalid email or password")
         if not user.is_active:
             raise HTTPException(status_code=403, detail="Account disabled")
-        
+
         token = create_access_token(data={"sub": str(user.id), "email": user.email, "role": user.role.value, "faculty_id": user.faculty_id})
+        await self.audit_service.log(
+            current_user={"sub": str(user.id), "email": user.email, "role": user.role.value, "faculty_id": user.faculty_id},
+            action="auth.login",
+            entity_type="user",
+            entity_id=user.id,
+            description=f"{user.email} logged in",
+        )
         return token
 
-    async def generate_invite(self, email: str, target_role: RoleEnum, faculty_id: str | None = None, semester_id: int | None = None) -> Invitation:
+    async def generate_invite(self, email: str, target_role: RoleEnum, faculty_id: str | None = None, semester_id: int | None = None, current_user: dict | None = None) -> Invitation:
         existing_user = await self.repo.get_user_by_email(email)
         if existing_user:
             raise HTTPException(status_code=400, detail="User with this email already exists")
@@ -42,7 +51,16 @@ class AuthService:
             semester_id=semester_id,
             expires_at=datetime.now(timezone.utc) + timedelta(days=7)
         )
-        return await self.repo.create_invitation(invitation)
+        created = await self.repo.create_invitation(invitation)
+        await self.audit_service.log(
+            current_user=current_user,
+            action="user.invite",
+            entity_type="invitation",
+            entity_id=created.id,
+            description=f"Invited {email} as {target_role.value}",
+            extra={"email": email, "role": target_role.value, "faculty_id": faculty_id},
+        )
+        return created
 
     async def process_invitation(self, token: str, password: str) -> User:
         invite = await self.repo.get_invitation_by_token(token)
@@ -63,7 +81,13 @@ class AuthService:
         created_user = await self.repo.create_user(new_user)
         invite.is_used = True
         await self.repo.db.flush()
-
+        await self.audit_service.log(
+            current_user={"sub": str(created_user.id), "email": created_user.email, "role": created_user.role.value, "faculty_id": created_user.faculty_id},
+            action="user.register",
+            entity_type="user",
+            entity_id=created_user.id,
+            description=f"{created_user.email} registered as {created_user.role.value}",
+        )
         return created_user
 
     async def get_all_users(self) -> list[User]:
@@ -75,16 +99,33 @@ class AuthService:
     async def get_all_invitations(self) -> list[Invitation]:
         return await self.repo.get_all_invitations()
 
-    async def delete_user(self, user_id: int) -> bool:
+    async def delete_user(self, user_id: int, current_user: dict | None = None) -> bool:
         user = await self.repo.get_user_by_id(user_id)
         if not user: return False
+        email = user.email
+        role = user.role.value
         await self.repo.delete_user(user)
+        await self.audit_service.log(
+            current_user=current_user,
+            action="user.delete",
+            entity_type="user",
+            entity_id=user_id,
+            description=f"Deleted user {email} ({role})",
+        )
         return True
 
-    async def delete_invitation(self, inv_id: int) -> bool:
+    async def delete_invitation(self, inv_id: int, current_user: dict | None = None) -> bool:
         invitation = await self.repo.get_invitation_by_id(inv_id)
         if not invitation: return False
+        email = invitation.email
         await self.repo.delete_invitation(invitation)
+        await self.audit_service.log(
+            current_user=current_user,
+            action="user.invite_revoke",
+            entity_type="invitation",
+            entity_id=inv_id,
+            description=f"Revoked invitation for {email}",
+        )
         return True
 
 class PasswordResetService:

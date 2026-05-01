@@ -1,4 +1,4 @@
-from fastapi import Depends, HTTPException, BackgroundTasks
+from fastapi import Depends, HTTPException
 from modules.notifications.repository import NotificationRepository
 from modules.notifications.models import Notification
 from modules.notifications.schemas import NotificationCreate
@@ -36,12 +36,12 @@ class NotificationService:
         message: str,
         link: str | None = None,
         send_email: bool = False,
-        background_tasks: BackgroundTasks | None = None,
     ) -> list[Notification]:
         """Single fan-out for in-app notifications + optional email.
 
-        Future triggers (lock changes, item edits, invitations accepted, ...) call this one helper.
-        Email is dispatched via BackgroundTasks when provided so SMTP doesn't block the request.
+        Email is sent inline (awaited) — `BackgroundTasks` is intentionally not
+        used because the backend runs on AWS Lambda, where the worker can be
+        frozen as soon as the response is returned.
         """
         if not user_ids:
             return []
@@ -57,12 +57,7 @@ class NotificationService:
             users = await self.auth_repo.get_users_by_ids(user_ids)
             emails = [u.email for u in users if u.email]
             if emails:
-                if background_tasks is not None:
-                    background_tasks.add_task(
-                        EmailService.send_generic_notification, emails, title, message, link
-                    )
-                else:
-                    await EmailService.send_generic_notification(emails, title, message, link)
+                await EmailService.send_generic_notification(emails, title, message, link)
 
         return notifs
 

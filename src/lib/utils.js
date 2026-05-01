@@ -8,7 +8,7 @@ export function generateId(prefix = 'id') {
 }
 
 /** Days of the week used in the timetable. */
-export const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+export const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 export const EXAM_DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
 /** Standard operating hours (8 AM – 6 PM). */
