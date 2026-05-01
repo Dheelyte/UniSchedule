@@ -190,6 +190,7 @@ class TimetableService:
             department_id=data.department_id,
             scope=data.scope,
             level=data.level,
+            semester=data.semester,
         )
         try:
             return await self.repo.create_course(course)
@@ -224,6 +225,8 @@ class TimetableService:
                 course.department_id = None
         if data.department_id is not None: course.department_id = data.department_id
         if data.level is not None: course.level = data.level
+        # `semester` is nullable — accept None to clear, distinguish from "not provided" via model_fields_set
+        if 'semester' in data.model_fields_set: course.semester = data.semester
         try:
             return await self.repo.update_course(course)
         except IntegrityError:
@@ -254,19 +257,25 @@ class TimetableService:
             if item_type == "exam" and scope_val == "LECTURE_ONLY":
                 continue
 
-            # All blocked slots now have time ranges - check overlap
-            if slot.start_time and slot.end_time:
-                match_day = False
-                if slot.date and exam_date:
-                    match_day = slot.date == exam_date
-                elif slot.day_of_week and day_of_week:
-                    match_day = slot.day_of_week == day_of_week
-                
-                if match_day and start_time < slot.end_time and end_time > slot.start_time:
-                    raise HTTPException(
-                        status_code=400,
-                        detail=f"Time conflict with blocked slot '{slot.name}' ({slot.start_time.strftime('%H:%M')}–{slot.end_time.strftime('%H:%M')})"
-                    )
+            match_day = False
+            if slot.date and exam_date:
+                match_day = slot.date == exam_date
+            elif slot.day_of_week and day_of_week:
+                match_day = slot.day_of_week == day_of_week
+            if not match_day:
+                continue
+
+            # Whole-day block: no time range → conflict any time
+            if not slot.start_time or not slot.end_time:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Time conflict with blocked slot '{slot.name}' (whole day)"
+                )
+            if start_time < slot.end_time and end_time > slot.start_time:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Time conflict with blocked slot '{slot.name}' ({slot.start_time.strftime('%H:%M')}–{slot.end_time.strftime('%H:%M')})"
+                )
 
     async def _assert_not_locked(self, semester_id: int | None, item_type: str) -> None:
         if semester_id is None:

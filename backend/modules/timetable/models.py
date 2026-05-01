@@ -39,6 +39,7 @@ class Course(Base):
     department_id: Mapped[int | None] = mapped_column(ForeignKey("departments.id"), nullable=True)
     scope: Mapped[CourseScope] = mapped_column(Enum(CourseScope), default=CourseScope.DEPARTMENTAL)
     level: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    semester: Mapped[str | None] = mapped_column(String, nullable=True)  # "First Semester" | "Second Semester"
 
 class ScheduleItem(Base):
     __tablename__ = "schedule_items"

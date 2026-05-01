@@ -11,6 +11,7 @@ import CourseEnrollmentModal from '@/components/CourseEnrollmentModal/CourseEnro
 import styles from './courses.module.css';
 
 const LEVELS = [100, 200, 300, 400, 500, 600, 700];
+const SEMESTERS = ['First Semester', 'Second Semester'];
 
 const SCOPES = {
     DEPARTMENTAL: 'DEPARTMENTAL',
@@ -37,7 +38,7 @@ export default function CoursesPage() {
     const [deleteConfirm, setDeleteConfirm] = useState(null);
 
     // Form state
-    const [form, setForm] = useState({ code: '', title: '', creditLoad: 3, lecturers: '', departmentId: '', scope: SCOPES.DEPARTMENTAL, level: 100 });
+    const [form, setForm] = useState({ code: '', title: '', creditLoad: 3, lecturers: '', departmentId: '', scope: SCOPES.DEPARTMENTAL, level: 100, semester: '' });
     const [loading, setLoading] = useState(true);
     // course_id -> [{ id, course_id, department_id, level }]
     const [enrollmentsByCourse, setEnrollmentsByCourse] = useState(new Map());
@@ -108,6 +109,7 @@ export default function CoursesPage() {
             departmentId: departments[0]?.id || '',
             scope: isGsAdmin(role) ? SCOPES.UNIVERSITY_WIDE : SCOPES.DEPARTMENTAL,
             level: isGsAdmin(role) ? null : 100,
+            semester: '',
         });
         setShowModal(true);
     };
@@ -122,12 +124,18 @@ export default function CoursesPage() {
             departmentId: course.departmentId || departments[0]?.id || '',
             scope: course.scope || SCOPES.DEPARTMENTAL,
             level: course.level ?? 100,
+            semester: course.semester || '',
         });
         setShowModal(true);
     };
 
     const handleSave = async () => {
         if (!form.code.trim() || !form.title.trim()) return;
+        const trimmedCode = form.code.trim();
+        if (/\s/.test(trimmedCode)) {
+            addToast({ type: 'warning', title: 'Invalid course code', message: 'Course code must be a single word with no spaces (e.g. "CSC301").' });
+            return;
+        }
         // Department required for non-university-wide courses
         if (form.scope !== SCOPES.UNIVERSITY_WIDE && !form.departmentId) return;
         // Level required for departmental and interfaculty
@@ -135,29 +143,34 @@ export default function CoursesPage() {
             addToast({ type: 'warning', title: 'Validation', message: 'Level is required for departmental and interfaculty courses.' });
             return;
         }
+        if (!form.semester) {
+            addToast({ type: 'warning', title: 'Validation', message: 'Please select the semester this course is offered in.' });
+            return;
+        }
 
         try {
             const payload = {
-                code: form.code.trim(),
+                code: trimmedCode,
                 title: form.title.trim(),
                 credit_load: parseInt(form.creditLoad) || 3,
                 lecturers: form.lecturers.split(',').map((l) => l.trim()).filter(Boolean),
                 department_id: form.scope === SCOPES.UNIVERSITY_WIDE ? null : (typeof form.departmentId === 'string' ? parseInt(form.departmentId) : form.departmentId),
                 scope: form.scope,
                 level: form.scope === SCOPES.UNIVERSITY_WIDE ? (form.level || null) : parseInt(form.level, 10),
+                semester: form.semester,
             };
 
             if (editing) {
                 await apiClient.put(`/timetable/courses/${editing.id}`, payload);
                 dispatch({
                     type: ACTION_TYPES.UPDATE_COURSE,
-                    payload: { id: editing.id, code: payload.code, title: payload.title, creditLoad: payload.credit_load, lecturers: payload.lecturers, departmentId: payload.department_id, scope: payload.scope, level: payload.level }
+                    payload: { id: editing.id, code: payload.code, title: payload.title, creditLoad: payload.credit_load, lecturers: payload.lecturers, departmentId: payload.department_id, scope: payload.scope, level: payload.level, semester: payload.semester }
                 });
             } else {
                 const res = await apiClient.post('/timetable/courses', payload);
                 dispatch({
                     type: ACTION_TYPES.ADD_COURSE,
-                    payload: { id: res.id, code: res.code, title: res.title, creditLoad: res.credit_load, lecturers: res.lecturers, departmentId: res.department_id, scope: res.scope, level: res.level }
+                    payload: { id: res.id, code: res.code, title: res.title, creditLoad: res.credit_load, lecturers: res.lecturers, departmentId: res.department_id, scope: res.scope, level: res.level, semester: res.semester }
                 });
             }
         } catch (e) {
@@ -202,9 +215,9 @@ export default function CoursesPage() {
 
     // Placeholder text based on scope
     const getPlaceholder = (field) => {
-        if (form.scope === SCOPES.UNIVERSITY_WIDE) return field === 'code' ? 'e.g. GST 111' : 'e.g. Use of English';
-        if (form.scope === SCOPES.INTERFACULTY) return field === 'code' ? 'e.g. MTH 201' : 'e.g. Mathematical Methods';
-        return field === 'code' ? 'e.g. CSC 301' : 'e.g. Operating Systems';
+        if (form.scope === SCOPES.UNIVERSITY_WIDE) return field === 'code' ? 'e.g. GST111' : 'e.g. Use of English';
+        if (form.scope === SCOPES.INTERFACULTY) return field === 'code' ? 'e.g. MTH201' : 'e.g. Mathematical Methods';
+        return field === 'code' ? 'e.g. CSC301' : 'e.g. Operating Systems';
     };
 
     // Determine which scope options this user can see
@@ -279,6 +292,7 @@ export default function CoursesPage() {
                         <tr>
                             <th>Code</th>
                             <th>Title</th>
+                            <th>Semester</th>
                             <th>Credits</th>
                             <th>Lecturers</th>
                             <th>Department</th>
@@ -295,6 +309,9 @@ export default function CoursesPage() {
                                     <ScopeBadge scope={c.scope} />
                                 </td>
                                 <td style={{ fontWeight: 500, color: 'var(--color-text)' }}>{c.title}</td>
+                                <td style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)' }}>
+                                    {c.semester ? c.semester.replace(' Semester', '') : <span style={{ opacity: 0.5 }}>—</span>}
+                                </td>
                                 <td><span className="badge badge-primary">{c.creditLoad}</span></td>
                                 <td>
                                     <div className={styles.lecturers}>
@@ -351,7 +368,7 @@ export default function CoursesPage() {
                             </tr>
                         ))}
                         {filteredCourses.length === 0 && (
-                            <tr><td colSpan={8} className={styles.empty}>No courses match your filters.</td></tr>
+                            <tr><td colSpan={9} className={styles.empty}>No courses match your filters.</td></tr>
                         )}
                     </tbody>
                 </table>
@@ -419,7 +436,16 @@ export default function CoursesPage() {
 
                             <div className="form-group">
                                 <label className="form-label">Course Code</label>
-                                <input className="form-input" value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value })} placeholder={getPlaceholder('code')} autoFocus />
+                                <input
+                                    className="form-input"
+                                    value={form.code}
+                                    onChange={(e) => setForm({ ...form, code: e.target.value.replace(/\s+/g, '') })}
+                                    placeholder={getPlaceholder('code')}
+                                    autoFocus
+                                />
+                                <small style={{ color: 'var(--color-text-muted)', fontSize: '0.75rem' }}>
+                                    Must be a single word with no spaces.
+                                </small>
                             </div>
                             <div className="form-group">
                                 <label className="form-label">Course Title</label>
@@ -443,20 +469,37 @@ export default function CoursesPage() {
                                 )}
                             </div>
 
-                            <div className="form-group">
-                                <label className="form-label">
-                                    Level {form.scope !== SCOPES.UNIVERSITY_WIDE && <span style={{ color: 'var(--color-danger)' }}>*</span>}
-                                </label>
-                                <select
-                                    className="form-select form-input"
-                                    value={form.level ?? ''}
-                                    onChange={(e) => setForm({ ...form, level: e.target.value === '' ? null : parseInt(e.target.value, 10) })}
-                                >
-                                    {form.scope === SCOPES.UNIVERSITY_WIDE && <option value="">All levels</option>}
-                                    {LEVELS.map((l) => (
-                                        <option key={l} value={l}>{l} Level</option>
-                                    ))}
-                                </select>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                                <div className="form-group">
+                                    <label className="form-label">
+                                        Level {form.scope !== SCOPES.UNIVERSITY_WIDE && <span style={{ color: 'var(--color-danger)' }}>*</span>}
+                                    </label>
+                                    <select
+                                        className="form-select form-input"
+                                        value={form.level ?? ''}
+                                        onChange={(e) => setForm({ ...form, level: e.target.value === '' ? null : parseInt(e.target.value, 10) })}
+                                    >
+                                        {form.scope === SCOPES.UNIVERSITY_WIDE && <option value="">All levels</option>}
+                                        {LEVELS.map((l) => (
+                                            <option key={l} value={l}>{l} Level</option>
+                                        ))}
+                                    </select>
+                                </div>
+                                <div className="form-group">
+                                    <label className="form-label">
+                                        Semester <span style={{ color: 'var(--color-danger)' }}>*</span>
+                                    </label>
+                                    <select
+                                        className="form-select form-input"
+                                        value={form.semester || ''}
+                                        onChange={(e) => setForm({ ...form, semester: e.target.value })}
+                                    >
+                                        <option value="">- Select -</option>
+                                        {SEMESTERS.map((s) => (
+                                            <option key={s} value={s}>{s}</option>
+                                        ))}
+                                    </select>
+                                </div>
                             </div>
 
                             <div className="form-group">
@@ -472,6 +515,7 @@ export default function CoursesPage() {
                                 disabled={
                                     !form.code.trim() ||
                                     !form.title.trim() ||
+                                    !form.semester ||
                                     (form.scope !== SCOPES.UNIVERSITY_WIDE && (form.level === null || form.level === ''))
                                 }
                             >

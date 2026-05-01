@@ -1,4 +1,4 @@
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 from datetime import time, date as date_type, datetime
 from typing import Literal
 from modules.timetable.models import CourseScope
@@ -51,6 +51,9 @@ class RoomReorderRequest(BaseModel):
     rooms: list[RoomReorderItem]
 
 
+_VALID_SEMESTERS = {"First Semester", "Second Semester"}
+
+
 class CourseCreate(BaseModel):
     code: str
     title: str
@@ -59,6 +62,26 @@ class CourseCreate(BaseModel):
     department_id: int | None = None
     scope: str = CourseScope.DEPARTMENTAL.value
     level: int | None = None
+    semester: str | None = None
+
+    @field_validator('semester')
+    @classmethod
+    def validate_semester(cls, v: str | None) -> str | None:
+        if v is None or v == '':
+            return None
+        if v not in _VALID_SEMESTERS:
+            raise ValueError('semester must be "First Semester" or "Second Semester"')
+        return v
+
+    @field_validator('code')
+    @classmethod
+    def validate_code_no_spaces(cls, v: str) -> str:
+        v = (v or '').strip()
+        if not v:
+            raise ValueError('Course code is required')
+        if any(ch.isspace() for ch in v):
+            raise ValueError('Course code must be a single word with no spaces (e.g. "CSC301")')
+        return v
 
     @model_validator(mode='after')
     def validate_scope_department(self):
@@ -79,6 +102,7 @@ class CourseResponse(BaseModel):
     department_id: int | None
     scope: str
     level: int | None = None
+    semester: str | None = None
     model_config = ConfigDict(from_attributes=True)
 
 class CourseUpdate(BaseModel):
@@ -89,6 +113,28 @@ class CourseUpdate(BaseModel):
     department_id: int | None = None
     scope: str | None = None
     level: int | None = None
+    semester: str | None = None
+
+    @field_validator('code')
+    @classmethod
+    def validate_code_no_spaces(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        v = v.strip()
+        if not v:
+            raise ValueError('Course code cannot be empty')
+        if any(ch.isspace() for ch in v):
+            raise ValueError('Course code must be a single word with no spaces (e.g. "CSC301")')
+        return v
+
+    @field_validator('semester')
+    @classmethod
+    def validate_semester(cls, v: str | None) -> str | None:
+        if v is None or v == '':
+            return None
+        if v not in _VALID_SEMESTERS:
+            raise ValueError('semester must be "First Semester" or "Second Semester"')
+        return v
 
 
 class ScheduleItemCreate(BaseModel):
@@ -128,22 +174,18 @@ class BlockedSlotCreate(BaseModel):
     @model_validator(mode='after')
     def validate_fields(self):
         if self.applies_to == "EXAM_ONLY":
-            # Exam blocked slots need a date and time range
             if not self.date:
                 raise ValueError("date is required for exam blocked slots")
-            if not self.start_time or not self.end_time:
-                raise ValueError("start_time and end_time are required for exam blocked slots")
             self.day_of_week = None
             self.type = "EXTRACURRICULAR"
         else:
-            # Lecture / Both blocked slots need day_of_week and time
             if not self.day_of_week:
                 raise ValueError("day_of_week is required for lecture blocked slots")
-            if not self.start_time or not self.end_time:
-                raise ValueError("start_time and end_time are required for blocked slots")
             self.date = None
             self.type = "EXTRACURRICULAR"
-        # Validate time ordering
+        # Times must be both present (time-bounded) or both absent (whole day)
+        if (self.start_time is None) != (self.end_time is None):
+            raise ValueError("start_time and end_time must both be provided, or both omitted for a whole-day block")
         if self.start_time and self.end_time and self.start_time >= self.end_time:
             raise ValueError("start_time must be before end_time")
         return self

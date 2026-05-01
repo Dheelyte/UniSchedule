@@ -298,7 +298,7 @@ export default function ExamTimetablePage() {
                     </button>
                 </div>
             </div>
-            <TimetableGrid mode="exam" semesterId={selectedSemesterId} blockedSlots={blockedSlots} readOnly={readOnly} readOnlyReasons={readOnlyReasons} enrollmentsByCourse={enrollmentsByCourse} />
+            <TimetableGrid mode="exam" semesterId={selectedSemesterId} semesterName={semesters.find(s => s.id === selectedSemesterId)?.name || null} blockedSlots={blockedSlots} readOnly={readOnly} readOnlyReasons={readOnlyReasons} enrollmentsByCourse={enrollmentsByCourse} />
             <ExportModal
                 isOpen={isExportModalOpen}
                 onClose={() => setIsExportModalOpen(false)}

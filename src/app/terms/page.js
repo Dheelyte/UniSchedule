@@ -26,7 +26,7 @@ export default function TermsPage() {
     // Blocked Slots state
     const [blockedSlots, setBlockedSlots] = useState([]);
     const [showBlockedModal, setShowBlockedModal] = useState(false);
-    const [blockedForm, setBlockedForm] = useState({ name: '', applies_to: 'LECTURE_ONLY', day_of_week: 'Monday', date: '', start_time: '', end_time: '' });
+    const [blockedForm, setBlockedForm] = useState({ name: '', applies_to: 'LECTURE_ONLY', day_of_week: 'Monday', date: '', start_time: '', end_time: '', whole_day: false });
     const [deleteBlockedConfirm, setDeleteBlockedConfirm] = useState(null);
 
     const currentYear = new Date().getFullYear();
@@ -145,15 +145,15 @@ export default function TermsPage() {
                 name: blockedForm.name.trim(),
                 day_of_week: isExam ? null : blockedForm.day_of_week,
                 date: isExam ? blockedForm.date : null,
-                start_time: blockedForm.start_time,
-                end_time: blockedForm.end_time,
+                start_time: blockedForm.whole_day ? null : blockedForm.start_time,
+                end_time: blockedForm.whole_day ? null : blockedForm.end_time,
                 applies_to: blockedForm.applies_to,
                 semester_id: currentSemester.id,
             };
             const res = await apiClient.post('/timetable/blocked-slots', payload);
             setBlockedSlots(prev => [...prev, res]);
             setShowBlockedModal(false);
-            setBlockedForm({ name: '', applies_to: 'LECTURE_ONLY', day_of_week: 'Monday', date: '', start_time: '', end_time: '' });
+            setBlockedForm({ name: '', applies_to: 'LECTURE_ONLY', day_of_week: 'Monday', date: '', start_time: '', end_time: '', whole_day: false });
             addToast({ type: 'success', title: 'Created', message: `Blocked slot "${res.name}" added.` });
         } catch (e) {
             console.error(e);
@@ -374,8 +374,8 @@ export default function TermsPage() {
                                         value={blockedForm.applies_to}
                                         onChange={(e) => setBlockedForm({ ...blockedForm, applies_to: e.target.value })}
                                     >
-                                        <option value="LECTURE_ONLY">Lecture Blocked Slot</option>
-                                        <option value="EXAM_ONLY">Exam Blocked Slot</option>
+                                        <option value="LECTURE_ONLY">Lecture Timetable</option>
+                                        <option value="EXAM_ONLY">Exam Timetable</option>
                                     </select>
                                 </div>
                                 <div className="form-group">
@@ -403,33 +403,45 @@ export default function TermsPage() {
                                     )}
                                 </div>
                             </div>
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-                                <div className="form-group">
-                                    <label className="form-label">Start Time</label>
+                            <div className="form-group" style={{ marginBottom: '8px' }}>
+                                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.9rem' }}>
                                     <input
-                                        className="form-input"
-                                        type="time"
-                                        value={blockedForm.start_time}
-                                        onChange={(e) => setBlockedForm({ ...blockedForm, start_time: e.target.value })}
+                                        type="checkbox"
+                                        checked={blockedForm.whole_day}
+                                        onChange={(e) => setBlockedForm({ ...blockedForm, whole_day: e.target.checked, start_time: '', end_time: '' })}
                                     />
-                                </div>
-                                <div className="form-group">
-                                    <label className="form-label">End Time</label>
-                                    <input
-                                        className="form-input"
-                                        type="time"
-                                        value={blockedForm.end_time}
-                                        onChange={(e) => setBlockedForm({ ...blockedForm, end_time: e.target.value })}
-                                    />
-                                </div>
+                                    Whole Day
+                                </label>
                             </div>
+                            {!blockedForm.whole_day && (
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                                    <div className="form-group">
+                                        <label className="form-label">Start Time</label>
+                                        <input
+                                            className="form-input"
+                                            type="time"
+                                            value={blockedForm.start_time}
+                                            onChange={(e) => setBlockedForm({ ...blockedForm, start_time: e.target.value })}
+                                        />
+                                    </div>
+                                    <div className="form-group">
+                                        <label className="form-label">End Time</label>
+                                        <input
+                                            className="form-input"
+                                            type="time"
+                                            value={blockedForm.end_time}
+                                            onChange={(e) => setBlockedForm({ ...blockedForm, end_time: e.target.value })}
+                                        />
+                                    </div>
+                                </div>
+                            )}
                         </div>
                         <div className="modal-footer">
                             <button className="btn btn-secondary" onClick={() => setShowBlockedModal(false)}>Cancel</button>
                             <button
                                 className="btn btn-primary"
                                 onClick={handleAddBlockedSlot}
-                                disabled={!blockedForm.name.trim() || !blockedForm.start_time || !blockedForm.end_time || (blockedForm.applies_to === 'EXAM_ONLY' ? !blockedForm.date : !blockedForm.day_of_week)}
+                                disabled={!blockedForm.name.trim() || (!blockedForm.whole_day && (!blockedForm.start_time || !blockedForm.end_time)) || (blockedForm.applies_to === 'EXAM_ONLY' ? !blockedForm.date : !blockedForm.day_of_week)}
                             >
                                 Add Blocked Slot
                             </button>
