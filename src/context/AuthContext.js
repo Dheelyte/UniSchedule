@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useState, useEffect } from 'react';
 import { apiClient } from '@/lib/apiClient';
-import { useRouter, usePathname } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 
 const AuthContext = createContext(null);
 
@@ -10,7 +10,6 @@ export function AuthProvider({ children }) {
     const [user, setUser] = useState(null);
     const [loading, setLoading] = useState(true);
     const router = useRouter();
-    const pathname = usePathname();
 
     useEffect(() => {
         let mounted = true;
@@ -28,7 +27,7 @@ export function AuthProvider({ children }) {
                 }
             });
         return () => { mounted = false; };
-    }, [pathname, router]);
+    }, []);
 
     const login = async (email, password) => {
         await apiClient.post('/auth/login', { email, password });
