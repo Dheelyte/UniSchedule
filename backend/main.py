@@ -59,7 +59,7 @@ app.include_router(audit.router, prefix="/api/v1")
 @app.get("/health")
 async def health_check(db: AsyncSession = Depends(get_db)):
     # Verify Unit of Work runs without throwing errors
-    return {"status": "ok", "message": "Database session injected successfully"}
+    return {"status": "ok", "message": "App is Healthy"}
 
 
 handler = Mangum(app)
