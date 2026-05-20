@@ -29,6 +29,8 @@ export default function RoomsPage() {
     const [form, setForm] = useState({ name: '', capacity: 100, facultyId: '' });
     const [loading, setLoading] = useState(true);
 
+    const normalizeRoom = (r) => ({ ...r, facultyId: r.faculty_id ?? r.facultyId ?? null });
+
     useEffect(() => {
         let mounted = true;
         async function loadRooms() {
@@ -38,7 +40,7 @@ export default function RoomsPage() {
                     apiClient.get('/timetable/faculties').catch(() => [])
                 ]);
                 if (mounted) {
-                    dispatch({ type: ACTION_TYPES.INIT_STATE, payload: { rooms: rooms || [], faculties: faculties || [] } });
+                    dispatch({ type: ACTION_TYPES.INIT_STATE, payload: { rooms: (rooms || []).map(normalizeRoom), faculties: faculties || [] } });
                     setLoading(false);
                 }
             } catch (e) {
@@ -68,7 +70,7 @@ export default function RoomsPage() {
                 rooms: sortedList.map((r, idx) => ({ id: r.id, display_order: idx }))
             };
             const updatedRoomsRes = await apiClient.post('/timetable/rooms/reorder', reorderPayload);
-            dispatch({ type: ACTION_TYPES.INIT_STATE, payload: { rooms: updatedRoomsRes } });
+            dispatch({ type: ACTION_TYPES.INIT_STATE, payload: { rooms: updatedRoomsRes.map(normalizeRoom) } });
         } catch (err) {
             console.error("Reorder failed", err);
             addToast({ type: 'error', title: 'Reorder Failed', message: 'Could not save the new room order.' });
