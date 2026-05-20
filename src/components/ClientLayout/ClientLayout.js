@@ -22,8 +22,12 @@ function LayoutInner({ children }) {
     const publicPaths = ['/login', '/register', '/forgot-password'];
 
     useEffect(() => {
-        if (!loading && !user && !publicPaths.includes(pathname)) {
+        if (loading) return;
+        if (!user && !publicPaths.includes(pathname)) {
             router.push('/login');
+        }
+        if (user && publicPaths.includes(pathname)) {
+            router.push('/');
         }
     }, [user, loading, pathname, router]);
 
@@ -56,6 +60,7 @@ function LayoutInner({ children }) {
     if (loading) return <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', width: '100vw' }}><div className="loader"></div></div>;
     if (!user && publicPaths.includes(pathname)) return <>{children}</>;
     if (!user) return null;
+    if (publicPaths.includes(pathname)) return null;
 
     const mainClass = isSidebarCollapsed ? `${styles.main} ${styles.mainCollapsed}` : styles.main;
 
