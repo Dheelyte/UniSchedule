@@ -19,6 +19,7 @@ export default function RoomsPage() {
     // Search & sort
     const [search, setSearch] = useState('');
     const [sortBy, setSortBy] = useState('custom'); // 'custom' | 'name' | 'capacity'
+    const [filterFaculty, setFilterFaculty] = useState('');
 
     // Modal state
     const [showModal, setShowModal] = useState(false);
@@ -53,8 +54,9 @@ export default function RoomsPage() {
 
     const filteredRooms = [...rooms]
         .filter((r) => {
-            if (!search) return true;
-            return r.name.toLowerCase().includes(search.toLowerCase());
+            if (search && !r.name.toLowerCase().includes(search.toLowerCase())) return false;
+            if (filterFaculty && (r.facultyId || r.faculty_id) !== filterFaculty) return false;
+            return true;
         })
         .sort((a, b) => {
             if (sortBy === 'capacity') return b.capacity - a.capacity;
@@ -201,6 +203,10 @@ export default function RoomsPage() {
                     <option value="custom">Custom Order</option>
                     <option value="name">Sort by Name</option>
                     <option value="capacity">Sort by Capacity</option>
+                </select>
+                <select className="form-select form-input" style={{ width: 180 }} value={filterFaculty} onChange={(e) => setFilterFaculty(e.target.value)}>
+                    <option value="">All Faculties</option>
+                    {faculties.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
                 </select>
             </div>
 
