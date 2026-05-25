@@ -19,6 +19,7 @@ export default function RoomsPage() {
     // Search & sort
     const [search, setSearch] = useState('');
     const [sortBy, setSortBy] = useState('custom'); // 'custom' | 'name' | 'capacity'
+    const [filterFaculty, setFilterFaculty] = useState('');
 
     // Modal state
     const [showModal, setShowModal] = useState(false);
@@ -29,6 +30,8 @@ export default function RoomsPage() {
     const [form, setForm] = useState({ name: '', capacity: 100, facultyId: '' });
     const [loading, setLoading] = useState(true);
 
+    const normalizeRoom = (r) => ({ ...r, facultyId: r.faculty_id ?? r.facultyId ?? null });
+
     useEffect(() => {
         let mounted = true;
         async function loadRooms() {
@@ -38,7 +41,7 @@ export default function RoomsPage() {
                     apiClient.get('/timetable/faculties').catch(() => [])
                 ]);
                 if (mounted) {
-                    dispatch({ type: ACTION_TYPES.INIT_STATE, payload: { rooms: rooms || [], faculties: faculties || [] } });
+                    dispatch({ type: ACTION_TYPES.INIT_STATE, payload: { rooms: (rooms || []).map(normalizeRoom), faculties: faculties || [] } });
                     setLoading(false);
                 }
             } catch (e) {
@@ -51,8 +54,9 @@ export default function RoomsPage() {
 
     const filteredRooms = [...rooms]
         .filter((r) => {
-            if (!search) return true;
-            return r.name.toLowerCase().includes(search.toLowerCase());
+            if (search && !r.name.toLowerCase().includes(search.toLowerCase())) return false;
+            if (filterFaculty && (r.facultyId || r.faculty_id) !== filterFaculty) return false;
+            return true;
         })
         .sort((a, b) => {
             if (sortBy === 'capacity') return b.capacity - a.capacity;
@@ -68,7 +72,7 @@ export default function RoomsPage() {
                 rooms: sortedList.map((r, idx) => ({ id: r.id, display_order: idx }))
             };
             const updatedRoomsRes = await apiClient.post('/timetable/rooms/reorder', reorderPayload);
-            dispatch({ type: ACTION_TYPES.INIT_STATE, payload: { rooms: updatedRoomsRes } });
+            dispatch({ type: ACTION_TYPES.INIT_STATE, payload: { rooms: updatedRoomsRes.map(normalizeRoom) } });
         } catch (err) {
             console.error("Reorder failed", err);
             addToast({ type: 'error', title: 'Reorder Failed', message: 'Could not save the new room order.' });
@@ -199,6 +203,10 @@ export default function RoomsPage() {
                     <option value="custom">Custom Order</option>
                     <option value="name">Sort by Name</option>
                     <option value="capacity">Sort by Capacity</option>
+                </select>
+                <select className="form-select form-input" style={{ width: 180 }} value={filterFaculty} onChange={(e) => setFilterFaculty(e.target.value)}>
+                    <option value="">All Faculties</option>
+                    {faculties.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
                 </select>
             </div>
 
