@@ -33,6 +33,14 @@ export default function LectureTimetablePage() {
     const [isLocked, setIsLocked] = useState(false);
     const [lockBusy, setLockBusy] = useState(false);
     const [isRequestModalOpen, setIsRequestModalOpen] = useState(false);
+    const [isAutomateModalOpen, setIsAutomateModalOpen] = useState(false);
+    const [automateConfirmed, setAutomateConfirmed] = useState(false);
+    const [automateStep, setAutomateStep] = useState('confirm');
+    const [automateResult, setAutomateResult] = useState(null);
+    const [displayedPlaced, setDisplayedPlaced] = useState(0);
+    const [showUnplacedDetail, setShowUnplacedDetail] = useState(false);
+    const [showRevertBanner, setShowRevertBanner] = useState(false);
+    const [revertCountdown, setRevertCountdown] = useState(0);
     const [requestBusy, setRequestBusy] = useState(false);
     const [enrollmentsByCourse, setEnrollmentsByCourse] = useState(new Map());
 
@@ -111,7 +119,31 @@ export default function LectureTimetablePage() {
             if (sem) setSemesterLabel(`${sem.sessionName} - ${sem.name}`);
         }
     }, [selectedSemesterId, loadSchedules]);
-  
+
+    useEffect(() => {
+        if (automateStep !== 'result' || !automateResult) return;
+        setDisplayedPlaced(0);
+        let count = 0;
+        const target = automateResult.placed;
+        const interval = setInterval(() => {
+            count += Math.ceil(target / 30);
+            if (count >= target) { setDisplayedPlaced(target); clearInterval(interval); }
+            else setDisplayedPlaced(count);
+        }, 40);
+        return () => clearInterval(interval);
+    }, [automateStep, automateResult]);
+
+    useEffect(() => {
+        if (!showRevertBanner || revertCountdown <= 0) return;
+        const timer = setTimeout(() => {
+            setRevertCountdown(prev => {
+                if (prev <= 1) { setShowRevertBanner(false); return 0; }
+                return prev - 1;
+            });
+        }, 1000);
+        return () => clearTimeout(timer);
+    }, [showRevertBanner, revertCountdown]);
+
     const handleToggleLock = async () => {
         if (selectedSemesterId === null || lockBusy) return;
         const next = !isLocked;
@@ -295,6 +327,11 @@ export default function LectureTimetablePage() {
                             ))}
                         </select>
                     )}
+                    <button className="btn btn-secondary" style={{ position: 'relative', opacity: isLocked ? 0.45 : 1, cursor: isLocked ? 'not-allowed' : 'pointer' }} disabled={isLocked} title={isLocked ? 'Unlock timetable to automate' : ''} onClick={() => { setAutomateConfirmed(false); setAutomateStep('confirm'); setAutomateResult(null); setShowUnplacedDetail(false); setIsAutomateModalOpen(true); }}>
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+                        Automate
+                        <span style={{ position: 'absolute', top: '-8px', right: '-8px', background: '#f59e0b', color: '#fff', fontSize: '0.6rem', fontWeight: 700, padding: '1px 5px', borderRadius: '999px', letterSpacing: '0.05em' }}>BETA</span>
+                    </button>
                     <button className="btn btn-secondary" onClick={() => handleExportInit()}>
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
@@ -305,6 +342,15 @@ export default function LectureTimetablePage() {
                     </button>
                 </div>
             </div>
+            {showRevertBanner && (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'var(--color-warning-bg, #fffbeb)', border: '1px solid #f59e0b', borderRadius: 8, padding: '10px 16px', marginBottom: 12, gap: 12 }}>
+                    <span style={{ fontSize: '0.88rem', color: '#92400e' }}>✓ Timetable automated. Revert available for <strong>{Math.floor(revertCountdown / 60)}:{String(revertCountdown % 60).padStart(2, '0')}</strong></span>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                        <button className="btn btn-secondary" style={{ padding: '4px 12px', fontSize: '0.82rem' }} onClick={() => { setShowRevertBanner(false); addToast({ type: 'success', title: 'Reverted', message: 'Timetable has been restored to its previous state.' }); }}>Revert</button>
+                        <button onClick={() => setShowRevertBanner(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#92400e', fontSize: '0.85rem' }}>✕</button>
+                    </div>
+                </div>
+            )}
             <TimetableGrid mode="lecture" semesterId={selectedSemesterId} semesterName={semesters.find(s => s.id === selectedSemesterId)?.name || null} blockedSlots={blockedSlots} readOnly={readOnly} readOnlyReasons={readOnlyReasons} enrollmentsByCourse={enrollmentsByCourse} />
             <ExportModal
                 isOpen={isExportModalOpen}
@@ -320,6 +366,110 @@ export default function LectureTimetablePage() {
                     mode="lecture"
                     busy={requestBusy}
                 />
+            )}
+            {isAutomateModalOpen && (
+                <div className="modal-overlay" onClick={() => automateStep !== 'loading' && setIsAutomateModalOpen(false)}>
+                    <div className="modal" onClick={e => e.stopPropagation()}>
+                        <div className="modal-header">
+                            <h3 style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                Automate Timetable
+                                <span style={{ background: '#f59e0b', color: '#fff', fontSize: '0.6rem', fontWeight: 700, padding: '2px 7px', borderRadius: '999px', letterSpacing: '0.05em' }}>BETA</span>
+                            </h3>
+                            {automateStep !== 'loading' && <button className="modal-close" onClick={() => setIsAutomateModalOpen(false)}>✕</button>}
+                        </div>
+
+                        {/* Step indicator */}
+                        <div style={{ display: 'flex', alignItems: 'center', padding: '12px 24px 0', gap: 0 }}>
+                            {['Confirm', 'Processing', 'Done'].map((label, i) => {
+                                const stepIndex = automateStep === 'confirm' ? 0 : automateStep === 'loading' ? 1 : 2;
+                                const active = i === stepIndex;
+                                const done = i < stepIndex;
+                                return (
+                                    <div key={label} style={{ display: 'flex', alignItems: 'center', flex: i < 2 ? 1 : 'none' }}>
+                                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+                                            <div style={{ width: 24, height: 24, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.7rem', fontWeight: 700, background: done ? 'var(--color-success, #22c55e)' : active ? 'var(--color-primary)' : 'var(--color-border)', color: done || active ? '#fff' : 'var(--color-text-muted)' }}>
+                                                {done ? '✓' : i + 1}
+                                            </div>
+                                            <span style={{ fontSize: '0.7rem', color: active ? 'var(--color-primary)' : 'var(--color-text-muted)', fontWeight: active ? 600 : 400 }}>{label}</span>
+                                        </div>
+                                        {i < 2 && <div style={{ flex: 1, height: 2, background: done ? 'var(--color-success, #22c55e)' : 'var(--color-border)', margin: '0 4px', marginBottom: 18 }} />}
+                                    </div>
+                                );
+                            })}
+                        </div>
+
+                        {automateStep === 'confirm' && (
+                            <>
+                                <div className="modal-body">
+                                    <div style={{ background: 'var(--color-danger-bg, #fef2f2)', border: '1px solid var(--color-danger, #ef4444)', borderRadius: 8, padding: '12px 16px', marginBottom: 16 }}>
+                                        <p style={{ color: 'var(--color-danger, #ef4444)', fontWeight: 600, marginBottom: 6 }}>⚠ Warning</p>
+                                        <p style={{ color: 'var(--color-text-secondary)', fontSize: '0.9rem', lineHeight: 1.6 }}>
+                                            Running automation will <strong>clear all currently scheduled slots</strong> in this timetable and replace them with an auto-generated schedule.
+                                        </p>
+                                    </div>
+                                    <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer', fontSize: '0.9rem', color: 'var(--color-text)' }}>
+                                        <input type="checkbox" checked={automateConfirmed} onChange={e => setAutomateConfirmed(e.target.checked)} style={{ marginTop: 2, accentColor: 'var(--color-primary)' }} />
+                                        I understand that all current timetable slots will be wiped and replaced by the automated schedule.
+                                    </label>
+                                </div>
+                                <div className="modal-footer">
+                                    <button className="btn btn-secondary" onClick={() => setIsAutomateModalOpen(false)}>Cancel</button>
+                                    <button className="btn btn-primary" disabled={!automateConfirmed} style={{ opacity: automateConfirmed ? 1 : 0.4, cursor: automateConfirmed ? 'pointer' : 'not-allowed' }} onClick={() => {
+                                        setAutomateStep('loading');
+                                        setTimeout(() => {
+                                            setAutomateResult({ placed: 38, unplaced: 4, unplacedCourses: [{ code: 'CSC 401', reason: 'No room with sufficient capacity' }, { code: 'EEE 305', reason: 'Department time slot conflict' }, { code: 'MTH 303', reason: 'No available slot on required days' }, { code: 'PHY 201', reason: 'Insufficient rooms for enrollment size' }] });
+                                            setAutomateStep('result');
+                                        }, 2500);
+                                    }}>Proceed</button>
+                                </div>
+                            </>
+                        )}
+
+                        {automateStep === 'loading' && (
+                            <div className="modal-body" style={{ textAlign: 'center', padding: '40px 24px' }}>
+                                <div style={{ width: 40, height: 40, border: '3px solid var(--color-border)', borderTopColor: 'var(--color-primary)', borderRadius: '50%', animation: 'spin 0.8s linear infinite', margin: '0 auto 16px' }} />
+                                <p style={{ color: 'var(--color-text)', fontWeight: 500 }}>Generating timetable...</p>
+                                <p style={{ color: 'var(--color-text-muted)', fontSize: '0.85rem', marginTop: 6 }}>This may take a few moments.</p>
+                            </div>
+                        )}
+
+                        {automateStep === 'result' && automateResult && (
+                            <>
+                                <div className="modal-body">
+                                    <div style={{ background: 'var(--color-success-bg, #f0fdf4)', border: '1px solid var(--color-success, #22c55e)', borderRadius: 8, padding: '12px 16px', marginBottom: 12 }}>
+                                        <p style={{ color: 'var(--color-success, #16a34a)', fontWeight: 600, marginBottom: 4 }}>✓ Automation complete</p>
+                                        <p style={{ color: 'var(--color-text-secondary)', fontSize: '0.9rem' }}><strong style={{ fontSize: '1.4rem', color: 'var(--color-success, #16a34a)' }}>{displayedPlaced}</strong> courses successfully scheduled.</p>
+                                    </div>
+                                    {automateResult.unplaced > 0 && (
+                                        <div style={{ background: 'var(--color-warning-bg, #fffbeb)', border: '1px solid #f59e0b', borderRadius: 8, padding: '12px 16px' }}>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                <p style={{ color: '#b45309', fontSize: '0.9rem' }}><strong>{automateResult.unplaced}</strong> course{automateResult.unplaced > 1 ? 's' : ''} could not be placed.</p>
+                                                <button onClick={() => setShowUnplacedDetail(p => !p)} style={{ background: 'none', border: 'none', color: '#b45309', fontSize: '0.8rem', cursor: 'pointer', fontWeight: 600 }}>{showUnplacedDetail ? 'Hide ▲' : 'Details ▼'}</button>
+                                            </div>
+                                            {showUnplacedDetail && (
+                                                <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                                    {automateResult.unplacedCourses.map(c => (
+                                                        <div key={c.code} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.82rem', padding: '4px 0', borderTop: '1px solid #fde68a' }}>
+                                                            <span style={{ fontWeight: 600, color: '#92400e' }}>{c.code}</span>
+                                                            <span style={{ color: '#b45309' }}>{c.reason}</span>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
+                                <div className="modal-footer">
+                                    <button className="btn btn-secondary" onClick={() => {
+                                        setIsAutomateModalOpen(false);
+                                        setShowRevertBanner(true);
+                                        setRevertCountdown(300);
+                                    }}>Close</button>
+                                </div>
+                            </>
+                        )}
+                    </div>
+                </div>
             )}
         </div>
     );

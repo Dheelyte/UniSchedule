@@ -515,6 +515,10 @@ h4 {
   border-left: 3px solid var(--color-success);
 }
 
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
 @keyframes slideInRight {
   from {
     opacity: 0;

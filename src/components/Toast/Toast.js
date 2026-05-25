@@ -68,6 +68,11 @@ export function ToastProvider({ children }) {
                             <div className={styles.content}>
                                 {toast.title && <div className={styles.title}>{toast.title}</div>}
                                 <div className={styles.message}>{toast.message}</div>
+                                {toast.action && (
+                                    <button className={styles.action} onClick={() => { toast.action.onClick(); removeToast(toast.id); }}>
+                                        {toast.action.label}
+                                    </button>
+                                )}
                             </div>
                             <button className={styles.close} onClick={() => removeToast(toast.id)}>
                                 ✕
