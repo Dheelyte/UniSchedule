@@ -290,7 +290,7 @@ class TimetableService:
                 raise HTTPException(status_code=403, detail="Faculty editors can only add courses to departments in their own faculty")
         course = Course(
             code=data.code,
-            title=data.title,
+            title=data.title or "",
             credit_load=data.credit_load,
             lecturers=data.lecturers,
             department_id=data.department_id,

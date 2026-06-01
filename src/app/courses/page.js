@@ -133,7 +133,7 @@ export default function CoursesPage() {
     };
 
     const handleSave = async () => {
-        if (!form.code.trim() || !form.title.trim()) return;
+        if (!form.code.trim()) return;
         const trimmedCode = form.code.trim();
         if (/\s/.test(trimmedCode)) {
             addToast({ type: 'warning', title: 'Invalid course code', message: 'Course code must be a single word with no spaces (e.g. "CSC301").' });
@@ -448,7 +448,7 @@ export default function CoursesPage() {
                                 />
                             </div>
                             <div className="form-group">
-                                <label className="form-label">Course Title</label>
+                                <label className="form-label">Course Title <span style={{ color: 'var(--color-text-secondary)', fontWeight: 400 }}>(optional)</span></label>
                                 <input className="form-input" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder={getPlaceholder('title')} />
                             </div>
                             <div style={{ display: 'grid', gridTemplateColumns: form.scope === SCOPES.UNIVERSITY_WIDE ? '1fr' : '1fr 1fr', gap: '16px' }}>
@@ -516,7 +516,6 @@ export default function CoursesPage() {
                                 onClick={handleSave}
                                 disabled={
                                     !form.code.trim() ||
-                                    !form.title.trim() ||
                                     !form.semester ||
                                     (form.scope !== SCOPES.UNIVERSITY_WIDE && (form.level === null || form.level === ''))
                                 }
