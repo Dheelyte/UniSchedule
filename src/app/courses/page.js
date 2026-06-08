@@ -448,7 +448,7 @@ export default function CoursesPage() {
                                 />
                             </div>
                             <div className="form-group">
-                                <label className="form-label">Course Title <span style={{ color: 'var(--color-text-secondary)', fontWeight: 400 }}>(optional)</span></label>
+                                <label className="form-label">Course Title</label>
                                 <input className="form-input" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder={getPlaceholder('title')} />
                             </div>
                             <div style={{ display: 'grid', gridTemplateColumns: form.scope === SCOPES.UNIVERSITY_WIDE ? '1fr' : '1fr 1fr', gap: '16px' }}>
