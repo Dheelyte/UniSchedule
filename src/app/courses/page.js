@@ -133,7 +133,7 @@ export default function CoursesPage() {
     };
 
     const handleSave = async () => {
-        if (!form.code.trim() || !form.title.trim()) return;
+        if (!form.code.trim()) return;
         const trimmedCode = form.code.trim();
         if (/\s/.test(trimmedCode)) {
             addToast({ type: 'warning', title: 'Invalid course code', message: 'Course code must be a single word with no spaces (e.g. "CSC301").' });
@@ -516,7 +516,6 @@ export default function CoursesPage() {
                                 onClick={handleSave}
                                 disabled={
                                     !form.code.trim() ||
-                                    !form.title.trim() ||
                                     !form.semester ||
                                     (form.scope !== SCOPES.UNIVERSITY_WIDE && (form.level === null || form.level === ''))
                                 }

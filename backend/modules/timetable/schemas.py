@@ -56,7 +56,7 @@ _VALID_SEMESTERS = {"First Semester", "Second Semester"}
 
 class CourseCreate(BaseModel):
     code: str
-    title: str
+    title: str | None = None
     credit_load: int = 3
     lecturers: list[str] = []
     department_id: int | None = None

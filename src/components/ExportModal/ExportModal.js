@@ -115,10 +115,10 @@ export default function ExportModal({ isOpen, onClose, onExport, mode, sessions 
                     </div>
 
                     <div className={styles.footer}>
-                        <button type="button" className={`btn btn-secondary ${styles.btn}`} onClick={() => submit('csv')}>
+                        <button type="button" className={`btn btn-secondary ${styles.btn}`} onClick={() => handleSubmit('csv')}>
                             Download CSV
                         </button>
-                        <button type="submit" className={`btn btn-primary ${styles.btn}`}>
+                        <button type="submit" className={`btn btn-primary ${styles.btn}`} onClick={() => handleSubmit('pdf')}>
                             Download PDF
                         </button>
                     </div>
