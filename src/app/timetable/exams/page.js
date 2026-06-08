@@ -28,7 +28,6 @@ export default function ExamTimetablePage() {
     const [selectedSemesterId, setSelectedSemesterId] = useState(null);
     const [blockedSlots, setBlockedSlots] = useState([]);
     const [isExportModalOpen, setIsExportModalOpen] = useState(false);
-    const [exportFormat, setExportFormat] = useState('pdf');
     const [isLocked, setIsLocked] = useState(false);
     const [lockBusy, setLockBusy] = useState(false);
     const [isRequestModalOpen, setIsRequestModalOpen] = useState(false);
@@ -183,7 +182,6 @@ export default function ExamTimetablePage() {
             addToast({ type: 'error', title: 'Export Failed', message: 'Please resolve all schedule conflicts before exporting.' });
             return;
         }
-        setExportFormat(format);
         setIsExportModalOpen(true);
     };
 
@@ -224,31 +222,18 @@ export default function ExamTimetablePage() {
 
         const blockedSlots = await apiClient.get(`/timetable/blocked-slots?semester_id=${selectedSemesterId}`).catch(() => []);
 
-        if (exportFormat === 'csv') {
-            exportTimetableCSV({
-                schedules: filteredSchedules,
-                title: 'Examination Timetable',
-                session,
-                semester,
-                faculty: facultyInfo,
-                mode: 'exam',
-            });
-            addToast({ type: 'success', title: 'CSV Exported', message: 'Exam timetable downloaded as CSV.' });
-        } else {
-            const fetchedBlockedSlots = await apiClient.get(`/timetable/blocked-slots?semester_id=${selectedSemesterId}`).catch(() => []);
-            exportTimetablePDF({
-                schedules: filteredSchedules,
-                blockedSlots: fetchedBlockedSlots,
-                rooms: state.rooms,
-                title: 'Examination Timetable',
-                session,
-                semester,
-                faculty: facultyInfo,
-                schoolName: 'University of Lagos',
-                mode: 'exam',
-            });
-            addToast({ type: 'success', title: 'PDF Exported', message: 'Exam timetable downloaded as PDF.' });
-        }
+        exportTimetablePDF({
+            schedules: filteredSchedules,
+            blockedSlots,
+            rooms: state.rooms,
+            title: 'Examination Timetable',
+            session,
+            semester,
+            faculty: facultyInfo,
+            schoolName: 'University of Lagos',
+            mode: 'exam',
+        });
+        addToast({ type: 'success', title: 'PDF Exported', message: 'Exam timetable downloaded as PDF.' });
     };
 
     if (selectedSemesterId === null) return <TimetableSkeleton />;
