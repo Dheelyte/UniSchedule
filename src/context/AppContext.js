@@ -218,12 +218,13 @@ export function AppProvider({ children }) {
     // Helper: get courses with department & faculty info
     const getCoursesWithDetails = useMemo(() => {
         return state.courses.map((course) => {
-            const dept = state.departments.find((d) => d.id === course.departmentId);
+            const dept = course.departmentId ? state.departments.find((d) => d.id === course.departmentId) : null;
             const faculty = dept ? state.faculties.find((f) => f.id === dept.facultyId) : null;
             return {
                 ...course,
-                departmentName: dept?.name || 'Unknown',
-                facultyName: faculty?.name || 'Unknown',
+                departmentName: dept?.name || (course.scope === 'UNIVERSITY_WIDE' ? '—' : 'Unknown'),
+                facultyName: faculty?.name || (course.scope === 'UNIVERSITY_WIDE' ? 'University' : 'Unknown'),
+                scope: course.scope || 'DEPARTMENTAL',
             };
         });
     }, [state.courses, state.departments, state.faculties]);

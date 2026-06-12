@@ -120,6 +120,192 @@
     font-style: italic;
 }
 
+/* General Course Badge */
+.generalBadge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    border-radius: 50px;
+    font-size: 0.65rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    background: rgba(234, 179, 8, 0.12);
+    color: #eab308;
+    border: 1px solid rgba(234, 179, 8, 0.25);
+    margin-left: 8px;
+    white-space: nowrap;
+}
+
+/* Interfaculty Badge */
+.interfacultyBadge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    border-radius: 50px;
+    font-size: 0.65rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    background: rgba(99, 102, 241, 0.12);
+    color: #818cf8;
+    border: 1px solid rgba(99, 102, 241, 0.25);
+    margin-left: 8px;
+    white-space: nowrap;
+}
+
+/* Segmented Control */
+.segmentedControl {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0;
+    background: var(--color-bg-card);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+}
+
+.segment {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    padding: 10px 14px;
+    font-size: 0.8rem;
+    font-weight: 500;
+    cursor: pointer;
+    border: none;
+    background: transparent;
+    color: var(--color-text-muted);
+    transition: all var(--transition-fast);
+}
+
+.segment:first-child {
+    border-right: 1px solid var(--color-border);
+}
+
+.segment:hover {
+    color: var(--color-text);
+    background: rgba(255, 255, 255, 0.03);
+}
+
+.segmentActive {
+    background: rgba(99, 102, 241, 0.1);
+    color: var(--color-primary-light);
+    font-weight: 600;
+}
+
+.segmentActive:hover {
+    background: rgba(99, 102, 241, 0.14);
+}
+
+/* Info Note */
+.infoNote {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 10px 14px;
+    border-radius: var(--radius-sm);
+    background: rgba(234, 179, 8, 0.08);
+    border: 1px solid rgba(234, 179, 8, 0.18);
+    color: #eab308;
+    font-size: 0.78rem;
+    line-height: 1.5;
+    margin-bottom: 4px;
+}
+
+.infoNote svg {
+    flex-shrink: 0;
+    margin-top: 2px;
+}
+
+/* Toggle Switch */
+.toggleRow {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 0;
+}
+
+.toggleLabel {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.toggleLabelText {
+    font-size: 0.85rem;
+    font-weight: 500;
+    color: var(--color-text);
+}
+
+.toggleLabelSub {
+    font-size: 0.75rem;
+    color: var(--color-text-muted);
+}
+
+.toggleSwitch {
+    position: relative;
+    width: 40px;
+    height: 22px;
+    background: var(--color-border);
+    border-radius: 50px;
+    cursor: pointer;
+    transition: background var(--transition-fast);
+    border: none;
+    padding: 0;
+    flex-shrink: 0;
+}
+
+.toggleSwitch::after {
+    content: '';
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: #fff;
+    transition: transform var(--transition-fast);
+}
+
+.toggleSwitchActive {
+    background: var(--color-primary);
+}
+
+.toggleSwitchActive::after {
+    transform: translateX(18px);
+}
+
+/* General filter chip */
+.filterChip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 14px;
+    border-radius: 50px;
+    font-size: 0.78rem;
+    font-weight: 500;
+    cursor: pointer;
+    border: 1px solid var(--color-border);
+    background: transparent;
+    color: var(--color-text-secondary);
+    transition: all var(--transition-fast);
+}
+
+.filterChip:hover {
+    border-color: var(--color-primary-light);
+    color: var(--color-primary-light);
+}
+
+.filterChipActive {
+    background: rgba(99, 102, 241, 0.12);
+    border-color: var(--color-primary-light);
+    color: var(--color-primary-light);
+}
+
 @media (max-width: 900px) {
     .filters {
         grid-template-columns: 1fr;

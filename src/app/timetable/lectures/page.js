@@ -18,6 +18,11 @@ export default function LectureTimetablePage() {
     const [sessions, setSessions] = useState([]);
     const [semesters, setSemesters] = useState([]);
     const [selectedSemesterId, setSelectedSemesterId] = useState(null);
+<<<<<<< HEAD
+=======
+    const [semesterLabel, setSemesterLabel] = useState('');
+    const [blockedSlots, setBlockedSlots] = useState([]);
+>>>>>>> 6156905 (Reset database)
     const [isExportModalOpen, setIsExportModalOpen] = useState(false);
 
     // ✅ Activity Logger
@@ -65,12 +70,13 @@ export default function LectureTimetablePage() {
         if (semId === null) return;
 
         try {
-            const [faculties, departments, rooms, courses, scheduleItems] = await Promise.all([
+            const [faculties, departments, rooms, courses, scheduleItems, blockedSlotsData] = await Promise.all([
                 apiClient.get('/timetable/faculties').catch(() => []),
                 apiClient.get('/timetable/departments').catch(() => []),
                 apiClient.get('/timetable/rooms').catch(() => []),
                 apiClient.get('/timetable/courses').catch(() => []),
-                apiClient.get(`/timetable/schedule-items?semester_id=${semId}`).catch(() => [])
+                apiClient.get(`/timetable/schedule-items?semester_id=${semId}`).catch(() => []),
+                apiClient.get(`/timetable/blocked-slots?semester_id=${semId}`).catch(() => [])
             ]);
 
             dispatch({
@@ -90,14 +96,20 @@ export default function LectureTimetablePage() {
                         roomIds: s.room_ids,
                         facultyId: s.faculty_id,
                         day: s.day_of_week,
+                        examDate: s.exam_date,
                         startTime: s.start_time,
                         endTime: s.end_time
                     }))
                 }
             });
+<<<<<<< HEAD
         } catch (e) {
             console.error(e);
         }
+=======
+            setBlockedSlots(blockedSlotsData || []);
+        } catch (e) { console.error(e); }
+>>>>>>> 6156905 (Reset database)
     }, [dispatch]);
 
     useEffect(() => {
@@ -127,7 +139,7 @@ export default function LectureTimetablePage() {
         setIsExportModalOpen(true);
     };
 
-    const handleExportConfirm = ({ session, semester, facultyId }) => {
+    const handleExportConfirm = async ({ session, semester, facultyId }) => {
         setIsExportModalOpen(false);
 
         const allLectures = getSchedulesWithDetails.filter((s) => s.type === 'lecture');
@@ -146,13 +158,22 @@ export default function LectureTimetablePage() {
             return;
         }
 
+<<<<<<< HEAD
         const facultyInfo =
             facultyId === 'ALL'
                 ? 'All Faculties'
                 : state.faculties.find(f => f.id === facultyId)?.name || 'Unknown Faculty';
+=======
+        const blockedSlots = await apiClient.get(`/timetable/blocked-slots?semester_id=${selectedSemesterId}`).catch(() => []);
+
+        const facultyInfo = facultyId === 'ALL'
+            ? 'All Faculties'
+            : state.faculties.find(f => f.id === facultyId)?.name || 'Unknown Faculty';
+>>>>>>> 6156905 (Reset database)
 
         exportTimetablePDF({
             schedules: filteredSchedules,
+            blockedSlots,
             rooms: state.rooms,
             title: 'Lecture Timetable',
             session,
@@ -246,6 +267,7 @@ export default function LectureTimetablePage() {
 
                 </div>
             </div>
+<<<<<<< HEAD
 
             <TimetableGrid
                 mode="lecture"
@@ -253,6 +275,9 @@ export default function LectureTimetablePage() {
                 readOnly={currentSemester?.is_current === false}
             />
 
+=======
+            <TimetableGrid mode="lecture" semesterId={selectedSemesterId} blockedSlots={blockedSlots} readOnly={semesters.find(s => s.id === selectedSemesterId)?.is_current === false} />
+>>>>>>> 6156905 (Reset database)
             <ExportModal
                 isOpen={isExportModalOpen}
                 onClose={() => setIsExportModalOpen(false)}

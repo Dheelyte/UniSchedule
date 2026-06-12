@@ -6,7 +6,8 @@ from modules.timetable.schemas import (
     DepartmentCreate, DepartmentResponse, DepartmentUpdate,
     RoomCreate, RoomResponse, RoomUpdate,
     CourseCreate, CourseResponse, CourseUpdate,
-    ScheduleItemCreate, ScheduleItemResponse, ScheduleItemUpdate
+    ScheduleItemCreate, ScheduleItemResponse, ScheduleItemUpdate,
+    BlockedSlotCreate, BlockedSlotResponse
 )
 from api.dependencies.auth import RequireRole, get_current_user
 from modules.auth.models import RoleEnum
@@ -177,4 +178,31 @@ async def delete_schedule(
     user: dict = Depends(RequireRole([RoleEnum.SUPER_ADMIN.value, RoleEnum.FACULTY_EDITOR.value]))
 ):
     await service.delete_schedule_item(item_id, user)
+    return {"message": "Deleted"}
+
+# ---------- Blocked Slots ----------
+
+@router.post("/blocked-slots", response_model=BlockedSlotResponse)
+async def create_blocked_slot(
+    data: BlockedSlotCreate,
+    service: TimetableService = Depends(),
+    user: dict = Depends(RequireRole([RoleEnum.SUPER_ADMIN.value]))
+):
+    return await service.create_blocked_slot(data)
+
+@router.get("/blocked-slots", response_model=list[BlockedSlotResponse])
+async def get_blocked_slots(
+    semester_id: Optional[int] = Query(None),
+    service: TimetableService = Depends(),
+    user: dict = Depends(get_current_user)
+):
+    return await service.get_blocked_slots(semester_id=semester_id)
+
+@router.delete("/blocked-slots/{id}")
+async def delete_blocked_slot(
+    id: int,
+    service: TimetableService = Depends(),
+    user: dict = Depends(RequireRole([RoleEnum.SUPER_ADMIN.value]))
+):
+    await service.delete_blocked_slot(id)
     return {"message": "Deleted"}
