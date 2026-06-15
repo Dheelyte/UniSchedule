@@ -78,6 +78,52 @@ class TimetableLock(Base):
     locked_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     locked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
+class ChangeRequestAction(str, enum.Enum):
+    ADD = "ADD"
+    MODIFY = "MODIFY"
+    REMOVE = "REMOVE"
+
+
+class ChangeRequestStatus(str, enum.Enum):
+    PENDING = "PENDING"
+    APPROVED = "APPROVED"
+    REJECTED = "REJECTED"
+
+
+class ChangeRequest(Base):
+    """A proposed course-schedule change submitted by a non-admin role while a
+    timetable is unlocked. Super admins review it; approving auto-applies the
+    change to the live timetable."""
+    __tablename__ = "change_requests"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    semester_id: Mapped[int] = mapped_column(ForeignKey("semesters.id", ondelete="CASCADE"), index=True)
+    timetable_type: Mapped[str] = mapped_column(String)  # "lecture" | "exam"
+    action: Mapped[str] = mapped_column(String)  # ADD | MODIFY | REMOVE
+    # Target existing item (MODIFY/REMOVE). Null for ADD or if the item was since deleted.
+    target_schedule_item_id: Mapped[int | None] = mapped_column(
+        ForeignKey("schedule_items.id", ondelete="SET NULL"), nullable=True
+    )
+    course_id: Mapped[int | None] = mapped_column(ForeignKey("courses.id", ondelete="SET NULL"), nullable=True)
+    # Proposed values (mirror ScheduleItem)
+    room_ids: Mapped[list[int] | None] = mapped_column(ARRAY(Integer), nullable=True)
+    faculty_id: Mapped[str | None] = mapped_column(ForeignKey("faculties.id"), nullable=True)
+    day_of_week: Mapped[str | None] = mapped_column(String, nullable=True)
+    start_time: Mapped[time | None] = mapped_column(Time, nullable=True)
+    end_time: Mapped[time | None] = mapped_column(Time, nullable=True)
+    week: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    exam_date: Mapped[date_type | None] = mapped_column(Date, nullable=True)
+    reason: Mapped[str | None] = mapped_column(String, nullable=True)
+    status: Mapped[str] = mapped_column(String, default=ChangeRequestStatus.PENDING.value, server_default="PENDING")
+    requested_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    reviewed_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    review_note: Mapped[str | None] = mapped_column(String, nullable=True)
+    resulting_schedule_item_id: Mapped[int | None] = mapped_column(
+        ForeignKey("schedule_items.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
 class CourseEnrollment(Base):
     __tablename__ = "course_enrollments"
     __table_args__ = (UniqueConstraint("course_id", "department_id", "level", name="uq_enrollment_course_dept_level"),)

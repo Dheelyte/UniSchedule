@@ -10,6 +10,7 @@ from modules.timetable.schemas import (
     BlockedSlotCreate, BlockedSlotResponse, RoomReorderRequest,
     TimetableLockResponse, TimetableLockUpdate, EditRequestCreate,
     CourseEnrollmentCreate, CourseEnrollmentResponse,
+    ChangeRequestCreate, ChangeRequestResponse, ChangeRequestReview,
 )
 from api.dependencies.auth import RequireRole, get_current_user
 from modules.auth.models import RoleEnum
@@ -250,6 +251,35 @@ async def request_timetable_edit(
 ):
     await service.request_edit(semester_id, timetable_type, data.reason, user)
     return None
+
+# ---------- Change Requests ----------
+
+@router.post("/change-requests", response_model=ChangeRequestResponse)
+async def create_change_request(
+    data: ChangeRequestCreate,
+    service: TimetableService = Depends(),
+    user: dict = Depends(get_current_user),
+):
+    return await service.create_change_request(data, user)
+
+@router.get("/change-requests", response_model=list[ChangeRequestResponse])
+async def list_change_requests(
+    semester_id: Optional[int] = Query(None),
+    timetable_type: Optional[Literal["lecture", "exam"]] = Query(None),
+    status: Optional[Literal["PENDING", "APPROVED", "REJECTED"]] = Query(None),
+    service: TimetableService = Depends(),
+    user: dict = Depends(get_current_user),
+):
+    return await service.list_change_requests(user, semester_id=semester_id, timetable_type=timetable_type, status=status)
+
+@router.post("/change-requests/{id}/review", response_model=ChangeRequestResponse)
+async def review_change_request(
+    id: int,
+    data: ChangeRequestReview,
+    service: TimetableService = Depends(),
+    user: dict = Depends(RequireRole([RoleEnum.SUPER_ADMIN.value])),
+):
+    return await service.review_change_request(id, data.approve, data.note, user)
 
 # ---------- Course Enrollments (per dept × level) ----------
 

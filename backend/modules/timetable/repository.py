@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, or_
 from datetime import date, datetime, timezone
 from core.database import get_db
-from modules.timetable.models import Faculty, Room, Course, ScheduleItem, Department, TimetableLock, CourseEnrollment
+from modules.timetable.models import Faculty, Room, Course, ScheduleItem, Department, TimetableLock, CourseEnrollment, ChangeRequest
 
 class TimetableRepository:
     def __init__(self, db: AsyncSession = Depends(get_db)):
@@ -266,3 +266,38 @@ class TimetableRepository:
     async def delete_enrollment(self, enrollment: CourseEnrollment) -> None:
         await self.db.delete(enrollment)
         await self.db.flush()
+
+    # ---------- Change Requests ----------
+
+    async def create_change_request(self, request: ChangeRequest) -> ChangeRequest:
+        self.db.add(request)
+        await self.db.flush()
+        return request
+
+    async def get_change_request(self, id: int) -> ChangeRequest | None:
+        result = await self.db.execute(select(ChangeRequest).where(ChangeRequest.id == id))
+        return result.scalar_one_or_none()
+
+    async def list_change_requests(
+        self,
+        semester_id: int | None = None,
+        timetable_type: str | None = None,
+        status: str | None = None,
+        requested_by: int | None = None,
+    ) -> list[ChangeRequest]:
+        query = select(ChangeRequest)
+        if semester_id is not None:
+            query = query.where(ChangeRequest.semester_id == semester_id)
+        if timetable_type is not None:
+            query = query.where(ChangeRequest.timetable_type == timetable_type)
+        if status is not None:
+            query = query.where(ChangeRequest.status == status)
+        if requested_by is not None:
+            query = query.where(ChangeRequest.requested_by == requested_by)
+        query = query.order_by(ChangeRequest.created_at.desc())
+        result = await self.db.execute(query)
+        return list(result.scalars().all())
+
+    async def update_change_request(self, request: ChangeRequest) -> ChangeRequest:
+        await self.db.flush()
+        return request

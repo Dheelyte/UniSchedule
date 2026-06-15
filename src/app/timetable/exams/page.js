@@ -12,7 +12,8 @@ import { useToast } from '@/components/Toast/Toast';
 import ExportModal from '@/components/ExportModal/ExportModal';
 import TimetableStatusBadge from '@/components/TimetableStatusBadge/TimetableStatusBadge';
 import RequestEditModal from '@/components/RequestEditModal/RequestEditModal';
-import { isViewerRole } from '@/lib/roles';
+import RequestChangeModal from '@/components/RequestChangeModal/RequestChangeModal';
+import { isViewerRole, canRequestChange } from '@/lib/roles';
 import { useConfirm } from '@/components/ConfirmModal/ConfirmContext';
 import { TimetableSkeleton } from '@/components/Skeleton/Skeleton';
 import styles from './exams.module.css';
@@ -32,7 +33,31 @@ export default function ExamTimetablePage() {
     const [lockBusy, setLockBusy] = useState(false);
     const [isRequestModalOpen, setIsRequestModalOpen] = useState(false);
     const [requestBusy, setRequestBusy] = useState(false);
+    const [isChangeModalOpen, setIsChangeModalOpen] = useState(false);
+    const [changeBusy, setChangeBusy] = useState(false);
     const [enrollmentsByCourse, setEnrollmentsByCourse] = useState(new Map());
+
+    const handleChangeRequestSubmit = async (payload) => {
+        if (selectedSemesterId === null || changeBusy) return;
+        setChangeBusy(true);
+        try {
+            await apiClient.post('/timetable/change-requests', { ...payload, semester_id: selectedSemesterId });
+            setIsChangeModalOpen(false);
+            addToast({
+                type: 'success',
+                title: 'Request Sent',
+                message: 'Super admins have been notified of your change request.',
+            });
+        } catch (e) {
+            addToast({
+                type: 'error',
+                title: 'Request Failed',
+                message: e?.message || 'Unable to submit change request.',
+            });
+        } finally {
+            setChangeBusy(false);
+        }
+    };
 
     const handleRequestEditSubmit = async (reason) => {
         if (selectedSemesterId === null || requestBusy) return;
@@ -189,8 +214,16 @@ export default function ExamTimetablePage() {
         setIsExportModalOpen(false);
         const deptIdNum = departmentId && departmentId !== 'ALL' ? Number(departmentId) : null;
         const allExams = getSchedulesWithDetails.filter((s) => s.type === 'exam');
+        const selectedFaculty = facultyId === 'ALL' ? null : state.faculties.find(f => f.id === facultyId);
+        const isGeneralStudies = selectedFaculty?.name?.trim().toLowerCase() === 'general studies';
         const filteredSchedules = allExams.filter((s) => {
-            if (facultyId !== 'ALL' && s.facultyId !== facultyId) return false;
+            if (isGeneralStudies) {
+                // General Studies courses are university-wide; match by course code prefix.
+                const code = (s.courseCode || '').trim().toLowerCase();
+                if (!code.startsWith('gst') && !code.startsWith('ent')) return false;
+            } else if (facultyId !== 'ALL' && s.facultyId !== facultyId) {
+                return false;
+            }
             if (deptIdNum !== null && s.departmentId !== deptIdNum) return false;
             return true;
         });
@@ -245,6 +278,8 @@ export default function ExamTimetablePage() {
     if (!isCurrentSemester) readOnlyReasons.push('This semester is not the current one — only the current semester can be edited.');
     if (isLocked) readOnlyReasons.push('The exam timetable has been locked (FINAL) by a super admin.');
     const readOnly = readOnlyReasons.length > 0;
+    const showRequestChange = !isLocked && isCurrentSemester && canRequestChange(user?.role);
+    const examSchedules = getSchedulesWithDetails.filter((s) => s.type === 'exam');
 
     return (
         <div className={styles.page}>
@@ -273,6 +308,11 @@ export default function ExamTimetablePage() {
                             ))}
                         </select>
                     )}
+                    {showRequestChange && (
+                        <button className="btn btn-secondary" onClick={() => setIsChangeModalOpen(true)}>
+                            Request a Change
+                        </button>
+                    )}
                     <button className="btn btn-secondary" onClick={() => handleExportInit('csv')}>
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
@@ -297,6 +337,19 @@ export default function ExamTimetablePage() {
                     onSubmit={handleRequestEditSubmit}
                     mode="exam"
                     busy={requestBusy}
+                />
+            )}
+            {isChangeModalOpen && (
+                <RequestChangeModal
+                    onClose={() => !changeBusy && setIsChangeModalOpen(false)}
+                    onSubmit={handleChangeRequestSubmit}
+                    busy={changeBusy}
+                    mode="exam"
+                    courses={state.courses}
+                    departments={state.departments}
+                    faculties={state.faculties}
+                    rooms={state.rooms}
+                    scheduleItems={examSchedules}
                 />
             )}
         </div>
