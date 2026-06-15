@@ -14,6 +14,7 @@ const ACTION_GROUPS = [
     { value: 'course.', label: 'Courses' },
     { value: 'schedule_item.', label: 'Schedule items' },
     { value: 'timetable.', label: 'Timetable locks / requests' },
+    { value: 'change_request.', label: 'Change requests' },
     { value: 'blocked_slot.', label: 'Blocked slots' },
     { value: 'faculty.', label: 'Faculties' },
     { value: 'department.', label: 'Departments' },
@@ -34,6 +35,9 @@ function actionBadgeColor(action) {
     if (action.endsWith('.delete') || action.endsWith('.invite_revoke')) return { bg: 'rgba(220, 38, 38, 0.12)', fg: '#b91c1c' };
     if (action === 'timetable.lock') return { bg: 'rgba(217, 119, 6, 0.15)', fg: '#b45309' };
     if (action === 'timetable.unlock') return { bg: 'rgba(8, 145, 178, 0.12)', fg: '#0e7490' };
+    if (action === 'change_request.approve') return { bg: 'rgba(22, 163, 74, 0.12)', fg: '#15803d' };
+    if (action === 'change_request.reject') return { bg: 'rgba(220, 38, 38, 0.12)', fg: '#b91c1c' };
+    if (action === 'change_request.create') return { bg: 'rgba(37, 99, 235, 0.12)', fg: '#1d4ed8' };
     if (action.startsWith('auth.')) return { bg: 'rgba(139, 92, 246, 0.12)', fg: '#7c3aed' };
     return { bg: 'var(--color-surface-2)', fg: 'var(--color-text-muted)' };
 }

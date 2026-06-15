@@ -1,0 +1,227 @@
+.overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: rgba(15, 23, 42, 0.4);
+    backdrop-filter: blur(2px);
+    z-index: 1000;
+}
+
+.modal {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: var(--color-bg-card);
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--color-border);
+    box-shadow: var(--shadow-xl);
+    width: 480px;
+    max-width: 92vw;
+    max-height: 90vh;
+    overflow-y: auto;
+    z-index: 1001;
+    animation: fadeIn 0.2s ease-out;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translate(-50%, -48%) scale(0.96); }
+    to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+}
+
+.header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--color-border);
+    background: rgba(0, 0, 0, 0.015);
+    position: sticky;
+    top: 0;
+}
+
+.title {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--color-text);
+}
+
+.closeBtn {
+    background: transparent;
+    border: none;
+    font-size: 1rem;
+    color: var(--color-text-muted);
+    cursor: pointer;
+    padding: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--radius-sm);
+    transition: all 0.15s ease;
+}
+
+.closeBtn:hover {
+    background: var(--color-surface-hover);
+    color: var(--color-text);
+}
+
+.body {
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.intro {
+    font-size: 0.85rem;
+    color: var(--color-text-secondary);
+    line-height: 1.5;
+    margin: 0;
+}
+
+.formGroup {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.row {
+    display: flex;
+    gap: 12px;
+}
+
+.label {
+    font-size: 0.8rem;
+    font-weight: 500;
+    color: var(--color-text-secondary);
+}
+
+.input,
+.textarea {
+    width: 100%;
+    padding: 10px 12px;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--color-border);
+    background: var(--color-bg-input);
+    color: var(--color-text);
+    font-size: 0.9rem;
+    font-family: inherit;
+    transition: all 0.2s ease;
+}
+
+.textarea {
+    resize: vertical;
+    min-height: 64px;
+}
+
+.input:focus,
+.textarea:focus {
+    outline: none;
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+}
+
+.segmented {
+    display: flex;
+    gap: 6px;
+}
+
+.segment {
+    flex: 1;
+    padding: 8px 10px;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--color-border);
+    background: var(--color-bg-input);
+    color: var(--color-text-secondary);
+    font-size: 0.85rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.segment:hover {
+    border-color: var(--color-primary);
+}
+
+.segmentActive {
+    background: var(--color-primary);
+    border-color: var(--color-primary);
+    color: #fff;
+}
+
+.roomList {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.roomRow {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.roomSelect {
+    flex: 1;
+}
+
+.removeRoomBtn {
+    flex-shrink: 0;
+    width: 32px;
+    height: 32px;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--color-border);
+    background: var(--color-bg-input);
+    color: var(--color-text-muted);
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.removeRoomBtn:hover {
+    border-color: #b91c1c;
+    color: #b91c1c;
+}
+
+.addRoomBtn {
+    align-self: flex-start;
+    background: transparent;
+    border: none;
+    color: var(--color-primary);
+    font-size: 0.82rem;
+    font-weight: 500;
+    cursor: pointer;
+    padding: 2px 0;
+}
+
+.muted {
+    font-size: 0.8rem;
+    color: var(--color-text-muted);
+}
+
+.summary {
+    font-size: 0.85rem;
+    color: var(--color-text-secondary);
+    background: var(--color-surface-2);
+    border-radius: var(--radius-md);
+    padding: 10px 12px;
+    line-height: 1.5;
+}
+
+.error {
+    font-size: 0.82rem;
+    color: #b91c1c;
+    margin: 0;
+}
+
+.footer {
+    display: flex;
+    gap: 12px;
+    margin-top: 4px;
+}
+
+.btn {
+    flex: 1;
+    justify-content: center;
+}

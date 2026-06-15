@@ -220,6 +220,67 @@ class EditRequestCreate(BaseModel):
     reason: str | None = None
 
 
+class ChangeRequestCreate(BaseModel):
+    timetable_type: Literal["lecture", "exam"]
+    action: Literal["ADD", "MODIFY", "REMOVE"]
+    course_id: int
+    target_schedule_item_id: int | None = None
+    room_ids: list[int] | None = None
+    faculty_id: str | None = None
+    day_of_week: str | None = None
+    start_time: time | None = None
+    end_time: time | None = None
+    week: int | None = None
+    exam_date: date_type | None = None
+    reason: str | None = None
+    semester_id: int | None = None
+
+    @model_validator(mode="after")
+    def _validate(self):
+        if self.action in ("MODIFY", "REMOVE") and self.target_schedule_item_id is None:
+            raise ValueError("target_schedule_item_id is required for MODIFY/REMOVE requests")
+        if self.action in ("ADD", "MODIFY"):
+            if self.start_time is None or self.end_time is None:
+                raise ValueError("start_time and end_time are required for ADD/MODIFY requests")
+            if self.end_time <= self.start_time:
+                raise ValueError("end_time must be after start_time")
+        return self
+
+
+class ChangeRequestReview(BaseModel):
+    approve: bool
+    note: str | None = None
+
+
+class ChangeRequestResponse(BaseModel):
+    id: int
+    semester_id: int
+    timetable_type: str
+    action: str
+    course_id: int | None
+    target_schedule_item_id: int | None
+    room_ids: list[int] | None
+    faculty_id: str | None
+    day_of_week: str | None
+    start_time: time | None
+    end_time: time | None
+    week: int | None
+    exam_date: date_type | None
+    reason: str | None
+    status: str
+    requested_by: int | None
+    reviewed_by: int | None
+    review_note: str | None
+    resulting_schedule_item_id: int | None
+    created_at: datetime
+    reviewed_at: datetime | None
+    # Enriched display fields (populated by the service)
+    course_code: str | None = None
+    course_title: str | None = None
+    requester_email: str | None = None
+    model_config = ConfigDict(from_attributes=True)
+
+
 class CourseEnrollmentCreate(BaseModel):
     course_id: int
     department_id: int

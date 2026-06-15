@@ -2,10 +2,11 @@ from fastapi import Depends, HTTPException
 from datetime import date, datetime, timezone
 from modules.timetable.repository import TimetableRepository
 from modules.calendar.repository import CalendarRepository
-from modules.timetable.models import Faculty, Room, Course, ScheduleItem, Department, CourseScope, BlockedSlot, TimetableLock, CourseEnrollment
+from modules.timetable.models import Faculty, Room, Course, ScheduleItem, Department, CourseScope, BlockedSlot, TimetableLock, CourseEnrollment, ChangeRequest, ChangeRequestAction, ChangeRequestStatus
 from modules.timetable.schemas import (
     FacultyCreate, RoomCreate, CourseCreate, ScheduleItemCreate, DepartmentCreate, ScheduleItemUpdate,
-    FacultyUpdate, DepartmentUpdate, RoomUpdate, CourseUpdate, BlockedSlotCreate, RoomReorderRequest
+    FacultyUpdate, DepartmentUpdate, RoomUpdate, CourseUpdate, BlockedSlotCreate, RoomReorderRequest,
+    ChangeRequestCreate
 )
 from modules.auth.models import RoleEnum
 from modules.auth.repository import AuthRepository
@@ -797,6 +798,220 @@ class TimetableService:
             description=f"Requested edit access to {timetable_type} timetable for semester {semester_id}",
             extra={"reason": reason},
         )
+
+    # ---------- Change Requests ----------
+
+    _CHANGE_REQUEST_ROLES = (
+        RoleEnum.FACULTY_EDITOR.value,
+        RoleEnum.FACULTY_VIEWER.value,
+        RoleEnum.GS_ADMIN.value,
+        RoleEnum.SUPER_VIEWER.value,
+    )
+
+    async def _enrich_change_request(self, cr: ChangeRequest) -> dict:
+        course = await self.repo.get_course(cr.course_id) if cr.course_id is not None else None
+        requester = await self.auth_repo.get_user_by_id(cr.requested_by) if cr.requested_by is not None else None
+        data = {c.name: getattr(cr, c.name) for c in cr.__table__.columns}
+        data["course_code"] = course.code if course else None
+        data["course_title"] = course.title if course else None
+        data["requester_email"] = requester.email if requester else None
+        return data
+
+    async def _assert_request_scope(self, cr_action: str, course_id: int, target: ScheduleItem | None, current_user: dict) -> None:
+        """Faculty editors/viewers may only request changes within their own faculty.
+        GS admins and super viewers have global scope."""
+        if _has_global_scope(current_user):
+            return
+        faculty_id = current_user.get("faculty_id")
+        if not faculty_id:
+            raise HTTPException(status_code=403, detail="Your account has no assigned faculty")
+        if target is not None and target.faculty_id == faculty_id:
+            return
+        # Otherwise the course must be enrolled to a department in the user's faculty
+        enrollments = await self.repo.list_enrollments(faculty_id=faculty_id, course_id=course_id)
+        if not enrollments:
+            raise HTTPException(status_code=403, detail="You can only request changes for courses in your faculty")
+
+    async def create_change_request(self, data: ChangeRequestCreate, current_user: dict) -> dict:
+        role = current_user.get("role")
+        if role not in self._CHANGE_REQUEST_ROLES:
+            raise HTTPException(status_code=403, detail="Your role cannot submit change requests")
+
+        current_sem = await self.cal_repo.get_current_semester()
+        if not current_sem:
+            raise HTTPException(status_code=400, detail="No active semester found.")
+        if data.semester_id is not None and data.semester_id != current_sem.id:
+            raise HTTPException(status_code=403, detail="You can only request changes for the current semester.")
+        sem_id = data.semester_id or current_sem.id
+
+        lock = await self.repo.get_lock(sem_id, data.timetable_type)
+        if lock and lock.is_locked:
+            raise HTTPException(status_code=423, detail=f"This {data.timetable_type} timetable is locked.")
+
+        course = await self.repo.get_course(data.course_id)
+        if not course:
+            raise HTTPException(status_code=404, detail="Course not found")
+
+        target = None
+        if data.action in (ChangeRequestAction.MODIFY.value, ChangeRequestAction.REMOVE.value):
+            target = await self.repo.get_schedule_item(data.target_schedule_item_id)
+            if not target:
+                raise HTTPException(status_code=404, detail="The schedule item to change no longer exists")
+            if target.semester_id != sem_id or target.type != data.timetable_type:
+                raise HTTPException(status_code=400, detail="Target schedule item does not match this timetable")
+
+        await self._assert_request_scope(data.action, data.course_id, target, current_user)
+
+        sub = current_user.get("sub")
+        requester_id = int(sub) if sub is not None else None
+
+        cr = ChangeRequest(
+            semester_id=sem_id,
+            timetable_type=data.timetable_type,
+            action=data.action,
+            target_schedule_item_id=data.target_schedule_item_id,
+            course_id=data.course_id,
+            room_ids=data.room_ids,
+            faculty_id=data.faculty_id,
+            day_of_week=data.day_of_week,
+            start_time=data.start_time,
+            end_time=data.end_time,
+            week=data.week,
+            exam_date=data.exam_date,
+            reason=data.reason,
+            status=ChangeRequestStatus.PENDING.value,
+            requested_by=requester_id,
+        )
+        created = await self.repo.create_change_request(cr)
+
+        requester = await self.auth_repo.get_user_by_id(requester_id) if requester_id is not None else None
+        requester_email = requester.email if requester else current_user.get("email", "Unknown user")
+        admins = await self.auth_repo.get_users_by_role(RoleEnum.SUPER_ADMIN)
+        admin_ids = [a.id for a in admins]
+        if admin_ids:
+            action_label = {"ADD": "add", "MODIFY": "modify", "REMOVE": "remove"}.get(data.action, data.action.lower())
+            title = f"Schedule change requested: {course.code}"
+            message = (
+                f"{requester_email} requested to {action_label} a {data.timetable_type} session "
+                f"for {course.code}.\nReason: {data.reason.strip() if data.reason else '—'}"
+            )
+            await self.notification_service.notify(
+                user_ids=admin_ids,
+                title=title,
+                message=message,
+                link="/requests",
+                send_email=False,
+            )
+
+        await self.audit_service.log(
+            current_user=current_user,
+            action="change_request.create",
+            entity_type="change_request",
+            entity_id=created.id,
+            description=f"Requested to {data.action.lower()} {data.timetable_type} schedule for {course.code}",
+            extra={"course_id": data.course_id, "action": data.action, "timetable_type": data.timetable_type, "reason": data.reason},
+        )
+        return await self._enrich_change_request(created)
+
+    async def list_change_requests(
+        self,
+        current_user: dict,
+        semester_id: int | None = None,
+        timetable_type: str | None = None,
+        status: str | None = None,
+    ) -> list[dict]:
+        role = current_user.get("role")
+        is_reviewer = role in (RoleEnum.SUPER_ADMIN.value, RoleEnum.SUPER_VIEWER.value)
+        requested_by = None
+        if not is_reviewer:
+            sub = current_user.get("sub")
+            requested_by = int(sub) if sub is not None else -1
+        rows = await self.repo.list_change_requests(
+            semester_id=semester_id,
+            timetable_type=timetable_type,
+            status=status,
+            requested_by=requested_by,
+        )
+        return [await self._enrich_change_request(cr) for cr in rows]
+
+    async def review_change_request(self, id: int, approve: bool, note: str | None, current_user: dict) -> dict:
+        cr = await self.repo.get_change_request(id)
+        if not cr:
+            raise HTTPException(status_code=404, detail="Change request not found")
+        if cr.status != ChangeRequestStatus.PENDING.value:
+            raise HTTPException(status_code=409, detail=f"This request has already been {cr.status.lower()}")
+
+        if approve:
+            lock = await self.repo.get_lock(cr.semester_id, cr.timetable_type)
+            if lock and lock.is_locked:
+                raise HTTPException(status_code=423, detail="Unlock the timetable before approving this request.")
+
+            if cr.action == ChangeRequestAction.ADD.value:
+                payload = ScheduleItemCreate(
+                    course_id=cr.course_id,
+                    room_ids=cr.room_ids or [],
+                    faculty_id=cr.faculty_id,
+                    day_of_week=cr.day_of_week,
+                    start_time=cr.start_time,
+                    end_time=cr.end_time,
+                    type=cr.timetable_type,
+                    week=cr.week,
+                    exam_date=cr.exam_date,
+                    semester_id=cr.semester_id,
+                )
+                created_item = await self.create_schedule_item(payload, current_user)
+                cr.resulting_schedule_item_id = created_item.id
+            elif cr.action == ChangeRequestAction.MODIFY.value:
+                if cr.target_schedule_item_id is None or not await self.repo.get_schedule_item(cr.target_schedule_item_id):
+                    raise HTTPException(status_code=409, detail="The target schedule item no longer exists; cannot apply this change.")
+                payload = ScheduleItemUpdate(
+                    room_ids=cr.room_ids,
+                    day_of_week=cr.day_of_week,
+                    exam_date=cr.exam_date,
+                    start_time=cr.start_time,
+                    end_time=cr.end_time,
+                )
+                updated_item = await self.update_schedule_item(cr.target_schedule_item_id, payload, current_user)
+                cr.resulting_schedule_item_id = updated_item.id
+            elif cr.action == ChangeRequestAction.REMOVE.value:
+                if cr.target_schedule_item_id is None or not await self.repo.get_schedule_item(cr.target_schedule_item_id):
+                    raise HTTPException(status_code=409, detail="The target schedule item no longer exists; cannot apply this change.")
+                await self.delete_schedule_item(cr.target_schedule_item_id, current_user)
+
+            cr.status = ChangeRequestStatus.APPROVED.value
+        else:
+            cr.status = ChangeRequestStatus.REJECTED.value
+
+        sub = current_user.get("sub")
+        cr.reviewed_by = int(sub) if sub is not None else None
+        cr.reviewed_at = datetime.now(timezone.utc)
+        cr.review_note = note
+        await self.repo.update_change_request(cr)
+
+        course = await self.repo.get_course(cr.course_id) if cr.course_id is not None else None
+        course_label = course.code if course else "the course"
+        if cr.requested_by is not None:
+            outcome = "approved and applied" if approve else "rejected"
+            await self.notification_service.notify(
+                user_ids=[cr.requested_by],
+                title=f"Your change request was {('approved' if approve else 'rejected')}",
+                message=(
+                    f"Your request to {cr.action.lower()} a {cr.timetable_type} session for {course_label} "
+                    f"was {outcome}.\n" + (f"Note: {note.strip()}" if note else "")
+                ),
+                link=f"/timetable/{'lectures' if cr.timetable_type == 'lecture' else 'exams'}",
+                send_email=False,
+            )
+
+        await self.audit_service.log(
+            current_user=current_user,
+            action=f"change_request.{'approve' if approve else 'reject'}",
+            entity_type="change_request",
+            entity_id=cr.id,
+            description=f"{'Approved' if approve else 'Rejected'} {cr.action.lower()} request for {course_label}",
+            extra={"note": note},
+        )
+        return await self._enrich_change_request(cr)
 
     # ---------- Course Enrollments (per dept × level) ----------
 
