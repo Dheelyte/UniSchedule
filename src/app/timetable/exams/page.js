@@ -198,15 +198,25 @@ export default function ExamTimetablePage() {
         }
     };
 
-    const handleExportInit = (format) => {
+    const handleExportInit = async (format) => {
         const schedules = getSchedulesWithDetails.filter((s) => s.type === 'exam');
         const conflictsMap = detectAllConflicts(schedules);
-        const hasErrors = Array.from(conflictsMap.values()).some((conflicts) =>
-            conflicts.some((c) => c.severity === 'error')
-        );
-        if (hasErrors) {
-            addToast({ type: 'error', title: 'Export Failed', message: 'Please resolve all schedule conflicts before exporting.' });
-            return;
+        const errorMessages = [...new Set(
+            Array.from(conflictsMap.values())
+                .flat()
+                .filter((c) => c.severity === 'error')
+                .map((c) => c.message)
+        )];
+        if (errorMessages.length > 0) {
+            const proceed = await confirm({
+                title: 'Conflicts Detected',
+                message: `This timetable has ${errorMessages.length} unresolved conflict${errorMessages.length === 1 ? '' : 's'}. You can ignore them and export anyway.`,
+                details: errorMessages,
+                confirmLabel: 'Ignore & Export',
+                cancelLabel: 'Cancel',
+                tone: 'danger',
+            });
+            if (!proceed) return;
         }
         setIsExportModalOpen(true);
     };
