@@ -90,6 +90,20 @@
     color: var(--color-text-secondary);
 }
 
+.checkboxLabel {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.85rem;
+    font-weight: 500;
+    color: var(--color-text);
+    cursor: pointer;
+}
+
+.checkboxLabel input {
+    cursor: pointer;
+}
+
 .input {
     width: 100%;
     padding: 10px 12px;

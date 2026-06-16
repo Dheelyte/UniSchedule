@@ -10,6 +10,7 @@ export default function ExportModal({ isOpen, onClose, onExport, mode, sessions 
     const [semester, setSemester] = useState('1st Semester');
     const [facultyId, setFacultyId] = useState('ALL');
     const [departmentId, setDepartmentId] = useState('ALL');
+    const [monochrome, setMonochrome] = useState(true);
 
     useEffect(() => {
         if (isOpen) {
@@ -19,6 +20,7 @@ export default function ExportModal({ isOpen, onClose, onExport, mode, sessions 
             setSemester('1st Semester');
             setFacultyId('ALL');
             setDepartmentId('ALL');
+            setMonochrome(true);
         }
     }, [isOpen, sessions]);
 
@@ -29,7 +31,7 @@ export default function ExportModal({ isOpen, onClose, onExport, mode, sessions 
         : state.departments.filter((d) => d.facultyId === facultyId);
 
     const submit = (format) => {
-        onExport({ session, semester, facultyId, departmentId, format });
+        onExport({ session, semester, facultyId, departmentId, format, monochrome });
     };
 
     const handleSubmit = (e) => {
@@ -112,6 +114,17 @@ export default function ExportModal({ isOpen, onClose, onExport, mode, sessions 
                                 <option key={d.id} value={d.id}>{d.name}</option>
                             ))}
                         </select>
+                    </div>
+
+                    <div className={styles.formGroup}>
+                        <label className={styles.checkboxLabel}>
+                            <input
+                                type="checkbox"
+                                checked={!monochrome}
+                                onChange={(e) => setMonochrome(!e.target.checked)}
+                            />
+                            Include colors — PDF only (default is black &amp; white)
+                        </label>
                     </div>
 
                     <div className={styles.footer}>

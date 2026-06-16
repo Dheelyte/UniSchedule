@@ -7,6 +7,7 @@ import { apiClient } from '@/lib/apiClient';
 import { detectAllConflicts } from '@/lib/conflicts';
 import { exportTimetablePDF } from '@/lib/pdfExport';
 import { exportTimetableCSV } from '@/lib/csvExport';
+import { isGeneralStudiesCourse, GENERAL_STUDIES_FACULTY } from '@/lib/utils';
 import TimetableGrid from '@/components/TimetableGrid/TimetableGrid';
 import { useToast } from '@/components/Toast/Toast';
 import ExportModal from '@/components/ExportModal/ExportModal';
@@ -217,27 +218,32 @@ export default function LectureTimetablePage() {
         setIsExportModalOpen(true);
     };
 
-    const handleExportConfirm = async ({ session, semester, facultyId, departmentId, format = 'pdf' }) => {
+    const handleExportConfirm = async ({ session, semester, facultyId, departmentId, format = 'pdf', monochrome = false }) => {
         setIsExportModalOpen(false);
         const deptIdNum = departmentId && departmentId !== 'ALL' ? Number(departmentId) : null;
         const allLectures = getSchedulesWithDetails.filter((s) => s.type === 'lecture');
         const selectedFaculty = facultyId === 'ALL' ? null : state.faculties.find(f => f.id === facultyId);
         const isGeneralStudies = selectedFaculty?.name?.trim().toLowerCase() === 'general studies';
-        const filteredSchedules = allLectures.filter((s) => {
+        const filtered = allLectures.filter((s) => {
             if (isGeneralStudies) {
                 // General Studies courses are university-wide; match by course code prefix.
-                const code = (s.courseCode || '').trim().toLowerCase();
-                if (!code.startsWith('gst') && !code.startsWith('ent')) return false;
+                if (!isGeneralStudiesCourse(s.courseCode)) return false;
             } else if (facultyId !== 'ALL' && s.facultyId !== facultyId) {
                 return false;
             }
             if (deptIdNum !== null && s.departmentId !== deptIdNum) return false;
             return true;
         });
+        // Attribute GST/ENT courses to the General Studies faculty in the export.
+        const filteredSchedules = filtered.map((s) =>
+            isGeneralStudiesCourse(s.courseCode) ? { ...s, facultyName: GENERAL_STUDIES_FACULTY } : s
+        );
         if (filteredSchedules.length === 0) {
             addToast({ type: 'error', title: 'Export Failed', message: 'No schedules found for the selected filters.' });
             return;
         }
+        // When exporting every faculty, group output by faculty with General Studies first.
+        const groupByFaculty = facultyId === 'ALL';
 
         const facultyInfo = facultyId === 'ALL'
             ? 'All Faculties'
@@ -255,6 +261,7 @@ export default function LectureTimetablePage() {
                 faculty: facultyInfo,
                 department: departmentInfo,
                 mode: 'lecture',
+                groupByFaculty,
             });
             addToast({ type: 'success', title: 'CSV Exported', message: 'Lecture timetable downloaded as CSV.' });
             return;
@@ -272,6 +279,8 @@ export default function LectureTimetablePage() {
             faculty: facultyInfo,
             schoolName: 'University of Lagos',
             mode: 'lecture',
+            monochrome,
+            groupByFaculty,
         });
         addToast({ type: 'success', title: 'PDF Exported', message: 'Lecture timetable downloaded as PDF.' });
     };

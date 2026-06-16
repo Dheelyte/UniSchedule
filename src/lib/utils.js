@@ -7,6 +7,18 @@ export function generateId(prefix = 'id') {
     return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
 }
 
+/** Canonical name of the General Studies faculty. */
+export const GENERAL_STUDIES_FACULTY = 'General Studies';
+
+/** Course-code prefixes that belong to the General Studies faculty. */
+export const GENERAL_STUDIES_PREFIXES = ['gst', 'ent'];
+
+/** Whether a schedule/course belongs to General Studies (code starts with GST/ENT). */
+export function isGeneralStudiesCourse(courseCode) {
+    const code = (courseCode || '').trim().toLowerCase();
+    return GENERAL_STUDIES_PREFIXES.some((p) => code.startsWith(p));
+}
+
 /** Days of the week used in the timetable. */
 export const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 export const EXAM_DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
