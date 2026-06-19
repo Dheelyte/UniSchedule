@@ -10,6 +10,7 @@ UniSchedule is a comprehensive timetable management application for the Universi
 ## Prerequisites
 
 Before setting up the project, assure you have the following installed:
+
 - Node.js (>= 18.x) and npm
 - Python (>= 3.12)
 - PostgeSQL or Docker (for running the database container)
@@ -22,17 +23,21 @@ Before setting up the project, assure you have the following installed:
 The backend logic and database are managed within the `backend/` directory.
 
 1. Navigate to the backend directory:
+
    ```bash
    cd backend
    ```
 
 2. Start the PostgreSQL database:
+
    ```bash
    docker compose up -d
    ```
-   *(Alternatively, configure a local PostgreSQL instance with credentials matching `core/config.py`)*
+
+   _(Alternatively, configure a local PostgreSQL instance with credentials matching `core/config.py`)_
 
 3. Create the virtual environment and install dependencies using `uv` (recommended):
+
    ```bash
    uv venv
    source .venv/bin/activate
@@ -42,6 +47,7 @@ The backend logic and database are managed within the `backend/` directory.
 
 4. Provide environment variables:
    Create a `.env` file inside `/backend` with the following variables:
+
    ```env
    DATABASE_URL=postgresql+asyncpg://postgres:password@localhost:5432/unilag_timetable
    SECRET_KEY=your_secret_key
@@ -51,6 +57,7 @@ The backend logic and database are managed within the `backend/` directory.
    ```
 
 5. Run database migrations:
+
    ```bash
    uv run alembic upgrade head
    ```
@@ -66,16 +73,19 @@ The backend logic and database are managed within the `backend/` directory.
 The frontend is a Next.js application located at the project root.
 
 1. In a new terminal, navigate to the project root:
+
    ```bash
    cd unilag-timetable
    ```
 
 2. Install npm dependencies:
+
    ```bash
    npm install
    ```
 
 3. Run the development server:
+
    ```bash
    npm run dev
    ```
@@ -85,11 +95,12 @@ The frontend is a Next.js application located at the project root.
 ## Contributing
 
 We welcome contributions! Please follow the steps below:
+
 1. Clone the repository and create a feature branch (`git checkout -b feature/your-feature-name`).
 2. Make your modifications, ensuring you test the changes locally.
 3. Commit your changes with descriptive messages.
 4. Push your branch and submit a Pull Request.
 
-
 ## Author
+
 - Delight Olu-Olagbuji ([LinkedIn](https://www.linkedin.com/in/delight-olu-olagbuji-990b61314))
