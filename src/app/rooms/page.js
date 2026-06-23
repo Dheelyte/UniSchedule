@@ -18,8 +18,21 @@ export default function RoomsPage() {
 
     // Search & sort
     const [search, setSearch] = useState('');
-    const [sortBy, setSortBy] = useState('custom'); // 'custom' | 'name' | 'capacity'
+    const [sortBy, setSortBy] = useState('name'); // 'custom' | 'name' | 'capacity' (defaulting to name ascending)
     const [filterFaculty, setFilterFaculty] = useState('');
+    const [collapsedFaculties, setCollapsedFaculties] = useState(new Set());
+
+    const toggleFaculty = (facId) => {
+        setCollapsedFaculties((prev) => {
+            const next = new Set(prev);
+            if (next.has(facId)) {
+                next.delete(facId);
+            } else {
+                next.add(facId);
+            }
+            return next;
+        });
+    };
 
     // Modal state
     const [showModal, setShowModal] = useState(false);
@@ -79,24 +92,32 @@ export default function RoomsPage() {
         }
     };
 
-    const handleMoveUp = (index) => {
+    const handleMoveUp = (roomList, index) => {
         if (index === 0) return;
-        const updated = [...filteredRooms];
-        const temp = updated[index - 1];
-        updated[index - 1] = updated[index];
-        updated[index] = temp;
-        dispatch({ type: ACTION_TYPES.INIT_STATE, payload: { rooms: updated } });
-        saveNewOrder(updated);
+        const updatedGroup = [...roomList];
+        const temp = updatedGroup[index - 1];
+        updatedGroup[index - 1] = updatedGroup[index];
+        updatedGroup[index] = temp;
+
+        const otherRooms = rooms.filter(r => !updatedGroup.some(ug => ug.id === r.id));
+        const mergedRooms = [...otherRooms, ...updatedGroup];
+
+        dispatch({ type: ACTION_TYPES.INIT_STATE, payload: { rooms: mergedRooms } });
+        saveNewOrder(mergedRooms);
     };
 
-    const handleMoveDown = (index) => {
-        if (index === filteredRooms.length - 1) return;
-        const updated = [...filteredRooms];
-        const temp = updated[index + 1];
-        updated[index + 1] = updated[index];
-        updated[index] = temp;
-        dispatch({ type: ACTION_TYPES.INIT_STATE, payload: { rooms: updated } });
-        saveNewOrder(updated);
+    const handleMoveDown = (roomList, index) => {
+        if (index === roomList.length - 1) return;
+        const updatedGroup = [...roomList];
+        const temp = updatedGroup[index + 1];
+        updatedGroup[index + 1] = updatedGroup[index];
+        updatedGroup[index] = temp;
+
+        const otherRooms = rooms.filter(r => !updatedGroup.some(ug => ug.id === r.id));
+        const mergedRooms = [...otherRooms, ...updatedGroup];
+
+        dispatch({ type: ACTION_TYPES.INIT_STATE, payload: { rooms: mergedRooms } });
+        saveNewOrder(mergedRooms);
     };
 
 
@@ -158,6 +179,98 @@ export default function RoomsPage() {
         return { label: 'Small', cls: styles.tierSmall };
     };
 
+    // Extract unique faculties from filtered rooms, then sort faculties alphabetically by name
+    const activeFacIds = Array.from(new Set(filteredRooms.map(r => r.facultyId).filter(Boolean)));
+    const activeFaculties = faculties
+        .filter(f => activeFacIds.includes(f.id))
+        .sort((a, b) => a.name.localeCompare(b.name));
+
+    const showUnassigned = filteredRooms.some(r => !r.facultyId);
+    const unassignedRooms = filteredRooms.filter(r => !r.facultyId);
+
+    const renderRoomsTable = (roomList) => {
+        return (
+            <div className="table-container">
+                <table className="data-table">
+                    <thead>
+                        <tr>
+                            <th>Room Name</th>
+                            <th>Faculty</th>
+                            <th>Capacity</th>
+                            <th>Size</th>
+                            <th>Bookings</th>
+                            {isDraggable && <th style={{ width: 60, textAlign: 'center' }}>Order</th>}
+                            <th style={{ width: 100 }}>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {roomList.map((room, index) => {
+                            const tier = getCapacityTier(room.capacity);
+                            const bookings = scheduleCount(room.id);
+                            const fac = faculties.find(f => f.id === room.facultyId);
+                            return (
+                                <tr key={room.id}>
+                                    <td style={{ fontWeight: 500, color: 'var(--color-text)' }}>{room.name}</td>
+                                    <td style={{ fontSize: '0.82rem', color: 'var(--color-text-muted)' }}>{fac?.name || '-'}</td>
+                                    <td>
+                                        <div className={styles.capacityCell}>
+                                            <span className={styles.capacityNum}>{room.capacity}</span>
+                                            <div className={styles.capacityBar}>
+                                                <div className={styles.capacityFill} style={{ width: `${Math.min(100, (room.capacity / 600) * 100)}%` }} />
+                                            </div>
+                                        </div>
+                                    </td>
+                                    <td><span className={`${styles.tier} ${tier.cls}`}>{tier.label}</span></td>
+                                    <td>
+                                        {bookings > 0 ? (
+                                            <span className="badge badge-primary">{bookings} slot{bookings !== 1 ? 's' : ''}</span>
+                                        ) : (
+                                            <span style={{ color: 'var(--color-text-muted)', fontSize: '0.82rem' }}>No bookings</span>
+                                        )}
+                                    </td>
+                                    {isDraggable && (
+                                        <td style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>
+                                            <button
+                                                onClick={() => handleMoveUp(roomList, index)}
+                                                disabled={index === 0}
+                                                style={{ background: 'transparent', border: '1px solid var(--color-border)', cursor: index === 0 ? 'not-allowed' : 'pointer', opacity: index === 0 ? 0.3 : 1, padding: '2px 6px', borderRadius: '4px', marginRight: '4px' }}
+                                                title="Move Up"
+                                            >
+                                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="18 15 12 9 6 15" /></svg>
+                                            </button>
+                                            <button
+                                                onClick={() => handleMoveDown(roomList, index)}
+                                                disabled={index === roomList.length - 1}
+                                                style={{ background: 'transparent', border: '1px solid var(--color-border)', cursor: index === roomList.length - 1 ? 'not-allowed' : 'pointer', opacity: index === roomList.length - 1 ? 0.3 : 1, padding: '2px 6px', borderRadius: '4px' }}
+                                                title="Move Down"
+                                            >
+                                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9" /></svg>
+                                            </button>
+                                        </td>
+                                    )}
+                                    <td>
+                                        {!isViewerRole(role) && (!isGsAdmin(role) || !room.facultyId) ? (
+                                            <div className={styles.actions}>
+                                                <button className={styles.actionBtn} onClick={() => openEdit(room)} title="Edit">
+                                                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" /><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" /></svg>
+                                                </button>
+                                                <button className={`${styles.actionBtn} ${styles.deleteBtn}`} onClick={() => setDeleteConfirm(room)} title="Delete">
+                                                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /></svg>
+                                                </button>
+                                            </div>
+                                        ) : (
+                                            <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Read Only</span>
+                                        )}
+                                    </td>
+                                </tr>
+                            );
+                        })}
+                    </tbody>
+                </table>
+            </div>
+        );
+    };
+
     if (loading) return <TablePageSkeleton columns={3} rows={6} />;
 
     return (
@@ -215,88 +328,63 @@ export default function RoomsPage() {
                 Showing <strong>{filteredRooms.length}</strong> of {rooms.length} rooms
             </div>
 
-            {/* Table */}
-            <div className="table-container">
-                <table className="data-table">
-                    <thead>
-                        <tr>
-                            <th>Room Name</th>
-                            <th>Faculty</th>
-                            <th>Capacity</th>
-                            <th>Size</th>
-                            <th>Bookings</th>
-                            {isDraggable && <th style={{ width: 60, textAlign: 'center' }}>Order</th>}
-                            <th style={{ width: 100 }}>Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {filteredRooms.map((room, index) => {
-                            const tier = getCapacityTier(room.capacity);
-                            const bookings = scheduleCount(room.id);
-                            const fac = faculties.find(f => f.id === room.facultyId);
-                            return (
-                                <tr key={room.id}>
+            {/* Accordion List */}
+            <div className={styles.accordion}>
+                {activeFaculties.map((fac) => {
+                    const roomsInFac = filteredRooms.filter(r => r.facultyId === fac.id);
+                    const isOpen = !collapsedFaculties.has(fac.id);
+                    return (
+                        <div key={fac.id} className={styles.accordionItem}>
+                            <button className={styles.accordionHeader} onClick={() => toggleFaculty(fac.id)}>
+                                <div className={styles.accordionHeaderLeft}>
+                                    <span className={styles.accordionTitle}>{fac.name}</span>
+                                    <span className={styles.accordionCount}>{roomsInFac.length} venue{roomsInFac.length !== 1 ? 's' : ''}</span>
+                                </div>
+                                <svg
+                                    className={`${styles.accordionIcon} ${isOpen ? styles.accordionIconOpen : ''}`}
+                                    width="18" height="18" viewBox="0 0 24 24" fill="none"
+                                    stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+                                >
+                                    <polyline points="6 9 12 15 18 9" />
+                                </svg>
+                            </button>
+                            {isOpen && (
+                                <div className={styles.accordionBody}>
+                                    {renderRoomsTable(roomsInFac)}
+                                </div>
+                            )}
+                        </div>
+                    );
+                })}
 
-                                    <td style={{ fontWeight: 500, color: 'var(--color-text)' }}>{room.name}</td>
-                                    <td style={{ fontSize: '0.82rem', color: 'var(--color-text-muted)' }}>{fac?.name || '-'}</td>
-                                    <td>
-                                        <div className={styles.capacityCell}>
-                                            <span className={styles.capacityNum}>{room.capacity}</span>
-                                            <div className={styles.capacityBar}>
-                                                <div className={styles.capacityFill} style={{ width: `${Math.min(100, (room.capacity / 600) * 100)}%` }} />
-                                            </div>
-                                        </div>
-                                    </td>
-                                    <td><span className={`${styles.tier} ${tier.cls}`}>{tier.label}</span></td>
-                                    <td>
-                                        {bookings > 0 ? (
-                                            <span className="badge badge-primary">{bookings} slot{bookings !== 1 ? 's' : ''}</span>
-                                        ) : (
-                                            <span style={{ color: 'var(--color-text-muted)', fontSize: '0.82rem' }}>No bookings</span>
-                                        )}
-                                    </td>
-                                    {isDraggable && (
-                                        <td style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>
-                                            <button
-                                                onClick={() => handleMoveUp(index)}
-                                                disabled={index === 0}
-                                                style={{ background: 'transparent', border: '1px solid var(--color-border)', cursor: index === 0 ? 'not-allowed' : 'pointer', opacity: index === 0 ? 0.3 : 1, padding: '2px 6px', borderRadius: '4px', marginRight: '4px' }}
-                                                title="Move Up"
-                                            >
-                                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="18 15 12 9 6 15" /></svg>
-                                            </button>
-                                            <button
-                                                onClick={() => handleMoveDown(index)}
-                                                disabled={index === filteredRooms.length - 1}
-                                                style={{ background: 'transparent', border: '1px solid var(--color-border)', cursor: index === filteredRooms.length - 1 ? 'not-allowed' : 'pointer', opacity: index === filteredRooms.length - 1 ? 0.3 : 1, padding: '2px 6px', borderRadius: '4px' }}
-                                                title="Move Down"
-                                            >
-                                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9" /></svg>
-                                            </button>
-                                        </td>
-                                    )}
-                                    <td>
-                                        {!isViewerRole(role) && (!isGsAdmin(role) || !room.facultyId) ? (
-                                            <div className={styles.actions}>
-                                                <button className={styles.actionBtn} onClick={() => openEdit(room)} title="Edit">
-                                                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" /><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" /></svg>
-                                                </button>
-                                                <button className={`${styles.actionBtn} ${styles.deleteBtn}`} onClick={() => setDeleteConfirm(room)} title="Delete">
-                                                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /></svg>
-                                                </button>
-                                            </div>
-                                        ) : (
-                                            <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Read Only</span>
-                                        )}
-                                    </td>
-                                </tr>
-                            );
-                        })}
-                        {filteredRooms.length === 0 && (
-                            <tr><td colSpan={5} className={styles.empty}>No rooms match your search.</td></tr>
+                {showUnassigned && (
+                    <div className={`${styles.accordionItem} ${styles.unassignedItem}`}>
+                        <button className={`${styles.accordionHeader} ${styles.unassignedHeader}`} onClick={() => toggleFaculty('__unassigned__')}>
+                            <div className={styles.accordionHeaderLeft}>
+                                <span className={styles.accordionTitle}>Other / Unassigned Venues</span>
+                                <span className={styles.accordionCount}>{unassignedRooms.length} venue{unassignedRooms.length !== 1 ? 's' : ''}</span>
+                            </div>
+                            <svg
+                                className={`${styles.accordionIcon} ${!collapsedFaculties.has('__unassigned__') ? styles.accordionIconOpen : ''}`}
+                                width="18" height="18" viewBox="0 0 24 24" fill="none"
+                                stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+                            >
+                                <polyline points="6 9 12 15 18 9" />
+                            </svg>
+                        </button>
+                        {!collapsedFaculties.has('__unassigned__') && (
+                            <div className={styles.accordionBody}>
+                                {renderRoomsTable(unassignedRooms)}
+                            </div>
                         )}
-                    </tbody>
-                </table>
+                    </div>
+                )}
+
+                {activeFaculties.length === 0 && !showUnassigned && (
+                    <div className={styles.emptyContainer}>
+                        No rooms match your search or filters.
+                    </div>
+                )}
             </div>
 
             {/* Add/Edit Modal */}

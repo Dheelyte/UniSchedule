@@ -12,8 +12,10 @@ import { GENERAL_STUDIES_FACULTY } from '@/lib/utils';
  *
  * Course cards show: course code only.
  */
-export function exportTimetablePDF({ schedules, blockedSlots = [], rooms = [], title, session, semester, faculty, department, schoolName = 'University of Lagos', mode, monochrome = false, groupByFaculty = false }) {
+export function exportTimetablePDF({ schedules, blockedSlots = [], rooms = [], title, session, semester, faculty, department, schoolName = 'University of Lagos', mode, monochrome = false, groupByFaculty = false, faculties = [] }) {
     if (!schedules || schedules.length === 0) return;
+
+    const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
 
     const ACTIVE_DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
     const START_H = 8;       // 08:00
@@ -105,13 +107,11 @@ export function exportTimetablePDF({ schedules, blockedSlots = [], rooms = [], t
 
     if (!groups.length) return;
 
-    const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
     const pageW = 297;
     const pageH = 210;
     const margin = 10;
     const headerH = 8;
 
-    const ROW_H = 8;
     // Height consumed by a block's grid strip header (10) + the time-header row.
     const BLOCK_HEAD_H = 10 + headerH;
     // Vertical gap between two stacked day-blocks on the same page.
@@ -126,6 +126,35 @@ export function exportTimetablePDF({ schedules, blockedSlots = [], rooms = [], t
     // For exam timetables, stack multiple dates per page when they fit instead of
     // reserving a whole page per date. Lecture timetables keep one day per page.
     const packGroups = mode === 'exam';
+
+    // Helper functions for room labeling and height calculation
+    const getRoomLabel = (room) => {
+        let roomLabel = room.name || room.id;
+        const facId = room.facultyId || room.faculty_id;
+        if (facId) {
+            const fac = faculties.find(f => f.id === facId);
+            if (fac) {
+                let facShortName = fac.name;
+                const prefix = "Faculty of";
+                if (facShortName.toLowerCase().startsWith(prefix.toLowerCase())) {
+                    facShortName = facShortName.slice(prefix.length).trim();
+                }
+                roomLabel = `${roomLabel} (${facShortName})`;
+            } else {
+                roomLabel = `${roomLabel} ()`;
+            }
+        }
+        return roomLabel;
+    };
+
+    const getRoomRowHeight = (room) => {
+        const label = getRoomLabel(room);
+        pdf.setFont('helvetica', 'bold');
+        pdf.setFontSize(8);
+        const lines = pdf.splitTextToSize(label, 42 - 4); // roomLabelW is 42
+        const lineCount = Math.max(1, lines.length);
+        return 8 + (lineCount - 1) * 4;
+    };
 
     // Structure groups into physical pages, packing day-blocks vertically.
     const pages = [];
@@ -162,7 +191,7 @@ export function exportTimetablePDF({ schedules, blockedSlots = [], rooms = [], t
         }
 
         let isFirstChunk = true;
-        const pushBlock = (chunkRoomIds, gap) => {
+        const pushBlock = (chunkRoomIds, gap, chunkHeight = 0) => {
             curPage.blocks.push({
                 label: isFirstChunk ? group.label : `${group.label} (cont.)`,
                 schedules: group.schedules,
@@ -170,7 +199,7 @@ export function exportTimetablePDF({ schedules, blockedSlots = [], rooms = [], t
                 day: group.day,
                 gap,
             });
-            curY += gap + BLOCK_HEAD_H + chunkRoomIds.length * ROW_H;
+            curY += gap + BLOCK_HEAD_H + chunkHeight;
             isFirstChunk = false;
         };
 
@@ -181,24 +210,45 @@ export function exportTimetablePDF({ schedules, blockedSlots = [], rooms = [], t
                 startNewPage();
                 gap = 0;
             }
-            pushBlock([], gap);
+            pushBlock([], gap, 0);
             return;
         }
 
         let i = 0;
         while (i < usedRoomIds.length) {
             const gap = curPage.blocks.length > 0 ? BLOCK_GAP : 0;
-            let rowsFit = Math.floor((bottomLimit - (curY + gap) - BLOCK_HEAD_H) / ROW_H);
-            if (rowsFit < 1) {
-                // No room left on this page; continue on a fresh one (force 1 row if the
-                // page is already empty, to guarantee progress).
-                if (curPage.blocks.length > 0) { startNewPage(); continue; }
-                rowsFit = 1;
+            const remainingSpace = bottomLimit - (curY + gap) - BLOCK_HEAD_H;
+            
+            if (remainingSpace < 0 && curPage.blocks.length > 0) {
+                startNewPage();
+                continue;
             }
-            const chunk = usedRoomIds.slice(i, i + rowsFit);
-            pushBlock(chunk, gap);
-            i += chunk.length;
-            // Remaining rooms for this same day continue on the next page.
+
+            let chunk = [];
+            let currentChunkHeight = 0;
+            let j = i;
+
+            while (j < usedRoomIds.length) {
+                const room = roomLookup[usedRoomIds[j]] || { id: usedRoomIds[j], name: usedRoomIds[j] };
+                const roomH = getRoomRowHeight(room);
+                if (chunk.length > 0 && currentChunkHeight + roomH > remainingSpace) {
+                    break;
+                }
+                chunk.push(usedRoomIds[j]);
+                currentChunkHeight += roomH;
+                j++;
+            }
+
+            if (chunk.length === 0 && j < usedRoomIds.length) {
+                // Force at least one room on an empty page
+                const room = roomLookup[usedRoomIds[j]] || { id: usedRoomIds[j], name: usedRoomIds[j] };
+                chunk.push(usedRoomIds[j]);
+                currentChunkHeight += getRoomRowHeight(room);
+                j++;
+            }
+
+            pushBlock(chunk, gap, currentChunkHeight);
+            i = j;
             if (i < usedRoomIds.length) startNewPage();
         }
     });
@@ -258,73 +308,191 @@ export function exportTimetablePDF({ schedules, blockedSlots = [], rooms = [], t
 
         // ---- Render each stacked day-block on this page ----
         page.blocks.forEach((block, bi) => {
-        const pageRooms = block.rooms;
-        if (bi > 0) curY += BLOCK_GAP;
+            const pageRooms = block.rooms;
+            if (bi > 0) curY += BLOCK_GAP;
 
-        // ---- Grid Strip Header ----
-        pdf.setFillColor(...accentBg);
-        pdf.roundedRect(margin, curY, pageW - margin * 2, 8, 1.5, 1.5, 'F');
-
-        pdf.setFont('helvetica', 'bold');
-        pdf.setFontSize(8);
-        pdf.setTextColor(...accentFg);
-        pdf.text(block.label, margin + 4, curY + 5.5);
-
-        curY += 10;
-
-        // ---- Grid measurements ----
-        const tableX = margin;
-        const tableW = pageW - margin * 2;
-        const roomLabelW = 34; // Slightly wider for room names
-        const slotW = (tableW - roomLabelW) / SLOTS;
-
-        // ---- Time header row ----
-        pdf.setFillColor(...accentBg);
-        pdf.rect(tableX, curY, roomLabelW, headerH, 'F');
-        pdf.setFont('helvetica', 'bold');
-        pdf.setFontSize(8);
-        pdf.setTextColor(...accentFg);
-        pdf.text('ROOM', tableX + roomLabelW / 2, curY + headerH / 2 + 1.5, { align: 'center' });
-
-        for (let h = 0; h < SLOTS; h++) {
-            const hx = tableX + roomLabelW + h * slotW;
+            // ---- Grid Strip Header ----
             pdf.setFillColor(...accentBg);
-            pdf.rect(hx, curY, slotW, headerH, 'F');
+            pdf.roundedRect(margin, curY, pageW - margin * 2, 8, 1.5, 1.5, 'F');
 
             pdf.setFont('helvetica', 'bold');
-            pdf.setFontSize(7.5);
+            pdf.setFontSize(8);
             pdf.setTextColor(...accentFg);
-            const label = `${(START_H + h).toString().padStart(2, '0')}:00`;
-            pdf.text(label, hx + slotW / 2, curY + headerH / 2 + 1.5, { align: 'center' });
+            pdf.text(block.label, margin + 4, curY + 5.5);
 
-            pdf.setDrawColor(...gridLine);
-            pdf.setLineWidth(0.15);
-            pdf.line(hx, curY, hx, curY + headerH);
-        }
+            curY += 10;
 
-        curY += headerH;
+            // ---- Grid measurements ----
+            const tableX = margin;
+            const tableW = pageW - margin * 2;
+            const roomLabelW = 42; // Slightly wider for room names with faculty names
+            const slotW = (tableW - roomLabelW) / SLOTS;
 
-        // ---- Room rows ----
-        pageRooms.forEach((room, ri) => {
-            const rowY = curY + ri * ROW_H;
-            const isAlt = ri % 2 === 1;
-
-            pdf.setFillColor(...(isAlt ? rowAlt : white));
-            pdf.rect(tableX, rowY, tableW, ROW_H, 'F');
-
-            // Room label cell
+            // ---- Time header row ----
+            pdf.setFillColor(...accentBg);
+            pdf.rect(tableX, curY, roomLabelW, headerH, 'F');
             pdf.setFont('helvetica', 'bold');
-            pdf.setFontSize(8); // Adjusted for reduced padding
-            pdf.setTextColor(...textDark);
+            pdf.setFontSize(8);
+            pdf.setTextColor(...accentFg);
+            pdf.text('ROOM', tableX + roomLabelW / 2, curY + headerH / 2 + 1.5, { align: 'center' });
 
-            let roomLabel = room.name || room.id;
-            while (pdf.getTextWidth(roomLabel) > roomLabelW - 3 && roomLabel.length > 3) {
-                roomLabel = roomLabel.slice(0, -2) + '…';
+            for (let h = 0; h < SLOTS; h++) {
+                const hx = tableX + roomLabelW + h * slotW;
+                pdf.setFillColor(...accentBg);
+                pdf.rect(hx, curY, slotW, headerH, 'F');
+
+                pdf.setFont('helvetica', 'bold');
+                pdf.setFontSize(7.5);
+                pdf.setTextColor(...accentFg);
+                const label = `${(START_H + h).toString().padStart(2, '0')}:00`;
+                pdf.text(label, hx + slotW / 2, curY + headerH / 2 + 1.5, { align: 'center' });
+
+                pdf.setDrawColor(...gridLine);
+                pdf.setLineWidth(0.15);
+                pdf.line(hx, curY, hx, curY + headerH);
             }
-            pdf.text(roomLabel, tableX + 2, rowY + ROW_H / 2 + 1.5);
 
-            // ---- Draw Blocked Slots Backgrounds ----
-            const dayBlocks = blockedSlots.filter(b => {
+            curY += headerH;
+
+            // ---- Room rows ----
+            let rowY = curY;
+            pageRooms.forEach((room, ri) => {
+                const rowH = getRoomRowHeight(room);
+                const isAlt = ri % 2 === 1;
+
+                pdf.setFillColor(...(isAlt ? rowAlt : white));
+                pdf.rect(tableX, rowY, tableW, rowH, 'F');
+
+                // Room label cell
+                pdf.setFont('helvetica', 'bold');
+                pdf.setFontSize(8); // Adjusted for reduced padding
+                pdf.setTextColor(...textDark);
+
+                const roomLabel = getRoomLabel(room);
+                const lines = pdf.splitTextToSize(roomLabel, roomLabelW - 4);
+                const lineSpacing = 3.6;
+                const startY = rowY + (rowH - (lines.length - 1) * lineSpacing) / 2 + 1.2;
+                lines.forEach((line, index) => {
+                    pdf.text(line, tableX + 2, startY + index * lineSpacing);
+                });
+
+                // ---- Draw Blocked Slots Backgrounds ----
+                const dayBlocks = blockedSlots.filter(b => {
+                    if (mode === 'exam') {
+                        if (b.type === 'HOLIDAY') return b.date === block.day;
+                        if (b.type === 'EXTRACURRICULAR') {
+                            const w = new Date(block.day).toLocaleDateString('en-US', { weekday: 'long' });
+                            return b.day_of_week === w;
+                        }
+                    }
+                    return b.day_of_week === block.day;
+                }) || [];
+                dayBlocks.forEach(b => {
+                    pdf.setFillColor(...blockedFill);
+                    if (b.type === 'HOLIDAY' || !b.start_time || !b.end_time) {
+                        pdf.rect(tableX + roomLabelW, rowY, tableW - roomLabelW, rowH, 'F');
+                    } else if (b.type === 'EXTRACURRICULAR' && b.start_time && b.end_time) {
+                        const [sH, sM] = b.start_time.split(':').map(Number);
+                        const [eH, eM] = b.end_time.split(':').map(Number);
+                        const startFrac = (sH - START_H) + sM / 60;
+                        const endFrac = (eH - START_H) + eM / 60;
+
+                        if (startFrac < SLOTS && endFrac > 0) {
+                            const drawStart = Math.max(0, startFrac);
+                            const drawEnd = Math.min(SLOTS, endFrac);
+                            const bx = tableX + roomLabelW + drawStart * slotW;
+                            const bw = (drawEnd - drawStart) * slotW;
+                            pdf.rect(bx, rowY, bw, rowH, 'F');
+                        }
+                    }
+                });
+
+                pdf.setDrawColor(...gridLine);
+                pdf.setLineWidth(0.12);
+                pdf.line(tableX, rowY + rowH, tableX + tableW, rowY + rowH);
+
+                for (let h = 0; h <= SLOTS; h++) {
+                    const lx = tableX + roomLabelW + h * slotW;
+                    pdf.line(lx, rowY, lx, rowY + rowH);
+                }
+
+                // ---- Draw events in this room ----
+                const roomSchedules = block.schedules.filter((s) =>
+                    (s.roomIds || []).includes(room.id)
+                );
+
+                // Merge courses sharing the exact same time window into a single item
+                // (e.g. several exams in one hall) so every course code is shown.
+                const itemsByWindow = new Map();
+                roomSchedules.forEach((s) => {
+                    const key = `${s.startTime}-${s.endTime}`;
+                    if (!itemsByWindow.has(key)) {
+                        itemsByWindow.set(key, { startTime: s.startTime, endTime: s.endTime, schedules: [] });
+                    }
+                    itemsByWindow.get(key).schedules.push(s);
+                });
+
+                const items = [...itemsByWindow.values()].map((it) => {
+                    const [sH, sM] = it.startTime.split(':').map(Number);
+                    const [eH, eM] = it.endTime.split(':').map(Number);
+                    return { ...it, startFrac: (sH - START_H) + sM / 60, endFrac: (eH - START_H) + eM / 60 };
+                }).filter((it) => it.startFrac >= 0 && it.startFrac < SLOTS);
+
+                // Greedy lane assignment: time-overlapping items are stacked into separate
+                // horizontal lanes within the row so none are drawn on top of another.
+                items.sort((a, b) => a.startFrac - b.startFrac);
+                const laneEnds = [];
+                items.forEach((it) => {
+                    let lane = laneEnds.findIndex((end) => end <= it.startFrac + 1e-6);
+                    if (lane === -1) { lane = laneEnds.length; laneEnds.push(it.endFrac); }
+                    else laneEnds[lane] = it.endFrac;
+                    it.lane = lane;
+                });
+                const numLanes = Math.max(1, laneEnds.length);
+
+                const evH = rowH - 1;
+                const laneH = evH / numLanes;
+
+                items.forEach((it) => {
+                    const clampedDur = Math.min(it.endFrac - it.startFrac, SLOTS - it.startFrac);
+                    const col = deptColor[it.schedules[0].departmentId || 'unassigned'] || PALETTE[0];
+                    const evX = tableX + roomLabelW + it.startFrac * slotW + 0.5;
+                    const evY = rowY + 0.5 + it.lane * laneH;
+                    const evW = clampedDur * slotW - 1;
+                    const cellH = laneH - (numLanes > 1 ? 0.4 : 0);
+
+                    // Event background
+                    pdf.setFillColor(...col.bg);
+                    pdf.roundedRect(evX, evY, evW, cellH, 0.8, 0.8, 'F');
+
+                    // Outline instead of top accent
+                    pdf.setDrawColor(...col.border);
+                    pdf.setLineWidth(0.2);
+                    pdf.roundedRect(evX, evY, evW, cellH, 0.8, 0.8, 'D');
+
+                    // Course code(s) — list every course sharing this slot
+                    const codeFontSize = Math.min(12, cellH * 1.6, evW / 5);
+                    if (codeFontSize >= 3) {
+                        pdf.setFont('helvetica', 'bold');
+                        pdf.setFontSize(codeFontSize);
+                        pdf.setTextColor(...col.text);
+
+                        let codeStr = it.schedules.map((x) => x.courseCode || x.courseId).join(', ');
+                        while (pdf.getTextWidth(codeStr) > evW - 2 && codeStr.length > 2) {
+                            codeStr = codeStr.slice(0, -2) + '…';
+                        }
+                        pdf.text(codeStr, evX + 1.5, evY + cellH / 2, { baseline: 'middle' });
+                    }
+                });
+
+                rowY += rowH;
+            });
+
+            // Outer box
+            const gridH = pageRooms.reduce((sum, r) => sum + getRoomRowHeight(r), 0);
+
+            // ---- Draw Blocked Slots Overlays (Text) ----
+            const dayBlocksText = blockedSlots.filter(b => {
                 if (mode === 'exam') {
                     if (b.type === 'HOLIDAY') return b.date === block.day;
                     if (b.type === 'EXTRACURRICULAR') {
@@ -334,155 +502,41 @@ export function exportTimetablePDF({ schedules, blockedSlots = [], rooms = [], t
                 }
                 return b.day_of_week === block.day;
             }) || [];
-            dayBlocks.forEach(b => {
-                pdf.setFillColor(...blockedFill);
-                if (b.type === 'HOLIDAY' || !b.start_time || !b.end_time) {
-                    pdf.rect(tableX + roomLabelW, rowY, tableW - roomLabelW, ROW_H, 'F');
-                } else if (b.type === 'EXTRACURRICULAR' && b.start_time && b.end_time) {
-                    const [sH, sM] = b.start_time.split(':').map(Number);
-                    const [eH, eM] = b.end_time.split(':').map(Number);
-                    const startFrac = (sH - START_H) + sM / 60;
-                    const endFrac = (eH - START_H) + eM / 60;
+            if (dayBlocksText.length > 0) {
+                pdf.setFont('helvetica', 'bolditalic');
+                pdf.setFontSize(9);
+                pdf.setTextColor(...blockedText);
 
-                    if (startFrac < SLOTS && endFrac > 0) {
-                        const drawStart = Math.max(0, startFrac);
-                        const drawEnd = Math.min(SLOTS, endFrac);
-                        const bx = tableX + roomLabelW + drawStart * slotW;
-                        const bw = (drawEnd - drawStart) * slotW;
-                        pdf.rect(bx, rowY, bw, ROW_H, 'F');
+                dayBlocksText.forEach(b => {
+                    if (b.type === 'HOLIDAY') {
+                        const tx = tableX + roomLabelW + (tableW - roomLabelW) / 2;
+                        const ty = curY + gridH / 2;
+                        pdf.text(`HOLIDAY: ${b.name.toUpperCase()}`, tx, ty, { align: 'center', angle: -35 });
+                    } else if (!b.start_time || !b.end_time) {
+                        const tx = tableX + roomLabelW + (tableW - roomLabelW) / 2;
+                        const ty = curY + gridH / 2;
+                        pdf.text(`${b.name.toUpperCase()}`, tx, ty, { align: 'center', angle: -35 });
+                    } else if (b.type === 'EXTRACURRICULAR' && b.start_time && b.end_time) {
+                        const [sH, sM] = b.start_time.split(':').map(Number);
+                        const [eH, eM] = b.end_time.split(':').map(Number);
+                        const startFrac = (sH - START_H) + sM / 60;
+                        const endFrac = (eH - START_H) + eM / 60;
+                        if (startFrac < SLOTS && endFrac > 0) {
+                            const drawStart = Math.max(0, startFrac);
+                            const drawEnd = Math.min(SLOTS, endFrac);
+                            const bMidX = tableX + roomLabelW + (drawStart + (drawEnd - drawStart) / 2) * slotW;
+                            pdf.text(`${b.name.toUpperCase()}`, bMidX, curY + gridH / 2, { align: 'center', angle: -90 });
+                        }
                     }
-                }
-            });
+                });
+            }
 
             pdf.setDrawColor(...gridLine);
-            pdf.setLineWidth(0.12);
-            pdf.line(tableX, rowY + ROW_H, tableX + tableW, rowY + ROW_H);
+            pdf.setLineWidth(0.25);
+            pdf.rect(tableX, curY, tableW, gridH);
 
-            for (let h = 0; h <= SLOTS; h++) {
-                const lx = tableX + roomLabelW + h * slotW;
-                pdf.line(lx, rowY, lx, rowY + ROW_H);
-            }
-
-            // ---- Draw events in this room ----
-            const roomSchedules = block.schedules.filter((s) =>
-                (s.roomIds || []).includes(room.id)
-            );
-
-            // Merge courses sharing the exact same time window into a single item
-            // (e.g. several exams in one hall) so every course code is shown.
-            const itemsByWindow = new Map();
-            roomSchedules.forEach((s) => {
-                const key = `${s.startTime}-${s.endTime}`;
-                if (!itemsByWindow.has(key)) {
-                    itemsByWindow.set(key, { startTime: s.startTime, endTime: s.endTime, schedules: [] });
-                }
-                itemsByWindow.get(key).schedules.push(s);
-            });
-
-            const items = [...itemsByWindow.values()].map((it) => {
-                const [sH, sM] = it.startTime.split(':').map(Number);
-                const [eH, eM] = it.endTime.split(':').map(Number);
-                return { ...it, startFrac: (sH - START_H) + sM / 60, endFrac: (eH - START_H) + eM / 60 };
-            }).filter((it) => it.startFrac >= 0 && it.startFrac < SLOTS);
-
-            // Greedy lane assignment: time-overlapping items are stacked into separate
-            // horizontal lanes within the row so none are drawn on top of another.
-            items.sort((a, b) => a.startFrac - b.startFrac);
-            const laneEnds = [];
-            items.forEach((it) => {
-                let lane = laneEnds.findIndex((end) => end <= it.startFrac + 1e-6);
-                if (lane === -1) { lane = laneEnds.length; laneEnds.push(it.endFrac); }
-                else laneEnds[lane] = it.endFrac;
-                it.lane = lane;
-            });
-            const numLanes = Math.max(1, laneEnds.length);
-
-            const evH = ROW_H - 1;
-            const laneH = evH / numLanes;
-
-            items.forEach((it) => {
-                const clampedDur = Math.min(it.endFrac - it.startFrac, SLOTS - it.startFrac);
-                const col = deptColor[it.schedules[0].departmentId || 'unassigned'] || PALETTE[0];
-                const evX = tableX + roomLabelW + it.startFrac * slotW + 0.5;
-                const evY = rowY + 0.5 + it.lane * laneH;
-                const evW = clampedDur * slotW - 1;
-                const cellH = laneH - (numLanes > 1 ? 0.4 : 0);
-
-                // Event background
-                pdf.setFillColor(...col.bg);
-                pdf.roundedRect(evX, evY, evW, cellH, 0.8, 0.8, 'F');
-
-                // Outline instead of top accent
-                pdf.setDrawColor(...col.border);
-                pdf.setLineWidth(0.2);
-                pdf.roundedRect(evX, evY, evW, cellH, 0.8, 0.8, 'D');
-
-                // Course code(s) — list every course sharing this slot
-                const codeFontSize = Math.min(12, cellH * 1.6, evW / 5);
-                if (codeFontSize >= 3) {
-                    pdf.setFont('helvetica', 'bold');
-                    pdf.setFontSize(codeFontSize);
-                    pdf.setTextColor(...col.text);
-
-                    let codeStr = it.schedules.map((x) => x.courseCode || x.courseId).join(', ');
-                    while (pdf.getTextWidth(codeStr) > evW - 2 && codeStr.length > 2) {
-                        codeStr = codeStr.slice(0, -2) + '…';
-                    }
-                    pdf.text(codeStr, evX + 1.5, evY + cellH / 2, { baseline: 'middle' });
-                }
-            });
-        });
-
-        // Outer box
-        const gridH = pageRooms.length * ROW_H;
-
-        // ---- Draw Blocked Slots Overlays (Text) ----
-        const dayBlocks = blockedSlots.filter(b => {
-            if (mode === 'exam') {
-                if (b.type === 'HOLIDAY') return b.date === block.day;
-                if (b.type === 'EXTRACURRICULAR') {
-                    const w = new Date(block.day).toLocaleDateString('en-US', { weekday: 'long' });
-                    return b.day_of_week === w;
-                }
-            }
-            return b.day_of_week === block.day;
-        }) || [];
-        if (dayBlocks.length > 0) {
-            pdf.setFont('helvetica', 'bolditalic');
-            pdf.setFontSize(9);
-            pdf.setTextColor(...blockedText);
-
-            dayBlocks.forEach(b => {
-                if (b.type === 'HOLIDAY') {
-                    const tx = tableX + roomLabelW + (tableW - roomLabelW) / 2;
-                    const ty = curY + gridH / 2;
-                    pdf.text(`HOLIDAY: ${b.name.toUpperCase()}`, tx, ty, { align: 'center', angle: -35 });
-                } else if (!b.start_time || !b.end_time) {
-                    const tx = tableX + roomLabelW + (tableW - roomLabelW) / 2;
-                    const ty = curY + gridH / 2;
-                    pdf.text(`${b.name.toUpperCase()}`, tx, ty, { align: 'center', angle: -35 });
-                } else if (b.type === 'EXTRACURRICULAR' && b.start_time && b.end_time) {
-                    const [sH, sM] = b.start_time.split(':').map(Number);
-                    const [eH, eM] = b.end_time.split(':').map(Number);
-                    const startFrac = (sH - START_H) + sM / 60;
-                    const endFrac = (eH - START_H) + eM / 60;
-                    if (startFrac < SLOTS && endFrac > 0) {
-                        const drawStart = Math.max(0, startFrac);
-                        const drawEnd = Math.min(SLOTS, endFrac);
-                        const bMidX = tableX + roomLabelW + (drawStart + (drawEnd - drawStart) / 2) * slotW;
-                        // Avoid drawing text entirely outside visible bounds
-                        pdf.text(`${b.name.toUpperCase()}`, bMidX, curY + gridH / 2, { align: 'center', angle: -90 });
-                    }
-                }
-            });
-        }
-
-        pdf.setDrawColor(...gridLine);
-        pdf.setLineWidth(0.25);
-        pdf.rect(tableX, curY, tableW, gridH);
-
-        // Advance past this block's grid so the next stacked block starts below it.
-        curY += gridH;
+            // Advance past this block's grid so the next stacked block starts below it.
+            curY += gridH;
         });
 
         // ---- Footer ----

@@ -291,6 +291,7 @@ export default function LectureTimetablePage() {
             mode: 'lecture',
             monochrome,
             groupByFaculty,
+            faculties: state.faculties,
         });
         addToast({ type: 'success', title: 'PDF Exported', message: 'Lecture timetable downloaded as PDF.' });
     };

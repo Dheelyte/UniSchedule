@@ -43,6 +43,13 @@ export default function CoursesPage() {
     // course_id -> [{ id, course_id, department_id, level }]
     const [enrollmentsByCourse, setEnrollmentsByCourse] = useState(new Map());
     const [manageCourse, setManageCourse] = useState(null);
+    const [selectedFacultyId, setSelectedFacultyId] = useState('');
+
+    const handleFacultyChange = (e) => {
+        const newFacId = e.target.value;
+        setSelectedFacultyId(newFacId);
+        setForm((prev) => ({ ...prev, departmentId: '' }));
+    };
 
     useEffect(() => {
         let mounted = true;
@@ -104,12 +111,11 @@ export default function CoursesPage() {
 
     const openAdd = () => {
         setEditing(null);
-        const allowedDepts = role === 'FACULTY_EDITOR' && user?.faculty_id
-            ? departments.filter((d) => d.facultyId === user.faculty_id)
-            : departments;
+        const defaultFacultyId = role === 'FACULTY_EDITOR' && user?.faculty_id ? user.faculty_id : '';
+        setSelectedFacultyId(defaultFacultyId);
         setForm({
             code: '', title: '', creditLoad: 3, lecturers: '',
-            departmentId: allowedDepts[0]?.id || '',
+            departmentId: '',
             scope: isGsAdmin(role) ? SCOPES.UNIVERSITY_WIDE : SCOPES.DEPARTMENTAL,
             level: isGsAdmin(role) ? null : 100,
             semester: '',
@@ -119,12 +125,15 @@ export default function CoursesPage() {
 
     const openEdit = (course) => {
         setEditing(course);
+        const dept = departments.find((d) => d.id === course.departmentId);
+        const initialFacultyId = dept ? dept.facultyId : '';
+        setSelectedFacultyId(initialFacultyId);
         setForm({
             code: course.code,
             title: course.title,
             creditLoad: course.creditLoad,
             lecturers: course.lecturers.join(', '),
-            departmentId: course.departmentId || departments[0]?.id || '',
+            departmentId: course.departmentId || '',
             scope: course.scope || SCOPES.DEPARTMENTAL,
             level: course.level ?? 100,
             semester: course.semester || '',
@@ -229,6 +238,12 @@ export default function CoursesPage() {
         ? [SCOPES.DEPARTMENTAL, SCOPES.INTERFACULTY, SCOPES.UNIVERSITY_WIDE]
         : [SCOPES.DEPARTMENTAL, SCOPES.INTERFACULTY];
     const canAddCourse = !isViewerRole(role) && (isGsAdmin(role) || role === 'SUPER_ADMIN' || role === 'FACULTY_EDITOR');
+
+    const modalFaculties = role === 'FACULTY_EDITOR' && user?.faculty_id
+        ? faculties.filter((f) => f.id === user.faculty_id)
+        : faculties;
+
+    const modalDepartments = departments.filter((d) => d.facultyId === selectedFacultyId);
 
     if (loading) return <TablePageSkeleton columns={5} rows={6} />;
 
@@ -436,40 +451,58 @@ export default function CoursesPage() {
                                     This is a central university course - no department required. Visible to all faculties.
                                 </div>
                             )}
-
-                            <div className="form-group">
-                                <label className="form-label">Course Code</label>
-                                <input
-                                    className="form-input"
-                                    value={form.code}
-                                    onChange={(e) => setForm({ ...form, code: e.target.value.replace(/\s+/g, '') })}
-                                    placeholder={getPlaceholder('code')}
-                                    autoFocus
-                                />
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                                <div className="form-group">
+                                    <label className="form-label">Course Code</label>
+                                    <input
+                                        className="form-input"
+                                        value={form.code}
+                                        onChange={(e) => setForm({ ...form, code: e.target.value.replace(/\s+/g, '') })}
+                                        placeholder={getPlaceholder('code')}
+                                        autoFocus
+                                    />
+                                </div>
+                                <div className="form-group">
+                                    <label className="form-label">Credit Load</label>
+                                    <input className="form-input" type="number" min="1" max="12" value={form.creditLoad} onChange={(e) => setForm({ ...form, creditLoad: e.target.value })} />
+                                </div>
                             </div>
                             <div className="form-group">
                                 <label className="form-label">Course Title</label>
                                 <input className="form-input" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder={getPlaceholder('title')} />
                             </div>
-                            <div style={{ display: 'grid', gridTemplateColumns: form.scope === SCOPES.UNIVERSITY_WIDE ? '1fr' : '1fr 1fr', gap: '16px' }}>
-                                <div className="form-group">
-                                    <label className="form-label">Credit Load</label>
-                                    <input className="form-input" type="number" min="1" max="12" value={form.creditLoad} onChange={(e) => setForm({ ...form, creditLoad: e.target.value })} />
-                                </div>
-                                {form.scope !== SCOPES.UNIVERSITY_WIDE && (
+
+                            {form.scope !== SCOPES.UNIVERSITY_WIDE && (
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
                                     <div className="form-group">
-                                        <label className="form-label">Department</label>
-                                        <select className="form-select form-input" value={form.departmentId} onChange={(e) => setForm({ ...form, departmentId: e.target.value })}>
-                                            {departments
-                                                .filter((d) => role === 'FACULTY_EDITOR' && user?.faculty_id ? d.facultyId === user.faculty_id : true)
-                                                .map((d) => {
-                                                    const fac = faculties.find((f) => f.id === d.facultyId);
-                                                    return <option key={d.id} value={d.id}>{d.name} ({fac?.name})</option>;
-                                                })}
+                                        <label className="form-label">Faculty</label>
+                                        <select
+                                            className="form-select form-input"
+                                            value={selectedFacultyId}
+                                            onChange={handleFacultyChange}
+                                        >
+                                            <option value="">Select a faculty...</option>
+                                            {modalFaculties.map((f) => (
+                                                <option key={f.id} value={f.id}>{f.name}</option>
+                                            ))}
                                         </select>
                                     </div>
-                                )}
-                            </div>
+                                    <div className="form-group">
+                                        <label className="form-label">Department</label>
+                                        <select
+                                            className="form-select form-input"
+                                            value={form.departmentId}
+                                            disabled={!selectedFacultyId}
+                                            onChange={(e) => setForm({ ...form, departmentId: e.target.value })}
+                                        >
+                                            <option value="">{selectedFacultyId ? "Select a department..." : "Select a faculty first"}</option>
+                                            {modalDepartments.map((d) => (
+                                                <option key={d.id} value={d.id}>{d.name}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                </div>
+                            )}
 
                             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
                                 <div className="form-group">
@@ -517,7 +550,7 @@ export default function CoursesPage() {
                                 disabled={
                                     !form.code.trim() ||
                                     !form.semester ||
-                                    (form.scope !== SCOPES.UNIVERSITY_WIDE && (form.level === null || form.level === ''))
+                                    (form.scope !== SCOPES.UNIVERSITY_WIDE && (!form.departmentId || form.level === null || form.level === ''))
                                 }
                             >
                                 {editing ? 'Save Changes' : 'Add Course'}

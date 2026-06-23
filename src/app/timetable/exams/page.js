@@ -284,6 +284,7 @@ export default function ExamTimetablePage() {
             mode: 'exam',
             monochrome,
             groupByFaculty,
+            faculties: state.faculties,
         });
         addToast({ type: 'success', title: 'PDF Exported', message: 'Exam timetable downloaded as PDF.' });
     };
