@@ -19,6 +19,10 @@ import { useConfirm } from "@/components/ConfirmModal/ConfirmContext";
 import { TimetableSkeleton } from "@/components/Skeleton/Skeleton";
 import styles from "./exams.module.css";
 
+// Toggle to bypass the conflict warning modal before PDF export.
+// Set to false to skip showing conflict warning popups.
+const SHOW_CONFLICTS_BEFORE_EXPORT = false;
+
 export default function ExamTimetablePage() {
 	const { getSchedulesWithDetails, state, dispatch } = useApp();
 	const { user } = useAuth();
@@ -248,26 +252,28 @@ export default function ExamTimetablePage() {
 	};
 
 	const handleExportInit = async (format) => {
-		const schedules = getSchedulesWithDetails.filter((s) => s.type === "exam");
-		const conflictsMap = detectAllConflicts(schedules);
-		const errorMessages = [
-			...new Set(
-				Array.from(conflictsMap.values())
-					.flat()
-					.filter((c) => c.severity === "error")
-					.map((c) => c.message),
-			),
-		];
-		if (errorMessages.length > 0) {
-			const proceed = await confirm({
-				title: "Conflicts Detected",
-				message: `This timetable has ${errorMessages.length} unresolved conflict${errorMessages.length === 1 ? "" : "s"}. You can ignore them and export anyway.`,
-				details: errorMessages,
-				confirmLabel: "Ignore & Export",
-				cancelLabel: "Cancel",
-				tone: "danger",
-			});
-			if (!proceed) return;
+		if (SHOW_CONFLICTS_BEFORE_EXPORT) {
+			const schedules = getSchedulesWithDetails.filter((s) => s.type === "exam");
+			const conflictsMap = detectAllConflicts(schedules);
+			const errorMessages = [
+				...new Set(
+					Array.from(conflictsMap.values())
+						.flat()
+						.filter((c) => c.severity === "error")
+						.map((c) => c.message),
+				),
+			];
+			if (errorMessages.length > 0) {
+				const proceed = await confirm({
+					title: "Conflicts Detected",
+					message: `This timetable has ${errorMessages.length} unresolved conflict${errorMessages.length === 1 ? "" : "s"}. You can ignore them and export anyway.`,
+					details: errorMessages,
+					confirmLabel: "Ignore & Export",
+					cancelLabel: "Cancel",
+					tone: "danger",
+				});
+				if (!proceed) return;
+			}
 		}
 		setIsExportModalOpen(true);
 	};
@@ -362,6 +368,7 @@ export default function ExamTimetablePage() {
 				session,
 				semester,
 				faculty: facultyInfo,
+				department: departmentInfo,
 				schoolName: "University of Lagos",
 				mode: "exam",
 				monochrome,
@@ -393,6 +400,7 @@ export default function ExamTimetablePage() {
 			session,
 			semester,
 			faculty: facultyInfo,
+			department: departmentInfo,
 			schoolName: "University of Lagos",
 			mode: "exam",
 			monochrome,
