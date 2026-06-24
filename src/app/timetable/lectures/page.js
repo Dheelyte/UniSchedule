@@ -228,7 +228,7 @@ export default function LectureTimetablePage() {
         setIsExportModalOpen(true);
     };
 
-    const handleExportConfirm = async ({ session, semester, facultyId, departmentId, format = 'pdf', monochrome = false }) => {
+    const handleExportConfirm = async ({ session, semester, facultyId, departmentId, format = 'pdf', monochrome = false, paperSize = 'a4' }) => {
         setIsExportModalOpen(false);
         const deptIdNum = departmentId && departmentId !== 'ALL' ? Number(departmentId) : null;
         const allLectures = getSchedulesWithDetails.filter((s) => s.type === 'lecture');
@@ -283,6 +283,7 @@ export default function LectureTimetablePage() {
             schedules: filteredSchedules,
             blockedSlots,
             rooms: state.rooms,
+            faculties: state.faculties,
             title: 'Lecture Timetable',
             session,
             semester,
@@ -291,9 +292,11 @@ export default function LectureTimetablePage() {
             mode: 'lecture',
             monochrome,
             groupByFaculty,
-            faculties: state.faculties,
+            paperSize,
+            structured: paperSize === 'a3',
+            isLocked,
         });
-        addToast({ type: 'success', title: 'PDF Exported', message: 'Lecture timetable downloaded as PDF.' });
+        addToast({ type: 'success', title: 'PDF Exported', message: `Lecture timetable downloaded as PDF (${paperSize.toUpperCase()}).` });
     };
 
     if (selectedSemesterId === null) return <TimetableSkeleton />;
