@@ -39,18 +39,6 @@ export default function TermsPage() {
     const currentSession = sessions.find(s => s.is_current);
     const currentSemester = currentSession ? (semestersMap[currentSession.id] || []).find(s => s.is_current) : null;
 
-    useEffect(() => {
-        if (!authLoading) {
-            if (!user) { router.push('/login'); return; }
-            if (user.role !== 'SUPER_ADMIN') {
-                router.push('/');
-                addToast({ type: 'error', title: 'Unauthorized', message: 'Only Super Admins can manage terms.' });
-                return;
-            }
-            fetchInitialData();
-        }
-    }, [user, authLoading]);
-
     const fetchInitialData = async () => {
         setLoading(true);
         try {
@@ -74,6 +62,19 @@ export default function TermsPage() {
         }
         setLoading(false);
     };
+
+    useEffect(() => {
+        if (!authLoading) {
+            if (!user) { router.push('/login'); return; }
+            if (user.role !== 'SUPER_ADMIN') {
+                router.push('/');
+                addToast({ type: 'error', title: 'Unauthorized', message: 'Only Super Admins can manage terms.' });
+                return;
+            }
+            // eslint-disable-next-line react-hooks/set-state-in-effect
+            fetchInitialData();
+        }
+    }, [user, authLoading]);
 
     const fetchSemesters = async (sessId) => {
         if (semestersMap[sessId]) return;
