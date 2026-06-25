@@ -22,6 +22,15 @@ export function exportTimetablePDF({
 }) {
 	if (!schedules || schedules.length === 0) return;
 
+	// Helper: get Monday of date string
+	const getMondayOfDate = (dateStr) => {
+		const d = new Date(dateStr);
+		const day = d.getDay();
+		const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+		const monday = new Date(d.setDate(diff));
+		return monday.toISOString().slice(0, 10);
+	};
+
 	// Helper: format room label with brackets and faculty name (common helper)
 	const getRoomLabel = (room) => {
 		let roomLabel = room.name || room.id;
@@ -95,6 +104,29 @@ export function exportTimetablePDF({
 	};
 
 	// Helper: generate export file name dynamically based on chosen scope/filters
+	const getTimetableTypeLabel = (titleVal, facultyVal, departmentVal) => {
+		const isAllFaculty = !facultyVal || facultyVal.toLowerCase() === "all faculties" || facultyVal.toLowerCase() === "all";
+		const isAllDept = !departmentVal || departmentVal.toLowerCase() === "all departments" || departmentVal.toLowerCase() === "all";
+		const modeStr = titleVal.toLowerCase().includes("exam") ? "EXAMINATION" : "LECTURE";
+
+		if (isAllFaculty && isAllDept) {
+			return `GENERAL UNIVERSITY ${modeStr} TIMETABLE`;
+		} else if (!isAllFaculty && isAllDept) {
+			return `${facultyVal.toUpperCase()} ${modeStr} TIMETABLE`;
+		} else {
+			return `${departmentVal.toUpperCase()} ${modeStr} TIMETABLE`;
+		}
+	};
+
+	const getWeekNumberForDate = (dateStr, minDateStr) => {
+		if (!dateStr || !minDateStr) return 1;
+		const d = new Date(dateStr);
+		const minD = new Date(getMondayOfDate(minDateStr));
+		const diffTime = Math.abs(d - minD);
+		const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+		return Math.floor(diffDays / 7) + 1;
+	};
+
 	const getExportFileName = (titleVal, sessionVal, semesterVal, facultyVal, departmentVal, paperSizeVal) => {
 		let baseName = "";
 		
@@ -241,7 +273,7 @@ export function exportTimetablePDF({
 
 		// Helper: draw centered course code list text inside grid cells (A3)
 		function drawCenteredText(pdf, lines, x, y, w, h) {
-			let fs = 7.5;
+			let fs = 9.0;
 			let lineHeight = fs * 0.3528 * 1.3;
 			let totalH = lines.length * lineHeight;
 			while (totalH > h - 1.5 && fs > 5) {
@@ -258,14 +290,7 @@ export function exportTimetablePDF({
 			});
 		}
 
-		// Helper: get Monday of date string
-		function getMondayOfDate(dateStr) {
-			const d = new Date(dateStr);
-			const day = d.getDay();
-			const diff = d.getDate() - day + (day === 0 ? -6 : 1);
-			const monday = new Date(d.setDate(diff));
-			return monday.toISOString().slice(0, 10);
-		}
+		// getMondayOfDate moved to shared top-level helper
 
 		// 1. Gather all unique dates (or legacy days) from schedules
 		const uniqueDates = [];
@@ -481,16 +506,24 @@ export function exportTimetablePDF({
 				const sub = [`${session} Session`, semester, faculty, department].filter(Boolean).join("   ·   ");
 				pdfA3.text(sub, m + logoSize + 4, y + 12);
 
+				// WEEK label at the center
+				const weekLabel = `WEEK ${dayChunkIdx + 1}`;
 				pdfA3.setFont("helvetica", "bold");
 				pdfA3.setFontSize(14);
 				pdfA3.setTextColor(15, 23, 42);
-				pdfA3.text((title || "TIMETABLE").toUpperCase(), a3W - m, y + 5, { align: "right" });
+				pdfA3.text(weekLabel, a3W / 2, y + 8, { align: "center" });
+
+				const timetableTitle = getTimetableTypeLabel(title, faculty, department);
+				pdfA3.setFont("helvetica", "bold");
+				pdfA3.setFontSize(14);
+				pdfA3.setTextColor(15, 23, 42);
+				pdfA3.text(timetableTitle.toUpperCase(), a3W - m, y + 5, { align: "right" });
 
 				const docStatus = isLocked ? "FINAL TIMETABLE" : "DRAFT TIMETABLE";
 				pdfA3.setFontSize(10);
 				pdfA3.setFont("helvetica", "bold");
 				pdfA3.setTextColor(...(isLocked ? [16, 185, 129] : [245, 158, 11]));
-				pdfA3.text(docStatus, a3W - m, y + 12, { align: "right" });
+				pdfA3.text(docStatus, pdfA3.internal.pageSize.getWidth() - m, y + 12, { align: "right" });
 
 				// Render Grid Table
 				const tableStartY = 34;
@@ -842,12 +875,12 @@ export function exportTimetablePDF({
 
 	const startNewPage = () => {
 		curPage = {
-			hasMainHeader: globalPageIsFirst,
+			hasMainHeader: true,
 			blocks: [],
 			faculty: curFaculty,
 		};
 		pages.push(curPage);
-		curY = (globalPageIsFirst ? mainHeaderEndY : margin) + FACULTY_BAND_H;
+		curY = (margin + 16) + FACULTY_BAND_H;
 		globalPageIsFirst = false;
 	};
 
@@ -940,43 +973,53 @@ export function exportTimetablePDF({
 		pdf.setFillColor(...pageBg);
 		pdf.rect(0, 0, pageW, pageH, "F");
 
-		let curY = margin;
+		let y = margin;
+		const logoSize = 12;
+		try {
+			pdf.addImage(unilagLogoBase64, "PNG", margin, y, logoSize, logoSize);
+		} catch (e) {}
 
-		if (page.hasMainHeader) {
-			const logoSize = 18;
-			pdf.addImage(unilagLogoBase64, "PNG", pageW / 2 - logoSize / 2, curY, logoSize, logoSize);
-			curY += logoSize + 4;
+		pdf.setFont("helvetica", "bold");
+		pdf.setFontSize(12);
+		pdf.setTextColor(...textDark);
+		pdf.text((schoolName || "University of Lagos").toUpperCase(), margin + logoSize + 3, y + 4.5);
 
-			pdf.setFont("helvetica", "bold");
-			pdf.setFontSize(14);
-			pdf.setTextColor(...textDark);
-			pdf.text((schoolName || "").toUpperCase(), pageW / 2, curY + 6, {
-				align: "center",
-			});
+		pdf.setFontSize(8.5);
+		pdf.setFont("helvetica", "normal");
+		pdf.setTextColor(...textMid);
+		const sub = [`${session} Session`, semester, faculty, department].filter(Boolean).join("   ·   ");
+		pdf.text(sub, margin + logoSize + 3, y + 10);
 
-			pdf.setFont("helvetica", "normal");
-			pdf.setFontSize(9);
-			pdf.setTextColor(...textMid);
-			const metaText = [
-				session ? `${session} Session` : null,
-				semester,
-				faculty,
-				department,
-			]
-				.filter(Boolean)
-				.join("   ·   ");
-			if (metaText) {
-				pdf.text(metaText, pageW / 2, curY + 12, { align: "center" });
+		// Week label in the center
+		pdf.setFont("helvetica", "bold");
+		pdf.setFontSize(12);
+		pdf.setTextColor(...textDark);
+		
+		let pageWeekNum = 1;
+		if (mode === "exam" && page.blocks.length > 0 && page.blocks[0].day && page.blocks[0].day.includes("-")) {
+			const examDates = schedules.map(s => s.examDate).filter(d => d && d !== "TBD" && !d.startsWith("legacy:") && d.includes("-"));
+			if (examDates.length > 0) {
+				const sortedDates = [...new Set(examDates)].sort();
+				pageWeekNum = getWeekNumberForDate(page.blocks[0].day, sortedDates[0]);
 			}
-
-			pdf.setFont("helvetica", "bold");
-			pdf.setFontSize(11);
-			pdf.text((title || "").toUpperCase(), pageW / 2, curY + 19, {
-				align: "center",
-			});
-
-			curY += 26;
 		}
+		const weekLabel = `WEEK ${pageWeekNum}`;
+		pdf.text(weekLabel, pageW / 2, y + 6, { align: "center" });
+
+		// Timetable title on the right
+		const timetableTitle = getTimetableTypeLabel(title, faculty, department);
+		pdf.setFont("helvetica", "bold");
+		pdf.setFontSize(11);
+		pdf.setTextColor(...textDark);
+		pdf.text(timetableTitle.toUpperCase(), pageW - margin, y + 4.5, { align: "right" });
+
+		const docStatus = isLocked ? "FINAL TIMETABLE" : "DRAFT TIMETABLE";
+		pdf.setFontSize(8.5);
+		pdf.setFont("helvetica", "bold");
+		pdf.setTextColor(...(isLocked ? [16, 185, 129] : [245, 158, 11]));
+		pdf.text(docStatus, pageW - margin, y + 10, { align: "right" });
+
+		let curY = margin + 16;
 
 		if (groupByFaculty && page.faculty) {
 			pdf.setFont("helvetica", "bold");
@@ -1184,14 +1227,38 @@ export function exportTimetablePDF({
 						courseCodes.push(...parts);
 					});
 
-					let codeFontSize = Math.min(7.5, cellH * 1.6, evW / 5);
+					let codeFontSize = 9.0;
+					let lineHeight = codeFontSize * 0.3528 * 1.25;
+					let totalHeight = courseCodes.length * lineHeight;
+					
+					// Dynamic font size adjustment for both height and width constraints
+					while (codeFontSize > 5) {
+						pdf.setFontSize(codeFontSize);
+						let fitsWidth = true;
+						courseCodes.forEach(line => {
+							if (pdf.getTextWidth(line) > evW - 1.2) {
+								fitsWidth = false;
+							}
+						});
+						
+						const tempLineHeight = codeFontSize * 0.3528 * 1.25;
+						const tempTotalHeight = courseCodes.length * tempLineHeight;
+						const fitsHeight = tempTotalHeight <= cellH - 1.2;
+						
+						if (fitsWidth && fitsHeight) {
+							break;
+						}
+						codeFontSize -= 0.5;
+					}
+					
+					lineHeight = codeFontSize * 0.3528 * 1.25;
+					totalHeight = courseCodes.length * lineHeight;
+
 					if (codeFontSize >= 3) {
 						pdf.setFont("helvetica", "bold");
 						pdf.setFontSize(codeFontSize);
 						pdf.setTextColor(...col.text);
 
-						const lineHeight = codeFontSize * 0.3528 * 1.25;
-						const totalHeight = courseCodes.length * lineHeight;
 						const startY = evY + cellH / 2 - totalHeight / 2 + (codeFontSize * 0.3528 * 0.85);
 
 						courseCodes.forEach((line, index) => {
