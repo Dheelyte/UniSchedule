@@ -16,7 +16,7 @@ export default function ExportModal({
 	const [semester, setSemester] = useState("1st Semester");
 	const [facultyId, setFacultyId] = useState("ALL");
 	const [departmentId, setDepartmentId] = useState("ALL");
-	const [paperSize, setPaperSize] = useState("a4");
+	const [paperSize, setPaperSize] = useState("a3");
 	const [monochrome, setMonochrome] = useState(true);
 
 	useEffect(() => {
@@ -28,7 +28,7 @@ export default function ExportModal({
 			setSemester("1st Semester");
 			setFacultyId("ALL");
 			setDepartmentId("ALL");
-			setPaperSize("a4");
+			setPaperSize("a3");
 			setMonochrome(true);
 			/* eslint-enable react-hooks/set-state-in-effect */
 		}
@@ -164,7 +164,7 @@ export default function ExportModal({
 								checked={!monochrome}
 								onChange={(e) => setMonochrome(!e.target.checked)}
 							/>
-							Include colors — PDF only (default is black &amp; white)
+							Include colors - PDF only (default is black &amp; white)
 						</label>
 					</div>
 
