@@ -11,6 +11,6 @@ async def export_timetable(
     semester_id: int,
     faculty_id: str | None = None,
     service: ExportService = Depends(),
-    user: dict = Depends(RequireRole([RoleEnum.SUPER_ADMIN.value, RoleEnum.FACULTY_EDITOR.value]))
+    user: dict = Depends(RequireRole([RoleEnum.SUPER_ADMIN.value, RoleEnum.FACULTY_EDITOR.value, RoleEnum.FACULTY_VIEWER.value]))
 ):
     return await service.generate_timetable_pdf(user, session_id, semester_id, faculty_id)

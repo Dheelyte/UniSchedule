@@ -16,10 +16,15 @@ from sqlalchemy.exc import IntegrityError
 
 
 def _has_global_scope(user: dict) -> bool:
+    return user.get("role") in (RoleEnum.SUPER_ADMIN.value, RoleEnum.SUPER_VIEWER.value, RoleEnum.GS_ADMIN.value)
+
+
+def _has_global_read_scope(user: dict) -> bool:
     return user.get("role") in (
         RoleEnum.SUPER_ADMIN.value,
         RoleEnum.SUPER_VIEWER.value,
         RoleEnum.GS_ADMIN.value,
+        RoleEnum.FACULTY_EDITOR.value,
         RoleEnum.FACULTY_VIEWER.value,
     )
 
@@ -326,7 +331,7 @@ class TimetableService:
         return created
 
     async def get_courses(self, current_user: dict) -> list[Course]:
-        faculty_id = None if _has_global_scope(current_user) else current_user.get('faculty_id')
+        faculty_id = None if _has_global_read_scope(current_user) else current_user.get('faculty_id')
         return await self.repo.get_courses(faculty_id=faculty_id)
 
     async def update_course(self, id: int, data: CourseUpdate, current_user: dict) -> Course:
@@ -608,7 +613,7 @@ class TimetableService:
         return created
 
     async def get_schedule_items(self, current_user: dict, semester_id: int | None = None) -> list[ScheduleItem]:
-        faculty_id = None if _has_global_scope(current_user) else current_user.get('faculty_id')
+        faculty_id = None if _has_global_read_scope(current_user) else current_user.get('faculty_id')
         return await self.repo.get_schedule_items(semester_id=semester_id, faculty_id=faculty_id)
         
     async def update_schedule_item(self, id: int, data: ScheduleItemUpdate, current_user: dict) -> ScheduleItem:
