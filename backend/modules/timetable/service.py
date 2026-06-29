@@ -16,7 +16,12 @@ from sqlalchemy.exc import IntegrityError
 
 
 def _has_global_scope(user: dict) -> bool:
-    return user.get("role") in (RoleEnum.SUPER_ADMIN.value, RoleEnum.SUPER_VIEWER.value, RoleEnum.GS_ADMIN.value)
+    return user.get("role") in (
+        RoleEnum.SUPER_ADMIN.value,
+        RoleEnum.SUPER_VIEWER.value,
+        RoleEnum.GS_ADMIN.value,
+        RoleEnum.FACULTY_VIEWER.value,
+    )
 
 
 def _is_gs_admin(user: dict) -> bool:

@@ -95,12 +95,12 @@ class CourseCreate(BaseModel):
 
 class CourseResponse(BaseModel):
     id: int
-    code: str
-    title: str
-    credit_load: int
-    lecturers: list[str]
-    department_id: int | None
-    scope: str
+    code: str | None = None
+    title: str | None = None
+    credit_load: int | None = None
+    lecturers: list[str] | None = None
+    department_id: int | None = None
+    scope: str | None = None
     level: int | None = None
     semester: str | None = None
     model_config = ConfigDict(from_attributes=True)
