@@ -137,6 +137,24 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
         return !!user?.faculty_id && schedule.facultyId === user.faculty_id;
     }, [user?.role, user?.faculty_id]);
 
+    const getRoomDisplayName = useCallback((room) => {
+        if (!room) return '';
+        let roomLabel = room.name || room.id;
+        const facId = room.faculty_id || room.facultyId;
+        if (facId) {
+            const fac = faculties.find(f => String(f.id) === String(facId));
+            if (fac) {
+                let facShortName = fac.name;
+                const prefix = "Faculty of";
+                if (facShortName.toLowerCase().startsWith(prefix.toLowerCase())) {
+                    facShortName = facShortName.slice(prefix.length).trim();
+                }
+                return `${roomLabel} (${facShortName})`;
+            }
+        }
+        return roomLabel;
+    }, [faculties]);
+
     const activeDays = mode === 'exam' ? EXAM_DAYS : DAYS;
 
     // Filters
@@ -913,7 +931,7 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
                             <div key={room.id} className={styles.roomRow}>
                                 {/* Room label */}
                                 <div className={styles.roomLabel}>
-                                    <span className={styles.roomName}>{room.name}</span>
+                                    <span className={styles.roomName}>{getRoomDisplayName(room)}</span>
                                     <span className={styles.roomCapacity}>Capacity: {room.capacity}</span>
                                 </div>
 
@@ -1108,7 +1126,7 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
                                     {modalForm.roomIds.map((rid, idx) => (
                                         <div key={idx} className={styles.locationRow}>
                                             <SearchableSelect
-                                                options={getAvailableRooms(idx).map(r => ({ value: r.id, label: `${r.name} (Cap: ${r.capacity})` }))}
+                                                options={getAvailableRooms(idx).map(r => ({ value: r.id, label: `${getRoomDisplayName(r)} (Cap: ${r.capacity})` }))}
                                                 value={rid}
                                                 onChange={(val) => updateRoom(idx, val)}
                                                 placeholder="Select a room..."
