@@ -13,10 +13,6 @@ class ExportService:
         self.timetable_repo = timetable_repo
 
     async def generate_timetable_pdf(self, current_user: dict, session_id: int, semester_id: int, faculty_id: str | None = None) -> Response:
-        if current_user.get("role") == RoleEnum.FACULTY_EDITOR.value:
-            if faculty_id is None or current_user.get("faculty_id") != faculty_id:
-                raise HTTPException(status_code=403, detail="Not authorized to export data outside your assigned faculty.")
-        
         # In a complete implementation, this performs a multi-join across `self.timetable_repo` using `session_id`, `semester_id`, and `faculty_id`.
         # Here we translate the logic out to a layout grid.
         
