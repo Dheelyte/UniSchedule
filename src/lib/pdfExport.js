@@ -276,7 +276,19 @@ export function exportTimetablePDF({
 			let fs = 9.0;
 			let lineHeight = fs * 0.3528 * 1.3;
 			let totalH = lines.length * lineHeight;
-			while (totalH > h - 1.5 && fs > 5) {
+			
+			const exceedsWidth = () => {
+				pdf.setFontSize(fs);
+				pdf.setFont("helvetica", "bold");
+				for (let line of lines) {
+					if (pdf.getTextWidth(line) > w - 1.5) {
+						return true;
+					}
+				}
+				return false;
+			};
+
+			while ((totalH > h - 1.5 || exceedsWidth()) && fs > 4.5) {
 				fs -= 0.5;
 				lineHeight = fs * 0.3528 * 1.3;
 				totalH = lines.length * lineHeight;
@@ -391,18 +403,51 @@ export function exportTimetablePDF({
 			roomSchedules.forEach(si => {
 				const dayOrDate = si.examDate || si.day || "legacy";
 				const startMin = timeToMinutes(si.startTime);
-				const slotIdx = startMin < 12 * 60 ? 0 : startMin >= 12 * 60 && startMin < 15 * 60 ? 1 : 2;
-				const key = `${dayOrDate}-${slotIdx}`;
-				if (!slotGroups[key]) slotGroups[key] = 0;
-				
-				const code = si.courseCode || si.courseId || "N/A";
-				const parts = code.split(/[,/]+/).map(p => p.trim()).filter(Boolean);
-				slotGroups[key] += parts.length;
+				const endMin = timeToMinutes(si.endTime);
+				for (let slotIdx = 0; slotIdx < 3; slotIdx++) {
+					const slotStartMin = (9 + slotIdx * 3) * 60;
+					const slotEndMin = slotStartMin + 3 * 60;
+					if (startMin < slotEndMin && slotStartMin < endMin) {
+						const key = `${dayOrDate}-${slotIdx}`;
+						if (!slotGroups[key]) slotGroups[key] = [];
+						slotGroups[key].push(si);
+					}
+				}
 			});
 
-			let maxCodesInAnySlot = 1;
-			Object.values(slotGroups).forEach(count => {
-				maxCodesInAnySlot = Math.max(maxCodesInAnySlot, count);
+			let maxLinesInAnySlot = 1;
+			Object.keys(slotGroups).forEach(key => {
+				const sittings = slotGroups[key];
+				const sorted = [...sittings].sort((a, b) => {
+					const startA = timeToMinutes(a.startTime);
+					const startB = timeToMinutes(b.startTime);
+					if (startA !== startB) return startA - startB;
+					return timeToMinutes(a.endTime) - timeToMinutes(b.endTime);
+				});
+				const lanes = [];
+				sorted.forEach(si => {
+					const startMin = timeToMinutes(si.startTime);
+					const endMin = timeToMinutes(si.endTime);
+					let placed = false;
+					for (let i = 0; i < lanes.length; i++) {
+						const hasOverlap = lanes[i].some(item => {
+							const itemStart = timeToMinutes(item.startTime);
+							const itemEnd = timeToMinutes(item.endTime);
+							return startMin < itemEnd && itemStart < endMin;
+						});
+						if (!hasOverlap) {
+							lanes[i].push(si);
+							placed = true;
+							break;
+						}
+					}
+					if (!placed) {
+						lanes.push([si]);
+					}
+				});
+				// Since course codes are displayed on a single line,
+				// each lane takes exactly 1 line height.
+				maxLinesInAnySlot = Math.max(maxLinesInAnySlot, lanes.length);
 			});
 
 			const label = getRoomLabel(room);
@@ -412,7 +457,7 @@ export function exportTimetablePDF({
 			const labelLinesCount = Math.max(1, roomLines.length);
 			const labelH = 8 + (labelLinesCount - 1) * 3.6;
 
-			const eventsH = maxCodesInAnySlot * 3.6 + 3.0;
+			const eventsH = maxLinesInAnySlot * 6.0 + 3.0;
 			return Math.max(12, labelH, eventsH);
 		};
 
@@ -475,6 +520,23 @@ export function exportTimetablePDF({
 				});
 
 				if (!hasSchedulesInChunk) return;
+				// Skip printing the page if there are no schedules for the rooms and days on this page
+				const pageRoomIds = rowChunk.map(r => r.room.id);
+				const hasAnySchedules = schedules.some(si => {
+					const rids = si.roomIds || (si.roomId ? [si.roomId] : []);
+					const matchesRoom = rids.some(rid => pageRoomIds.includes(rid));
+					if (!matchesRoom) return false;
+
+					if (mode === "exam") {
+						return dayChunk.includes(si.examDate);
+					} else {
+						return dayChunk.includes(si.day);
+					}
+				});
+
+				if (!hasAnySchedules) {
+					return;
+				}
 
 				if (pageIdx > 0) {
 					pdfA3.addPage();
@@ -706,23 +768,133 @@ export function exportTimetablePDF({
 								}
 
 								const startMin = timeToMinutes(si.startTime);
-								if (sIdx === 0) return startMin < 12 * 60;
-								if (sIdx === 1) return startMin >= 12 * 60 && startMin < 15 * 60;
-								return startMin >= 15 * 60;
+								const endMin = timeToMinutes(si.endTime);
+								const slotStartMin = (9 + sIdx * 3) * 60;
+								const slotEndMin = slotStartMin + 3 * 60;
+								return startMin < slotEndMin && slotStartMin < endMin;
 							});
 
 							pdfA3.setFillColor(255, 255, 255);
 							pdfA3.rect(cellX, rowY, slotWidth, rowH, "F");
 							pdfA3.rect(cellX, rowY, slotWidth, rowH, "D");
 
+							// Draw two very faint vertical guidelines to divide the 3-hour timeslot into 1-hour intervals
+							pdfA3.setDrawColor(226, 232, 240); // slate-200 (very faint)
+							pdfA3.setLineWidth(0.08);
+							pdfA3.line(cellX + slotWidth / 3, rowY, cellX + slotWidth / 3, rowY + rowH);
+							pdfA3.line(cellX + 2 * slotWidth / 3, rowY, cellX + 2 * slotWidth / 3, rowY + rowH);
+							pdfA3.setDrawColor(71, 85, 105); // restore default grid line color
+							pdfA3.setLineWidth(0.2); // restore default line width
+
 							if (cellSchedules.length > 0) {
-								const courseCodes = [];
-								cellSchedules.forEach(si => {
-									const code = si.courseCode || si.courseId || "N/A";
-									const parts = code.split(/[,/]+/).map(p => p.trim()).filter(Boolean);
-									courseCodes.push(...parts);
+								const sortedSchedules = [...cellSchedules].sort((a, b) => {
+									const startA = timeToMinutes(a.startTime);
+									const startB = timeToMinutes(b.startTime);
+									if (startA !== startB) return startA - startB;
+									return timeToMinutes(a.endTime) - timeToMinutes(b.endTime);
 								});
-								drawCenteredText(pdfA3, courseCodes, cellX, rowY, slotWidth, rowH);
+
+								const lanes = [];
+								sortedSchedules.forEach(si => {
+									const startMin = timeToMinutes(si.startTime);
+									const endMin = timeToMinutes(si.endTime);
+									let placed = false;
+									for (let i = 0; i < lanes.length; i++) {
+										const hasOverlap = lanes[i].some(item => {
+											const itemStart = timeToMinutes(item.startTime);
+											const itemEnd = timeToMinutes(item.endTime);
+											return startMin < itemEnd && itemStart < endMin;
+										});
+										if (!hasOverlap) {
+											lanes[i].push(si);
+											placed = true;
+											break;
+										}
+									}
+									if (!placed) {
+										lanes.push([si]);
+									}
+								});
+
+								const numLanes = lanes.length;
+								const laneH = rowH / numLanes;
+								const slotStartHour = 9 + sIdx * 3;
+
+								lanes.forEach((laneSchedules, laneIdx) => {
+									const laneY = rowY + laneIdx * laneH;
+									laneSchedules.forEach(si => {
+										const startHour = timeToMinutes(si.startTime) / 60.0;
+										const endHour = timeToMinutes(si.endTime) / 60.0;
+
+										let relStart = (startHour - slotStartHour) / 3.0;
+										let relEnd = (endHour - slotStartHour) / 3.0;
+										relStart = Math.max(0.0, Math.min(1.0, relStart));
+										relEnd = Math.max(0.0, Math.min(1.0, relEnd));
+
+										const itemX = cellX + relStart * slotWidth;
+										const itemW = (relEnd - relStart) * slotWidth;
+										const code = si.courseCode || si.courseId || "N/A";
+										const cleanCode = code.split(/[,/]+/).map(p => p.trim()).filter(Boolean).join(" / ");
+										const parts = [cleanCode];
+
+										// Custom inline drawing with card color mapping
+										let fs = 7.8;
+										let lineHeight = fs * 0.3528 * 1.3;
+										let totalH = parts.length * lineHeight;
+
+										// Compute card height and vertical center alignment in the lane
+										const standardCardH = 5.2;
+										let cardH = Math.min(laneH - 0.8, standardCardH);
+										
+										// If there are multiple lines that require more space, expand if laneH permits
+										const requiredH = totalH + 1.2;
+										if (requiredH > cardH && requiredH <= laneH - 0.6) {
+											cardH = requiredH;
+										}
+
+										// Center the card vertically inside the lane bounds
+										const cardY = laneY + (laneH - cardH) / 2;
+
+										// Draw rounded rectangle card with light background and outline
+										const isMono = monochrome || false;
+										const bgCol = isMono ? [249, 250, 251] : [239, 246, 255];
+										const borderCol = isMono ? [209, 213, 219] : [191, 219, 254];
+										const textCol = isMono ? [75, 85, 99] : [29, 78, 216];
+
+										pdfA3.setFillColor(...bgCol);
+										pdfA3.roundedRect(itemX + 0.6, cardY, itemW - 1.2, cardH, 0.6, 0.6, "F");
+
+										pdfA3.setDrawColor(...borderCol);
+										pdfA3.setLineWidth(0.12);
+										pdfA3.roundedRect(itemX + 0.6, cardY, itemW - 1.2, cardH, 0.6, 0.6, "D");
+
+										const exceedsWidth = () => {
+											pdfA3.setFontSize(fs);
+											pdfA3.setFont("helvetica", "bold");
+											for (let line of parts) {
+												if (pdfA3.getTextWidth(line) > itemW - 1.5) {
+													return true;
+												}
+											}
+											return false;
+										};
+
+										while ((totalH > cardH - 1.0 || exceedsWidth()) && fs > 4.5) {
+											fs -= 0.5;
+											lineHeight = fs * 0.3528 * 1.3;
+											totalH = parts.length * lineHeight;
+										}
+
+										pdfA3.setFontSize(fs);
+										pdfA3.setFont("helvetica", "bold");
+										pdfA3.setTextColor(...textCol);
+										
+										const startY = cardY + cardH / 2 - totalH / 2 + (fs * 0.3528 * 0.85);
+										parts.forEach((line, idx) => {
+											pdfA3.text(line, itemX + itemW / 2, startY + idx * lineHeight, { align: "center" });
+										});
+									});
+								});
 							}
 						});
 					});
