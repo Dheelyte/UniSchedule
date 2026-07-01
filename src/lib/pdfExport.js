@@ -528,6 +528,23 @@ export function exportTimetablePDF({
 				});
 
 				if (!hasSchedulesInChunk) return;
+				// Skip printing the page if there are no schedules for the rooms and days on this page
+				const pageRoomIds = rowChunk.map(r => r.room.id);
+				const hasAnySchedules = schedules.some(si => {
+					const rids = si.roomIds || (si.roomId ? [si.roomId] : []);
+					const matchesRoom = rids.some(rid => pageRoomIds.includes(rid));
+					if (!matchesRoom) return false;
+
+					if (mode === "exam") {
+						return dayChunk.includes(si.examDate);
+					} else {
+						return dayChunk.includes(si.day);
+					}
+				});
+
+				if (!hasAnySchedules) {
+					return;
+				}
 
 				if (pageIdx > 0) {
 					pdfA3.addPage();
