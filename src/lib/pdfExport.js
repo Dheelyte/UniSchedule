@@ -445,17 +445,9 @@ export function exportTimetablePDF({
 						lanes.push([si]);
 					}
 				});
-				let totalLines = 0;
-				lanes.forEach(laneSchedules => {
-					let maxLaneLines = 1;
-					laneSchedules.forEach(si => {
-						const code = si.courseCode || si.courseId || "N/A";
-						const parts = code.split(/[,/]+/).map(p => p.trim()).filter(Boolean);
-						maxLaneLines = Math.max(maxLaneLines, parts.length);
-					});
-					totalLines += maxLaneLines;
-				});
-				maxLinesInAnySlot = Math.max(maxLinesInAnySlot, totalLines);
+				// Since course codes are displayed on a single line,
+				// each lane takes exactly 1 line height.
+				maxLinesInAnySlot = Math.max(maxLinesInAnySlot, lanes.length);
 			});
 
 			const label = getRoomLabel(room);
@@ -465,7 +457,7 @@ export function exportTimetablePDF({
 			const labelLinesCount = Math.max(1, roomLines.length);
 			const labelH = 8 + (labelLinesCount - 1) * 3.6;
 
-			const eventsH = maxLinesInAnySlot * 3.6 + 3.0;
+			const eventsH = maxLinesInAnySlot * 6.0 + 3.0;
 			return Math.max(12, labelH, eventsH);
 		};
 
@@ -841,6 +833,27 @@ export function exportTimetablePDF({
 
 										const itemX = cellX + relStart * slotWidth;
 										const itemW = (relEnd - relStart) * slotWidth;
+										const code = si.courseCode || si.courseId || "N/A";
+										const cleanCode = code.split(/[,/]+/).map(p => p.trim()).filter(Boolean).join(" / ");
+										const parts = [cleanCode];
+
+										// Custom inline drawing with card color mapping
+										let fs = 7.8;
+										let lineHeight = fs * 0.3528 * 1.3;
+										let totalH = parts.length * lineHeight;
+
+										// Compute card height and vertical center alignment in the lane
+										const standardCardH = 5.2;
+										let cardH = Math.min(laneH - 0.8, standardCardH);
+										
+										// If there are multiple lines that require more space, expand if laneH permits
+										const requiredH = totalH + 1.2;
+										if (requiredH > cardH && requiredH <= laneH - 0.6) {
+											cardH = requiredH;
+										}
+
+										// Center the card vertically inside the lane bounds
+										const cardY = laneY + (laneH - cardH) / 2;
 
 										// Draw rounded rectangle card with light background and outline
 										const isMono = monochrome || false;
@@ -849,33 +862,24 @@ export function exportTimetablePDF({
 										const textCol = isMono ? [75, 85, 99] : [29, 78, 216];
 
 										pdfA3.setFillColor(...bgCol);
-										pdfA3.roundedRect(itemX + 0.6, laneY + 0.6, itemW - 1.2, laneH - 1.2, 0.6, 0.6, "F");
+										pdfA3.roundedRect(itemX + 0.6, cardY, itemW - 1.2, cardH, 0.6, 0.6, "F");
 
 										pdfA3.setDrawColor(...borderCol);
 										pdfA3.setLineWidth(0.12);
-										pdfA3.roundedRect(itemX + 0.6, laneY + 0.6, itemW - 1.2, laneH - 1.2, 0.6, 0.6, "D");
-
-										const code = si.courseCode || si.courseId || "N/A";
-										const timeStr = `${si.startTime.slice(0, 5)}-${si.endTime.slice(0, 5)}`;
-										const parts = [code, timeStr];
-
-										// Custom inline drawing with card color mapping
-										let fs = 7.5;
-										let lineHeight = fs * 0.3528 * 1.3;
-										let totalH = parts.length * lineHeight;
+										pdfA3.roundedRect(itemX + 0.6, cardY, itemW - 1.2, cardH, 0.6, 0.6, "D");
 
 										const exceedsWidth = () => {
 											pdfA3.setFontSize(fs);
 											pdfA3.setFont("helvetica", "bold");
 											for (let line of parts) {
-												if (pdfA3.getTextWidth(line) > itemW - 2.5) {
+												if (pdfA3.getTextWidth(line) > itemW - 1.5) {
 													return true;
 												}
 											}
 											return false;
 										};
 
-										while ((totalH > laneH - 2.0 || exceedsWidth()) && fs > 4.5) {
+										while ((totalH > cardH - 1.0 || exceedsWidth()) && fs > 4.5) {
 											fs -= 0.5;
 											lineHeight = fs * 0.3528 * 1.3;
 											totalH = parts.length * lineHeight;
@@ -885,7 +889,7 @@ export function exportTimetablePDF({
 										pdfA3.setFont("helvetica", "bold");
 										pdfA3.setTextColor(...textCol);
 										
-										const startY = laneY + laneH / 2 - totalH / 2 + (fs * 0.3528 * 0.85);
+										const startY = cardY + cardH / 2 - totalH / 2 + (fs * 0.3528 * 0.85);
 										parts.forEach((line, idx) => {
 											pdfA3.text(line, itemX + itemW / 2, startY + idx * lineHeight, { align: "center" });
 										});
