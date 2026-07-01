@@ -403,10 +403,16 @@ export function exportTimetablePDF({
 			roomSchedules.forEach(si => {
 				const dayOrDate = si.examDate || si.day || "legacy";
 				const startMin = timeToMinutes(si.startTime);
-				const slotIdx = startMin < 12 * 60 ? 0 : startMin >= 12 * 60 && startMin < 15 * 60 ? 1 : 2;
-				const key = `${dayOrDate}-${slotIdx}`;
-				if (!slotGroups[key]) slotGroups[key] = [];
-				slotGroups[key].push(si);
+				const endMin = timeToMinutes(si.endTime);
+				for (let slotIdx = 0; slotIdx < 3; slotIdx++) {
+					const slotStartMin = (9 + slotIdx * 3) * 60;
+					const slotEndMin = slotStartMin + 3 * 60;
+					if (startMin < slotEndMin && slotStartMin < endMin) {
+						const key = `${dayOrDate}-${slotIdx}`;
+						if (!slotGroups[key]) slotGroups[key] = [];
+						slotGroups[key].push(si);
+					}
+				}
 			});
 
 			let maxLinesInAnySlot = 1;
@@ -753,9 +759,10 @@ export function exportTimetablePDF({
 								}
 
 								const startMin = timeToMinutes(si.startTime);
-								if (sIdx === 0) return startMin < 12 * 60;
-								if (sIdx === 1) return startMin >= 12 * 60 && startMin < 15 * 60;
-								return startMin >= 15 * 60;
+								const endMin = timeToMinutes(si.endTime);
+								const slotStartMin = (9 + sIdx * 3) * 60;
+								const slotEndMin = slotStartMin + 3 * 60;
+								return startMin < slotEndMin && slotStartMin < endMin;
 							});
 
 							pdfA3.setFillColor(255, 255, 255);
@@ -818,10 +825,53 @@ export function exportTimetablePDF({
 										const itemX = cellX + relStart * slotWidth;
 										const itemW = (relEnd - relStart) * slotWidth;
 
-										const code = si.courseCode || si.courseId || "N/A";
-										const parts = code.split(/[,/]+/).map(p => p.trim()).filter(Boolean);
+										// Draw rounded rectangle card with light background and outline
+										const isMono = monochrome || false;
+										const bgCol = isMono ? [249, 250, 251] : [239, 246, 255];
+										const borderCol = isMono ? [209, 213, 219] : [191, 219, 254];
+										const textCol = isMono ? [75, 85, 99] : [29, 78, 216];
 
-										drawCenteredText(pdfA3, parts, itemX, laneY, itemW, laneH);
+										pdfA3.setFillColor(...bgCol);
+										pdfA3.roundedRect(itemX + 0.6, laneY + 0.6, itemW - 1.2, laneH - 1.2, 0.6, 0.6, "F");
+
+										pdfA3.setDrawColor(...borderCol);
+										pdfA3.setLineWidth(0.12);
+										pdfA3.roundedRect(itemX + 0.6, laneY + 0.6, itemW - 1.2, laneH - 1.2, 0.6, 0.6, "D");
+
+										const code = si.courseCode || si.courseId || "N/A";
+										const timeStr = `${si.startTime.slice(0, 5)}-${si.endTime.slice(0, 5)}`;
+										const parts = [code, timeStr];
+
+										// Custom inline drawing with card color mapping
+										let fs = 7.5;
+										let lineHeight = fs * 0.3528 * 1.3;
+										let totalH = parts.length * lineHeight;
+
+										const exceedsWidth = () => {
+											pdfA3.setFontSize(fs);
+											pdfA3.setFont("helvetica", "bold");
+											for (let line of parts) {
+												if (pdfA3.getTextWidth(line) > itemW - 2.5) {
+													return true;
+												}
+											}
+											return false;
+										};
+
+										while ((totalH > laneH - 2.0 || exceedsWidth()) && fs > 4.5) {
+											fs -= 0.5;
+											lineHeight = fs * 0.3528 * 1.3;
+											totalH = parts.length * lineHeight;
+										}
+
+										pdfA3.setFontSize(fs);
+										pdfA3.setFont("helvetica", "bold");
+										pdfA3.setTextColor(...textCol);
+										
+										const startY = laneY + laneH / 2 - totalH / 2 + (fs * 0.3528 * 0.85);
+										parts.forEach((line, idx) => {
+											pdfA3.text(line, itemX + itemW / 2, startY + idx * lineHeight, { align: "center" });
+										});
 									});
 								});
 							}
