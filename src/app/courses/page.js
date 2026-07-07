@@ -20,7 +20,7 @@ const SCOPES = {
 };
 
 export default function CoursesPage() {
-    const { state, dispatch, getCoursesWithDetails } = useApp();
+    const { state, dispatch, getCoursesWithDetails, isInitialized } = useApp();
     const { faculties, departments } = state;
     const { addToast } = useToast();
     const { user } = useAuth();
@@ -95,45 +95,16 @@ export default function CoursesPage() {
     };
 
     useEffect(() => {
-        let mounted = true;
-        async function loadCourses() {
-            try {
-                const [courses, faculties, departments, enrollments] = await Promise.all([
-                    apiClient.get('/timetable/courses').catch(() => []),
-                    apiClient.get('/timetable/faculties?all=true').catch(() => []),
-                    apiClient.get('/timetable/departments?all=true').catch(() => []),
-                    apiClient.get('/timetable/enrollments').catch(() => [])
-                ]);
-                if (mounted) {
-                    dispatch({
-                        type: ACTION_TYPES.INIT_STATE,
-                        payload: {
-                            courses: (courses || []).map(c => ({
-                                ...c,
-                                creditLoad: c.credit_load,
-                                departmentId: c.department_id,
-                                scope: c.scope || SCOPES.DEPARTMENTAL,
-                                isCbtExam: c.is_cbt_exam || false,
-                            })),
-                            faculties: faculties || [],
-                            departments: (departments || []).map(d => ({ ...d, facultyId: d.faculty_id }))
-                        }
-                    });
-                    const map = new Map();
-                    (enrollments || []).forEach((e) => {
-                        if (!map.has(e.course_id)) map.set(e.course_id, []);
-                        map.get(e.course_id).push(e);
-                    });
-                    setEnrollmentsByCourse(map);
-                    setLoading(false);
-                }
-            } catch (e) {
-                console.error('Failed to JIT load courses', e);
-            }
+        if (isInitialized && state.enrollments) {
+            const map = new Map();
+            state.enrollments.forEach((e) => {
+                if (!map.has(e.course_id)) map.set(e.course_id, []);
+                map.get(e.course_id).push(e);
+            });
+            setEnrollmentsByCourse(map);
+            setLoading(false);
         }
-        loadCourses();
-        return () => { mounted = false; };
-    }, [dispatch]);
+    }, [isInitialized, state.enrollments]);
 
     const filteredDepts = filterFaculty
         ? departments.filter((d) => d.facultyId === filterFaculty)

@@ -11,7 +11,7 @@ import { isRoomActive } from '@/lib/utils';
 import styles from './rooms.module.css';
 
 export default function RoomsPage() {
-    const { state, dispatch } = useApp();
+    const { state, dispatch, isInitialized } = useApp();
     const { rooms, faculties } = state;
     const { addToast } = useToast();
     const { user } = useAuth();
@@ -55,21 +55,59 @@ export default function RoomsPage() {
         let mounted = true;
         async function loadRooms() {
             try {
-                const [rooms, faculties] = await Promise.all([
-                    apiClient.get('/timetable/rooms').catch(() => []),
-                    apiClient.get('/timetable/faculties').catch(() => [])
-                ]);
+                const requests = [];
+                if (!isInitialized) {
+                    requests.push(apiClient.get('/timetable/rooms').catch(() => []));
+                    requests.push(apiClient.get('/timetable/faculties').catch(() => []));
+                }
+                requests.push(apiClient.get('/timetable/schedule-items').catch(() => []));
+
+                const results = await Promise.all(requests);
                 if (mounted) {
-                    dispatch({ type: ACTION_TYPES.INIT_STATE, payload: { rooms: (rooms || []).map(normalizeRoom), faculties: faculties || [] } });
+                    if (!isInitialized) {
+                        const [roomsData, facultiesData, schedulesData] = results;
+                        dispatch({
+                            type: ACTION_TYPES.INIT_STATE,
+                            payload: {
+                                rooms: (roomsData || []).map(normalizeRoom),
+                                faculties: facultiesData || [],
+                                scheduleItems: (schedulesData || []).map(s => ({
+                                    ...s,
+                                    courseId: s.course_id,
+                                    roomIds: s.room_ids,
+                                    facultyId: s.faculty_id,
+                                    day: s.day_of_week,
+                                    startTime: s.start_time,
+                                    endTime: s.end_time
+                                }))
+                            }
+                        });
+                    } else {
+                        const [schedulesData] = results;
+                        dispatch({
+                            type: ACTION_TYPES.INIT_STATE,
+                            payload: {
+                                scheduleItems: (schedulesData || []).map(s => ({
+                                    ...s,
+                                    courseId: s.course_id,
+                                    roomIds: s.room_ids,
+                                    facultyId: s.faculty_id,
+                                    day: s.day_of_week,
+                                    startTime: s.start_time,
+                                    endTime: s.end_time
+                                }))
+                            }
+                        });
+                    }
                     setLoading(false);
                 }
             } catch (e) {
-                console.error('Failed to JIT load rooms', e);
+                console.error('Failed to JIT load rooms and schedules', e);
             }
         }
         loadRooms();
         return () => { mounted = false; };
-    }, [dispatch]);
+    }, [dispatch, isInitialized]);
 
     const filteredRooms = [...rooms]
         .filter((r) => {
@@ -127,8 +165,12 @@ export default function RoomsPage() {
     };
 
 
-    // Count scheduled items per room
-    const scheduleCount = (roomId) => state.scheduleItems.filter((s) => s.roomId === roomId).length;
+    const scheduleCount = (roomId) => {
+        return (state.scheduleItems || []).filter((s) => 
+            s.roomId === roomId || 
+            (s.roomIds && s.roomIds.includes(roomId))
+        ).length;
+    };
 
     const openAdd = () => {
         setEditing(null);
@@ -275,9 +317,20 @@ export default function RoomsPage() {
                                                 <button className={styles.actionBtn} onClick={() => openEdit(room)} title="Edit">
                                                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" /><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" /></svg>
                                                 </button>
-                                                <button className={`${styles.actionBtn} ${styles.deleteBtn}`} onClick={() => setDeleteConfirm(room)} title="Delete">
-                                                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /></svg>
-                                                </button>
+                                                {bookings > 0 ? (
+                                                     <button 
+                                                         className={`${styles.actionBtn} ${styles.deleteBtn}`} 
+                                                         style={{ opacity: 0.3, cursor: 'not-allowed' }}
+                                                         disabled
+                                                         title="Cannot delete room because it is assigned to scheduled items"
+                                                     >
+                                                         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /></svg>
+                                                     </button>
+                                                 ) : (
+                                                     <button className={`${styles.actionBtn} ${styles.deleteBtn}`} onClick={() => setDeleteConfirm(room)} title="Delete">
+                                                         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /></svg>
+                                                     </button>
+                                                 )}
                                             </div>
                                         ) : (
                                             <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Read Only</span>

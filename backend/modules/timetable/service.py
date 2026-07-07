@@ -270,10 +270,15 @@ class TimetableService:
                 raise HTTPException(status_code=403, detail="Not authorized")
         if _is_gs_admin(current_user) and room.faculty_id is not None:
             raise HTTPException(status_code=403, detail="General Studies admins cannot delete rooms bound to a faculty")
+
+        is_referenced = await self.repo.is_room_referenced_by_schedule(id)
+        if is_referenced:
+            raise HTTPException(status_code=400, detail="Cannot delete room because it is currently assigned to scheduled items. Please remove it from all timetables first.")
+
         try:
             await self.repo.delete_room(room)
         except IntegrityError:
-            raise HTTPException(status_code=400, detail="Cannot delete room because it is currently referenced by other records (such as schedule items). Please remove them first.")
+            raise HTTPException(status_code=400, detail="Cannot delete room because it is currently referenced by other records. Please remove them first.")
         await self.audit_service.log(
             current_user=current_user,
             action="room.delete",
@@ -412,10 +417,15 @@ class TimetableService:
         if course:
             if _is_gs_admin(current_user) and course.scope != CourseScope.UNIVERSITY_WIDE:
                 raise HTTPException(status_code=403, detail="General Studies admins can only delete university-wide courses")
+            
+            is_referenced = await self.repo.is_course_referenced_by_schedule(id)
+            if is_referenced:
+                raise HTTPException(status_code=400, detail="Cannot delete course because it is currently scheduled. Please unschedule it from all timetables first.")
+
             try:
                 await self.repo.delete_course(course)
             except IntegrityError:
-                raise HTTPException(status_code=400, detail="Cannot delete course because it is currently referenced by schedule items. Please remove them first.")
+                raise HTTPException(status_code=400, detail="Cannot delete course because it is currently referenced by other records. Please remove them first.")
             await self.audit_service.log(
                 current_user=current_user,
                 action="course.delete",

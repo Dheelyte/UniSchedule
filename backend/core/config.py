@@ -26,7 +26,7 @@ class Settings(BaseSettings):
 
     PASSWORD_RESET_CODE_EXPIRE_MINUTES: int = Field(default=10)
 
-    CORS_ALLOWED_ORIGINS: list[str] = ["http://127.0.0.1:3000"]
+    CORS_ALLOWED_ORIGINS: list[str] = ["http://127.0.0.1:3000", "http://localhost:3000"]
 
     # --- Email Configuration ---
     MAIL_USERNAME: str = Field(default="test")
