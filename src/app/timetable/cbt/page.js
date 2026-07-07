@@ -7,6 +7,7 @@ import { apiClient } from "@/lib/apiClient";
 import { detectAllConflicts } from "@/lib/conflicts";
 import { exportTimetablePDF } from "@/lib/pdfExport";
 import { exportTimetableCSV } from "@/lib/csvExport";
+import { isGeneralStudiesCourse, GENERAL_STUDIES_FACULTY } from "@/lib/utils";
 import TimetableGrid from "@/components/TimetableGrid/TimetableGrid";
 import { useToast } from "@/components/Toast/Toast";
 import ExportModal from "@/components/ExportModal/ExportModal";
@@ -286,25 +287,82 @@ export default function CBTTimetablePage() {
 		setIsExportModalOpen(true);
 	};
 
-	const handleExportConfirm = async ({ paperSize = "a4", monochrome = false, groupByFaculty = false }) => {
+	const handleExportConfirm = async ({
+		session: exportSession,
+		semester: exportSemester,
+		facultyId = "ALL",
+		departmentId = "ALL",
+		format: exportFormat = "pdf",
+		monochrome = false,
+		paperSize = "a4",
+	}) => {
 		setIsExportModalOpen(false);
-		const rawSchedules = getSchedulesWithDetails.filter((s) => s.type === "exam");
-		const filteredSchedules = rawSchedules.filter((s) => {
-			const course = state.courses.find((c) => c.id === s.courseId);
-			const isCbtCourse = course?.isCbtExam || course?.is_cbt_exam;
-			const hasCbtRoom = (s.roomIds || []).some(rid => {
-				const r = state.rooms.find(rm => rm.id === rid);
-				return r && r.name && r.name.toUpperCase().includes("CBT");
-			});
-			return isCbtCourse || hasCbtRoom;
+		const deptIdNum =
+			departmentId && departmentId !== "ALL" ? Number(departmentId) : null;
+
+		// 1. Filter by selected Faculty & Department
+		const selectedFaculty =
+			facultyId === "ALL"
+				? null
+				: state.faculties.find((f) => f.id === facultyId);
+		const isGeneralStudies =
+			selectedFaculty?.name?.trim().toLowerCase() === "general studies";
+
+		const filtered = cbtSchedules.filter((s) => {
+			if (isGeneralStudies) {
+				if (!isGeneralStudiesCourse(s.courseCode)) return false;
+			} else if (facultyId !== "ALL" && s.facultyId !== facultyId) {
+				return false;
+			}
+			if (deptIdNum !== null && s.departmentId !== deptIdNum) return false;
+			return true;
 		});
+
+		// Attribute GST/ENT courses to General Studies faculty in the export
+		const filteredSchedules = filtered.map((s) =>
+			isGeneralStudiesCourse(s.courseCode)
+				? { ...s, facultyName: GENERAL_STUDIES_FACULTY }
+				: s,
+		);
+
+		if (filteredSchedules.length === 0) {
+			addToast({
+				type: "error",
+				title: "Export Failed",
+				message: "No schedules found for the selected filters.",
+			});
+			return;
+		}
+
+		// When exporting every faculty, group output by faculty with General Studies first.
+		const groupByFaculty = facultyId === "ALL";
+
+		const facultyInfo =
+			facultyId === "ALL"
+				? "All Faculties"
+				: state.faculties.find((f) => f.id === facultyId)?.name ||
+					"Unknown Faculty";
+		const departmentInfo =
+			deptIdNum === null
+				? null
+				: state.departments.find((d) => d.id === deptIdNum)?.name ||
+					"Unknown Department";
 
 		const sem = semesters.find((s) => s.id === selectedSemesterId);
 		const semester = sem?.name || "";
 		const session = sem?.sessionName || "";
 
-		if (format === "csv") {
-			exportTimetableCSV(filteredSchedules, `CBT_Timetable_${session}_${semester}`);
+		if (exportFormat === "csv") {
+			exportTimetableCSV({
+				schedules: filteredSchedules,
+				title: "CBT Examination Timetable",
+				session,
+				semester,
+				faculty: facultyInfo,
+				department: departmentInfo,
+				mode: "exam",
+				groupByFaculty,
+			});
 			addToast({
 				type: "success",
 				title: "CSV Exported",
@@ -313,11 +371,11 @@ export default function CBTTimetablePage() {
 			return;
 		}
 
-		if (format === "pdf" && paperSize === "a3") {
-			const blockedSlots = await apiClient
-				.get(`/timetable/blocked-slots?semester_id=${selectedSemesterId}`)
-				.catch(() => []);
+		const blockedSlots = await apiClient
+			.get(`/timetable/blocked-slots?semester_id=${selectedSemesterId}`)
+			.catch(() => []);
 
+		if (paperSize === "a3") {
 			exportTimetablePDF({
 				schedules: filteredSchedules,
 				blockedSlots,
@@ -326,6 +384,8 @@ export default function CBTTimetablePage() {
 				title: "CBT Examination Timetable",
 				session,
 				semester,
+				faculty: facultyInfo,
+				department: departmentInfo,
 				schoolName: "University of Lagos",
 				mode: "exam",
 				monochrome,
@@ -343,10 +403,6 @@ export default function CBTTimetablePage() {
 			return;
 		}
 
-		const blockedSlots = await apiClient
-			.get(`/timetable/blocked-slots?semester_id=${selectedSemesterId}`)
-			.catch(() => []);
-
 		exportTimetablePDF({
 			schedules: filteredSchedules,
 			blockedSlots,
@@ -355,6 +411,8 @@ export default function CBTTimetablePage() {
 			title: "CBT Examination Timetable",
 			session,
 			semester,
+			faculty: facultyInfo,
+			department: departmentInfo,
 			schoolName: "University of Lagos",
 			mode: "exam",
 			monochrome,
@@ -394,8 +452,7 @@ export default function CBTTimetablePage() {
 		!isLocked && isCurrentSemester && canRequestChange(user?.role);
 	const cbtSchedules = getSchedulesWithDetails.filter(
 		(s) => s.type === "exam" && (
-			state.courses.find(c => c.id === s.courseId)?.isCbtExam ||
-			(s.roomIds || []).some(rid => state.rooms.find(rm => rm.id === rid)?.name?.toUpperCase().includes("CBT"))
+			state.courses.find(c => c.id === s.courseId)?.isCbtExam
 		)
 	);
 

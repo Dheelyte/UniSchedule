@@ -231,16 +231,11 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
         if (cbtOnly) {
             list = list.filter((s) => {
                 const course = courses.find((c) => c.id === s.courseId);
-                const isCbtCourse = course?.isCbtExam || course?.is_cbt_exam;
-                const hasCbtRoom = (s.roomIds || []).some(rid => {
-                    const r = rooms.find(rm => rm.id === rid);
-                    return r && r.name && r.name.toUpperCase().includes('CBT');
-                });
-                return isCbtCourse || hasCbtRoom;
+                return course?.isCbtExam || course?.is_cbt_exam;
             });
         }
         return list;
-    }, [getSchedulesWithDetails, mode, cbtOnly, courses, rooms]);
+    }, [getSchedulesWithDetails, mode, cbtOnly, courses]);
 
     const departmentsById = useMemo(() => {
         const m = new Map();

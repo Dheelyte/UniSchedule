@@ -29,9 +29,19 @@ def upgrade() -> None:
             SELECT DISTINCT s.course_id
             FROM schedule_items s
             CROSS JOIN unnest(s.room_ids) as r_id
-            WHERE r_id IN (
-                SELECT id FROM rooms WHERE UPPER(name) LIKE '%CBT%'
-            )
+            WHERE s.type = 'exam'
+              AND r_id IN (
+                  SELECT id FROM rooms WHERE UPPER(name) LIKE '%CBT%'
+              )
+        )
+        AND id NOT IN (
+            SELECT DISTINCT s.course_id
+            FROM schedule_items s
+            CROSS JOIN unnest(s.room_ids) as r_id
+            WHERE s.type = 'exam'
+              AND r_id NOT IN (
+                  SELECT id FROM rooms WHERE UPPER(name) LIKE '%CBT%'
+              )
         );
     """)
     op.execute("UPDATE courses SET title = '' WHERE title IS NULL;")
