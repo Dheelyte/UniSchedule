@@ -5,10 +5,11 @@ import { useApp, ACTION_TYPES } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
 import { DAYS, EXAM_DAYS, timeToMinutes } from '@/lib/utils';
 import { apiClient } from '@/lib/apiClient';
-import { detectConflicts, detectAllConflicts } from '@/lib/conflicts';
+import { detectConflicts, detectAllConflicts, dismissalSignatureSet } from '@/lib/conflicts';
 import { useToast } from '@/components/Toast/Toast';
 import { useConfirm } from '@/components/ConfirmModal/ConfirmContext';
 import SearchableSelect from '@/components/SearchableSelect/SearchableSelect';
+import ConflictManager from '@/components/ConflictManager/ConflictManager';
 import { hasGlobalScope, isGsAdmin, isViewerRole } from '@/lib/roles';
 import styles from './TimetableGrid.module.css';
 
@@ -236,9 +237,26 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
         return m;
     }, [departments]);
 
+    // Persisted conflict dismissals (manually acknowledged conflicts).
+    const [dismissals, setDismissals] = useState([]);
+    const [showConflictManager, setShowConflictManager] = useState(false);
+    const refreshDismissals = useCallback(() => {
+        return apiClient
+            .get('/timetable/conflict-dismissals')
+            .then((res) => setDismissals(res || []))
+            .catch(() => setDismissals([]));
+    }, []);
+    useEffect(() => {
+        refreshDismissals();
+    }, [refreshDismissals]);
+
+    const dismissedSignatures = useMemo(() => dismissalSignatureSet(dismissals), [dismissals]);
+
+    const canManageConflicts = !readOnly && !isViewerRole(user?.role);
+
     const conflictMap = useMemo(() => {
-        return detectAllConflicts(allModeSchedules, enrollmentsByCourse, departmentsById);
-    }, [allModeSchedules, enrollmentsByCourse, departmentsById]);
+        return detectAllConflicts(allModeSchedules, enrollmentsByCourse, departmentsById, dismissedSignatures);
+    }, [allModeSchedules, enrollmentsByCourse, departmentsById, dismissedSignatures]);
 
     // First schedule item (in render order) that has at least one error-severity conflict.
     const firstConflictItem = useMemo(() => {
@@ -831,6 +849,17 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
                                 Go to conflict → {firstConflictItem.courseCode}
                             </button>
                         )}
+                        {canManageConflicts && (totalConflictCount > 0 || dismissals.length > 0) && (
+                            <button
+                                type="button"
+                                className="btn btn-secondary"
+                                style={{ marginLeft: 8, padding: '2px 10px', fontSize: '0.78rem' }}
+                                onClick={() => setShowConflictManager(true)}
+                                title="Dismiss or restore conflicts"
+                            >
+                                Manage conflicts
+                            </button>
+                        )}
                     </span>
                 </div>
             </div>
@@ -1243,6 +1272,18 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
                         </div>
                     </div>
                 </div>
+            )}
+
+            {showConflictManager && (
+                <ConflictManager
+                    mode={mode}
+                    conflictMap={conflictMap}
+                    schedules={allModeSchedules}
+                    departments={departments}
+                    dismissals={dismissals}
+                    onClose={() => setShowConflictManager(false)}
+                    onChanged={refreshDismissals}
+                />
             )}
         </div>
     );

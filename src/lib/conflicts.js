@@ -243,12 +243,37 @@ export function detectConflicts(candidate, allSchedules, excludeId = null, enrol
 }
 
 /**
+ * Build a stable signature for a conflict so it can be matched against a
+ * persisted dismissal. Pairwise conflicts order the two item ids; single-item
+ * conflicts (e.g. time warnings) leave the second id empty. Must mirror the
+ * backend normalization in `ConflictDismissal`.
+ */
+export function conflictSignature(type, itemAId, itemBId = null) {
+    if (itemBId === null || itemBId === undefined) return `${type}:${Number(itemAId)}:`;
+    const a = Number(itemAId);
+    const b = Number(itemBId);
+    return `${type}:${Math.min(a, b)}:${Math.max(a, b)}`;
+}
+
+/**
+ * Turn a list of dismissal records from the API into a Set of signatures.
+ */
+export function dismissalSignatureSet(dismissals) {
+    const set = new Set();
+    (dismissals || []).forEach((d) => {
+        set.add(conflictSignature(d.conflict_type, d.item_a_id, d.item_b_id ?? null));
+    });
+    return set;
+}
+
+/**
  * Detect ALL conflicts across the entire schedule.
  * Returns a Map of scheduleId → array of conflict objects.
  * @param {Array} allSchedules - All schedule items with details
+ * @param {Set<string>|null} dismissedSignatures - signatures to suppress
  * @returns {Map<string, Array>}
  */
-export function detectAllConflicts(allSchedules, enrollmentsByCourse = null, departmentsById = null) {
+export function detectAllConflicts(allSchedules, enrollmentsByCourse = null, departmentsById = null, dismissedSignatures = null) {
     const deptName = (id) => {
         if (id === UW_DEPT) return null;
         if (!departmentsById) return null;
@@ -363,8 +388,14 @@ export function detectAllConflicts(allSchedules, enrollmentsByCourse = null, dep
             });
         }
 
-        if (itemConflicts.length > 0) {
-            conflictMap.set(a.id, itemConflicts);
+        const kept = dismissedSignatures
+            ? itemConflicts.filter(
+                  (c) => !dismissedSignatures.has(conflictSignature(c.type, a.id, c.relatedId ?? null)),
+              )
+            : itemConflicts;
+
+        if (kept.length > 0) {
+            conflictMap.set(a.id, kept);
         }
     }
 

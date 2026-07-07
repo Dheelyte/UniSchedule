@@ -198,7 +198,7 @@ class TimetableService:
         if _is_gs_admin(current_user):
             if data.faculty_id is not None:
                 raise HTTPException(status_code=403, detail="General Studies admins can only create rooms not bound to a faculty")
-        room = Room(name=data.name, capacity=data.capacity, faculty_id=data.faculty_id)
+        room = Room(name=data.name, capacity=data.capacity, faculty_id=data.faculty_id, is_lab=data.is_lab)
         try:
             created = await self.repo.create_room(room)
         except IntegrityError:
@@ -232,6 +232,7 @@ class TimetableService:
                 raise HTTPException(status_code=403, detail="General Studies admins cannot bind rooms to a faculty")
         if data.name is not None: room.name = data.name
         if data.capacity is not None: room.capacity = data.capacity
+        if data.is_lab is not None: room.is_lab = data.is_lab
         if data.faculty_id is not None:
             if current_user.get("role") == RoleEnum.FACULTY_EDITOR.value and current_user.get("faculty_id") != data.faculty_id:
                 raise HTTPException(status_code=403, detail="Not authorized")

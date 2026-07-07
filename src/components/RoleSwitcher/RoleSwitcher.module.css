@@ -1,0 +1,140 @@
+.root {
+	position: relative;
+}
+
+.trigger {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+	height: 38px;
+	padding: 0 12px;
+	border: 1px solid var(--color-border);
+	border-radius: var(--radius-md);
+	background: var(--color-bg-card);
+	color: var(--color-text-secondary);
+	font-size: 0.82rem;
+	font-weight: 500;
+	cursor: pointer;
+	transition: all var(--transition-base);
+	max-width: 260px;
+}
+
+.trigger:hover {
+	border-color: var(--color-border-strong);
+	color: var(--color-text);
+}
+
+.triggerLabel {
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+/* Amber accent while an assumed role is active. */
+.triggerActive {
+	border-color: #d97706;
+	background: rgba(217, 119, 6, 0.1);
+	color: #b45309;
+}
+
+.menu {
+	position: absolute;
+	top: calc(100% + 8px);
+	right: 0;
+	z-index: 60;
+	width: 300px;
+	max-width: calc(100vw - 32px);
+	padding: 14px;
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+	background: var(--color-bg-card);
+	border: 1px solid var(--color-border);
+	border-radius: var(--radius-lg);
+	box-shadow: var(--shadow-md);
+}
+
+.currentRow {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	padding-bottom: 12px;
+	border-bottom: 1px solid var(--color-border);
+}
+
+.currentText {
+	font-size: 0.8rem;
+	color: var(--color-text-secondary);
+}
+
+.field {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+}
+
+.fieldLabel {
+	font-size: 0.72rem;
+	font-weight: 600;
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+	color: var(--color-text-muted);
+}
+
+.select {
+	height: 38px;
+	padding: 0 10px;
+	border: 1px solid var(--color-border);
+	border-radius: var(--radius-md);
+	background: var(--color-bg);
+	color: var(--color-text);
+	font-size: 0.85rem;
+	cursor: pointer;
+}
+
+.error {
+	font-size: 0.78rem;
+	color: #dc2626;
+}
+
+.assumeBtn {
+	height: 38px;
+	border: none;
+	border-radius: var(--radius-md);
+	background: #6366f1;
+	color: #fff;
+	font-size: 0.85rem;
+	font-weight: 600;
+	cursor: pointer;
+	transition: opacity var(--transition-base);
+}
+
+.assumeBtn:hover:not(:disabled) {
+	opacity: 0.9;
+}
+
+.assumeBtn:disabled {
+	opacity: 0.6;
+	cursor: default;
+}
+
+.exitBtn {
+	height: 34px;
+	border: 1px solid #d97706;
+	border-radius: var(--radius-md);
+	background: transparent;
+	color: #b45309;
+	font-size: 0.8rem;
+	font-weight: 600;
+	cursor: pointer;
+	transition: background var(--transition-base);
+}
+
+.exitBtn:hover:not(:disabled) {
+	background: rgba(217, 119, 6, 0.1);
+}
+
+.exitBtn:disabled {
+	opacity: 0.6;
+	cursor: default;
+}

@@ -45,8 +45,21 @@ export function AuthProvider({ children }) {
 		router.push("/login");
 	};
 
+	// Super-admin impersonation. A hard navigation to the dashboard resets all
+	// client-side data caches so every page re-fetches under the new scope.
+	const assumeRole = async (role, facultyId = null) => {
+		await apiClient.post("/auth/impersonate", { role, faculty_id: facultyId });
+		window.location.href = "/";
+	};
+
+	const stopImpersonating = async () => {
+		await apiClient.post("/auth/impersonate/stop", {});
+		window.location.href = "/";
+	};
+
 	return (
-		<AuthContext.Provider value={{ user, loading, login, logout }}>
+		<AuthContext.Provider
+			value={{ user, loading, login, logout, assumeRole, stopImpersonating }}>
 			{children}
 		</AuthContext.Provider>
 	);
