@@ -491,6 +491,7 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
     const enrichCandidate = (formData) => {
         const c = courses.find((cc) => cc.id === formData.courseId);
         const dept = c ? departments.find((d) => d.id === c.departmentId) : null;
+        const fac = dept ? faculties.find((f) => f.id === dept.facultyId) : null;
         return {
             ...formData,
             type: mode,
@@ -499,6 +500,7 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
             courseLevel: c?.level ?? null,
             courseScope: c?.scope ?? null,
             facultyId: dept?.facultyId ?? null,
+            isSpecialFaculty: !!(fac?.is_special ?? fac?.isSpecial),
         };
     };
 
@@ -718,6 +720,7 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
             courseDepartmentId: dragItem.courseDepartmentId ?? null,
             courseLevel: dragItem.courseLevel ?? null,
             courseScope: dragItem.courseScope ?? null,
+            isSpecialFaculty: dragItem.isSpecialFaculty ?? false,
         };
 
         const result = detectConflicts(candidate, allModeSchedules, dragItem.id, enrollmentsByCourse, departmentsById);

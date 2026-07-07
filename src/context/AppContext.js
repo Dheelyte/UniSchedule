@@ -239,6 +239,8 @@ export function AppProvider({ children }) {
             const resolvedRooms = ids.map((rid) => state.rooms.find((r) => r.id === rid)).filter(Boolean);
             const dept = course ? state.departments.find((d) => d.id === course.departmentId) : null;
             const faculty = dept ? state.faculties.find((f) => f.id === dept.facultyId) : null;
+            const effFacId = item.facultyId || faculty?.id || null;
+            const effFaculty = state.faculties.find((f) => f.id === effFacId) || null;
             return {
                 ...item,
                 roomIds: ids,
@@ -254,8 +256,10 @@ export function AppProvider({ children }) {
                 roomCapacity: resolvedRooms.reduce((sum, r) => sum + (r.capacity || 0), 0),
                 departmentId: dept?.id || null,
                 departmentName: dept?.name || 'NIL',
-                facultyId: item.facultyId || faculty?.id || null,
-                facultyName: state.faculties.find((f) => f.id === (item.facultyId || faculty?.id))?.name || 'NIL',
+                facultyId: effFacId,
+                facultyName: effFaculty?.name || 'NIL',
+                // Special faculties are exempt from conflict detection.
+                isSpecialFaculty: !!(effFaculty?.is_special ?? effFaculty?.isSpecial),
             };
         });
     }, [state]);
