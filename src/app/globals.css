@@ -26,6 +26,8 @@
   --color-danger-bg: rgba(220, 38, 38, 0.06);
   --color-info: #2563eb;
   --color-info-bg: rgba(37, 99, 235, 0.06);
+  --color-secondary: #64748b;
+  --color-secondary-bg: rgba(100, 116, 139, 0.08);
 
   /* Neutrals - LIGHT MODE */
   --color-bg: #f1f5f9;
@@ -293,6 +295,11 @@ h4 {
 .badge-danger {
   background: var(--color-danger-bg);
   color: var(--color-danger);
+}
+
+.badge-secondary {
+  background: var(--color-secondary-bg);
+  color: var(--color-secondary);
 }
 
 /* Form Elements */

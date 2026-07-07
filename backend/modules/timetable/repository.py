@@ -74,6 +74,12 @@ class TimetableRepository:
         result = await self.db.execute(select(Room).where(Room.id == id))
         return result.scalar_one_or_none()
 
+    async def get_rooms_by_ids(self, ids: list[int]) -> list[Room]:
+        if not ids:
+            return []
+        result = await self.db.execute(select(Room).where(Room.id.in_(ids)))
+        return list(result.scalars().all())
+
     async def update_room(self, room: Room) -> Room:
         await self.db.flush()
         return room

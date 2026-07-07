@@ -199,7 +199,13 @@ class TimetableService:
         if _is_gs_admin(current_user):
             if data.faculty_id is not None:
                 raise HTTPException(status_code=403, detail="General Studies admins can only create rooms not bound to a faculty")
-        room = Room(name=data.name, capacity=data.capacity, faculty_id=data.faculty_id, is_lab=data.is_lab)
+        room = Room(
+            name=data.name,
+            capacity=data.capacity,
+            faculty_id=data.faculty_id,
+            is_lab=data.is_lab,
+            is_active=data.is_active,
+        )
         try:
             created = await self.repo.create_room(room)
         except IntegrityError:
@@ -210,7 +216,7 @@ class TimetableService:
             entity_type="room",
             entity_id=created.id,
             description=f"Created room '{created.name}' (capacity {created.capacity})",
-            extra={"name": created.name, "capacity": created.capacity, "faculty_id": created.faculty_id},
+            extra={"name": created.name, "capacity": created.capacity, "faculty_id": created.faculty_id, "is_active": created.is_active},
         )
         return created
 
@@ -238,6 +244,10 @@ class TimetableService:
             if current_user.get("role") == RoleEnum.FACULTY_EDITOR.value and current_user.get("faculty_id") != data.faculty_id:
                 raise HTTPException(status_code=403, detail="Not authorized")
             room.faculty_id = data.faculty_id
+        if data.is_active is not None:
+            if current_user.get("role") != RoleEnum.SUPER_ADMIN.value:
+                raise HTTPException(status_code=403, detail="Only super admins can activate or deactivate a room")
+            room.is_active = data.is_active
         try:
             updated = await self.repo.update_room(room)
         except IntegrityError:
@@ -565,6 +575,16 @@ class TimetableService:
         if lock and lock.is_locked:
             raise HTTPException(status_code=423, detail=f"This {item_type} timetable is locked.")
 
+    async def _assert_rooms_active(self, room_ids: list[int] | None, already_assigned_ids: list[int] | None = None) -> None:
+        already_assigned_ids = already_assigned_ids or []
+        new_ids = [rid for rid in (room_ids or []) if rid not in already_assigned_ids]
+        if not new_ids:
+            return
+        rooms = await self.repo.get_rooms_by_ids(new_ids)
+        inactive = [r.name for r in rooms if r.is_active is False]
+        if inactive:
+            raise HTTPException(status_code=400, detail=f"Cannot schedule into inactive room(s): {', '.join(inactive)}")
+
     async def create_schedule_item(self, data: ScheduleItemCreate, current_user: dict) -> ScheduleItem:
         if current_user.get("role") == RoleEnum.FACULTY_EDITOR.value:
             if current_user.get("faculty_id") != data.faculty_id:
@@ -586,7 +606,8 @@ class TimetableService:
         await self._assert_not_locked(sem_id, data.type)
         exam_date_val = getattr(data, 'exam_date', None)
         await self._check_blocked_slots(data.type, data.day_of_week, exam_date_val, data.start_time, data.end_time, sem_id)
-        
+        await self._assert_rooms_active(data.room_ids)
+
         item = ScheduleItem(
             course_id=data.course_id,
             room_ids=data.room_ids,
@@ -646,7 +667,9 @@ class TimetableService:
         new_end = data.end_time or item.end_time
         if item.semester_id:
             await self._check_blocked_slots(item.type, new_day, new_exam_date, new_start, new_end, item.semester_id)
-        if data.room_ids is not None: item.room_ids = data.room_ids
+        if data.room_ids is not None:
+            await self._assert_rooms_active(data.room_ids, already_assigned_ids=item.room_ids or [])
+            item.room_ids = data.room_ids
         if data.day_of_week is not None: item.day_of_week = data.day_of_week
         if data.exam_date is not None: item.exam_date = data.exam_date
         if data.start_time is not None: item.start_time = data.start_time

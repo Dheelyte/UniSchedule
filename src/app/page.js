@@ -7,6 +7,7 @@ import { useApp, ACTION_TYPES } from "@/context/AppContext";
 import { useAuth } from "@/context/AuthContext";
 import { apiClient } from "@/lib/apiClient";
 import { DashboardSkeleton } from "@/components/Skeleton/Skeleton";
+import { isRoomActive } from "@/lib/utils";
 
 const BAR_COLORS = [
 	"#6366f1",
@@ -58,6 +59,10 @@ export default function DashboardPage() {
 					apiClient.get("/calendar/semesters/current").catch(() => null),
 					apiClient.get("/calendar/sessions").catch(() => []),
 				]);
+				const normalizedRooms = (rooms || []).map((room) => ({
+					...room,
+					isActive: room.is_active !== false,
+				}));
 				if (mounted) {
 					dispatch({
 						type: ACTION_TYPES.INIT_STATE,
@@ -67,7 +72,7 @@ export default function DashboardPage() {
 								...d,
 								facultyId: d.faculty_id,
 							})),
-							rooms: (rooms || []).map((r) => ({
+							rooms: normalizedRooms.map((r) => ({
 								...r,
 								facultyId: r.faculty_id ?? r.facultyId ?? null,
 							})),
@@ -162,6 +167,7 @@ export default function DashboardPage() {
 			});
 		});
 		return state.rooms
+			.filter(isRoomActive)
 			.map((r) => ({ ...r, sessions: roomCountMap[r.id] || 0 }))
 			.sort((a, b) => b.sessions - a.sessions)
 			.slice(0, 8);
