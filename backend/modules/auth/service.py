@@ -16,6 +16,7 @@ IMPERSONABLE_ROLES = {
     RoleEnum.FACULTY_VIEWER,
     RoleEnum.GS_ADMIN,
     RoleEnum.SUPER_VIEWER,
+    RoleEnum.CITS_ADMIN,
 }
 # Assumed roles that must be scoped to a specific faculty.
 FACULTY_SCOPED_ROLES = {RoleEnum.FACULTY_EDITOR, RoleEnum.FACULTY_VIEWER}

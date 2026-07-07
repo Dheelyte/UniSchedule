@@ -175,8 +175,8 @@ export default function StaffManagementPage() {
                                     <tr key={inv.id}>
                                         <td style={{ fontWeight: 600 }}>{inv.email}</td>
                                         <td>
-                                            <span className={`${styles.roleBadge} ${inv.target_role === 'SUPER_ADMIN' ? styles.roleBadgeAdmin : ''}`}>
-                                                {inv.target_role.replace('_', ' ')}
+                                            <span className={`${styles.roleBadge} ${inv.target_role === 'SUPER_ADMIN' || inv.target_role === 'CITS_ADMIN' ? styles.roleBadgeAdmin : ''}`}>
+                                                {inv.target_role === 'CITS_ADMIN' ? 'SUPER ADMINISTRATOR (CITS)' : inv.target_role.replace('_', ' ')}
                                             </span>
                                         </td>
                                         <td>{inv.faculty_id ? (faculties.find(f => f.id === inv.faculty_id)?.name || inv.faculty_id) : 'Global'}</td>
@@ -217,8 +217,8 @@ export default function StaffManagementPage() {
                                     <tr key={u.id}>
                                         <td style={{ fontWeight: 600 }}>{u.email}</td>
                                         <td>
-                                            <span className={`${styles.roleBadge} ${u.role === 'SUPER_ADMIN' ? styles.roleBadgeAdmin : ''}`}>
-                                                {u.role === 'GS_ADMIN' ? 'GENERAL STUDIES' : u.role.replace('_', ' ')}
+                                            <span className={`${styles.roleBadge} ${u.role === 'SUPER_ADMIN' || u.role === 'CITS_ADMIN' ? styles.roleBadgeAdmin : ''}`}>
+                                                {u.role === 'GS_ADMIN' ? 'GENERAL STUDIES' : u.role === 'CITS_ADMIN' ? 'SUPER ADMINISTRATOR (CITS)' : u.role.replace('_', ' ')}
                                             </span>
                                         </td>
                                         <td>{u.faculty_id ? (faculties.find(f => f.id === u.faculty_id)?.name || u.faculty_id) : 'Global'}</td>
@@ -270,6 +270,7 @@ export default function StaffManagementPage() {
                                     <option value="GS_ADMIN">General Studies Admin</option>
                                     <option value="SUPER_ADMIN">Super Administrator</option>
                                     <option value="SUPER_VIEWER">Super Administrator (View only)</option>
+                                    <option value="CITS_ADMIN">Super Administrator (CITS)</option>
                                 </select>
                             </div>
 

@@ -16,7 +16,7 @@ from sqlalchemy.exc import IntegrityError
 
 
 def _has_global_scope(user: dict) -> bool:
-    return user.get("role") in (RoleEnum.SUPER_ADMIN.value, RoleEnum.SUPER_VIEWER.value, RoleEnum.GS_ADMIN.value)
+    return user.get("role") in (RoleEnum.SUPER_ADMIN.value, RoleEnum.SUPER_VIEWER.value, RoleEnum.GS_ADMIN.value, RoleEnum.CITS_ADMIN.value)
 
 
 def _has_global_read_scope(user: dict) -> bool:
@@ -26,6 +26,7 @@ def _has_global_read_scope(user: dict) -> bool:
         RoleEnum.GS_ADMIN.value,
         RoleEnum.FACULTY_EDITOR.value,
         RoleEnum.FACULTY_VIEWER.value,
+        RoleEnum.CITS_ADMIN.value,
     )
 
 
@@ -362,6 +363,16 @@ class TimetableService:
     async def update_course(self, id: int, data: CourseUpdate, current_user: dict) -> Course:
         course = await self.repo.get_course(id)
         if not course: raise HTTPException(status_code=404, detail="Not found")
+        
+        # If user is CITS admin, they can ONLY update the `is_cbt_exam` field
+        if current_user.get("role") == RoleEnum.CITS_ADMIN.value:
+            non_cbt_fields = [f for f in data.model_fields_set if f != "is_cbt_exam"]
+            if non_cbt_fields:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Super Administrator (CITS) is only authorized to update the CBT status (is_cbt_exam) of courses"
+                )
+        
         # GS admins may only edit existing UW courses, and may not change scope away from UW
         if _is_gs_admin(current_user):
             if course.scope != CourseScope.UNIVERSITY_WIDE:

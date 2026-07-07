@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import { useApp, ACTION_TYPES } from "@/context/AppContext";
 import { useAuth } from "@/context/AuthContext";
 import { apiClient } from "@/lib/apiClient";
@@ -23,9 +24,28 @@ const SHOW_CONFLICTS_BEFORE_EXPORT = false;
 
 export default function CBTTimetablePage() {
 	const { getSchedulesWithDetails, state, dispatch, isInitialized } = useApp();
-	const { user } = useAuth();
+	const { user, loading: authLoading } = useAuth();
 	const { addToast } = useToast();
 	const confirm = useConfirm();
+	const router = useRouter();
+
+	useEffect(() => {
+		if (!authLoading) {
+			if (!user) {
+				router.push("/login");
+				return;
+			}
+			if (user.role !== "CITS_ADMIN") {
+				router.push("/");
+				addToast({
+					type: "error",
+					title: "Unauthorized",
+					message: "Only CITS Administrators can access the CBT Timetable.",
+				});
+				return;
+			}
+		}
+	}, [user, authLoading, router, addToast]);
 
 	const [sessions, setSessions] = useState([]);
 	const [semesters, setSemesters] = useState([]);
@@ -497,7 +517,7 @@ export default function CBTTimetablePage() {
 		)
 	);
 
-	const canManageCourses = user?.role === "SUPER_ADMIN" || user?.role === "GS_ADMIN" || user?.role === "FACULTY_EDITOR";
+	const canManageCourses = user?.role === "CITS_ADMIN";
 
 	return (
 		<div className={styles.page}>

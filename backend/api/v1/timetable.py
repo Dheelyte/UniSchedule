@@ -148,7 +148,12 @@ async def update_course(
     id: int,
     data: CourseUpdate,
     service: TimetableService = Depends(),
-    user: dict = Depends(RequireRole([RoleEnum.SUPER_ADMIN.value, RoleEnum.FACULTY_EDITOR.value, RoleEnum.GS_ADMIN.value]))
+    user: dict = Depends(RequireRole([
+        RoleEnum.SUPER_ADMIN.value,
+        RoleEnum.FACULTY_EDITOR.value,
+        RoleEnum.GS_ADMIN.value,
+        RoleEnum.CITS_ADMIN.value
+    ]))
 ):
     return await service.update_course(id, data, user)
 
