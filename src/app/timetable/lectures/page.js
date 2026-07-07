@@ -241,11 +241,17 @@ export default function LectureTimetablePage() {
         const allLectures = getSchedulesWithDetails.filter((s) => s.type === 'lecture');
         const selectedFaculty = facultyId === 'ALL' ? null : state.faculties.find(f => f.id === facultyId);
         const isGeneralStudies = selectedFaculty?.name?.trim().toLowerCase() === 'general studies';
+        // A faculty's timetable includes courses it owns AND interfaculty/other
+        // courses whose students (a department in this faculty) are enrolled —
+        // mirroring how the platform scopes a faculty's timetable.
+        const deptFacultyId = new Map(state.departments.map((d) => [d.id, d.facultyId]));
+        const enrolledInFaculty = (courseId, fId) =>
+            (enrollmentsByCourse.get(courseId) || []).some((e) => deptFacultyId.get(e.department_id) === fId);
         const filtered = allLectures.filter((s) => {
             if (isGeneralStudies) {
                 // General Studies courses are university-wide; match by course code prefix.
                 if (!isGeneralStudiesCourse(s.courseCode)) return false;
-            } else if (facultyId !== 'ALL' && s.facultyId !== facultyId) {
+            } else if (facultyId !== 'ALL' && s.facultyId !== facultyId && !enrolledInFaculty(s.courseId, facultyId)) {
                 return false;
             }
             if (deptIdNum !== null && s.departmentId !== deptIdNum) return false;
