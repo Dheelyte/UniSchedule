@@ -237,10 +237,10 @@ export function exportTimetablePDF({
 			year: "numeric",
 		});
 
-		// Helper: check if a timeslot is blocked (General Event)
-		function getGeneralEvent(dayOrDate, slotIdx) {
-			const slotStartMin = slotIdx === 0 ? 9 * 60 : slotIdx === 1 ? 12 * 60 : 15 * 60;
-			const slotEndMin = slotIdx === 0 ? 12 * 60 : slotIdx === 1 ? 15 * 60 : 18 * 60;
+		// Helper: get blocked slots for a specific day/timeslot
+		function getBlockedSlotsForSlot(dayOrDate, slotIdx) {
+			const slotStartMin = (9 + slotIdx * 3) * 60;
+			const slotEndMin = slotStartMin + 3 * 60;
 
 			const isDate = !dayOrDate.startsWith("legacy:") && dayOrDate.includes("-");
 			let dateVal = null;
@@ -252,7 +252,7 @@ export function exportTimetablePDF({
 				dayVal = dayOrDate.replace("legacy:", "");
 			}
 
-			const match = blockedSlots.find(b => {
+			return blockedSlots.filter(b => {
 				if (mode === "exam" && b.applies_to === "LECTURE_ONLY") return false;
 				if (mode === "lecture" && b.applies_to === "EXAM_ONLY") return false;
 
@@ -271,8 +271,12 @@ export function exportTimetablePDF({
 				}
 				return false;
 			});
+		}
 
-			return match ? match.name : null;
+		// Helper: check if a timeslot is blocked (General Event)
+		function getGeneralEvent(dayOrDate, slotIdx) {
+			const matches = getBlockedSlotsForSlot(dayOrDate, slotIdx);
+			return matches.length > 0 ? matches[0].name : null;
 		}
 
 		// 1. Gather all unique dates (or legacy days) from schedules
@@ -753,7 +757,7 @@ export function exportTimetablePDF({
 
 			// Render Grid Rows
 			let rowY = tableStartY + 14;
-			const pageBlockedCols = new Map();
+
 
 			rowChunk.forEach((room) => {
 				const rowH = getA3RoomRowHeight(room, facWeekSchedules);
@@ -784,19 +788,6 @@ export function exportTimetablePDF({
 
 					STANDARD_SLOTS.forEach((slot, sIdx) => {
 						const cellX = dayX + sIdx * slotWidth;
-						const eventName = getGeneralEvent(dayVal, sIdx);
-
-						if (eventName) {
-							const colKey = `${dIdx}-${sIdx}`;
-							if (!pageBlockedCols.has(colKey)) {
-								pageBlockedCols.set(colKey, {
-									x: cellX,
-									width: slotWidth,
-									name: eventName
-								});
-							}
-							return;
-						}
 
 						// Fetch scheduled sittings for this faculty/room/day/timeslot
 						const cellSchedules = facWeekSchedules.filter(si => {
@@ -840,6 +831,57 @@ export function exportTimetablePDF({
 						pdfA3.line(cellX + 2 * slotWidth / 3, rowY, cellX + 2 * slotWidth / 3, rowY + rowH);
 						pdfA3.setDrawColor(71, 85, 105);
 						pdfA3.setLineWidth(0.2);
+
+						// Render blocked slots inside each room row timeslot cell
+						const cellBlockedSlots = getBlockedSlotsForSlot(dayVal, sIdx);
+						if (cellBlockedSlots.length > 0) {
+							cellBlockedSlots.forEach(b => {
+								let relStart = 0;
+								let relEnd = 1;
+								const slotStartMin = (9 + sIdx * 3) * 60;
+								const slotEndMin = slotStartMin + 3 * 60;
+
+								if (b.type === "EXTRACURRICULAR" && b.start_time && b.end_time) {
+									const [sH, sM] = b.start_time.split(":").map(Number);
+									const [eH, eM] = b.end_time.split(":").map(Number);
+									const startMin = sH * 60 + sM;
+									const endMin = eH * 60 + eM;
+									relStart = Math.max(0.0, (startMin - slotStartMin) / 180.0);
+									relEnd = Math.min(1.0, (endMin - slotStartMin) / 180.0);
+								}
+
+								const itemX = cellX + relStart * slotWidth;
+								const itemW = (relEnd - relStart) * slotWidth;
+								const cardY = rowY + 0.6;
+								const cardH = rowH - 1.2;
+
+								// Draw card background (light red fill)
+								pdfA3.setFillColor(254, 242, 242);
+								pdfA3.roundedRect(itemX + 0.6, cardY, itemW - 1.2, cardH, 0.6, 0.6, "F");
+
+								// Draw card outline (light red border)
+								pdfA3.setDrawColor(252, 165, 165);
+								pdfA3.setLineWidth(0.12);
+								pdfA3.roundedRect(itemX + 0.6, cardY, itemW - 1.2, cardH, 0.6, 0.6, "D");
+
+								// Write event name vertically centered inside the card
+								let fs = 6.5;
+								pdfA3.setFont("helvetica", "bold");
+								pdfA3.setFontSize(fs);
+								const nameUpper = b.name.toUpperCase();
+								while (pdfA3.getTextWidth(nameUpper) > cardH - 1.5 && fs > 4.5) {
+									fs -= 0.5;
+									pdfA3.setFontSize(fs);
+								}
+								pdfA3.setTextColor(220, 38, 38);
+								pdfA3.text(nameUpper, itemX + itemW / 2, cardY + cardH / 2, {
+									align: "center",
+									baseline: "middle",
+									angle: -90
+								});
+							});
+							return;
+						}
 
 						if (uniqueCellSchedules.length > 0) {
 							const sortedSchedules = [...uniqueCellSchedules].sort((a, b) => {
@@ -951,36 +993,7 @@ export function exportTimetablePDF({
 				rowY += rowH;
 			});
 
-			// Render Blocked Column Overlays (General Events)
-			const totalGridHeight = rowChunk.reduce((sum, r) => sum + getA3RoomRowHeight(r, facWeekSchedules), 0);
-			pageBlockedCols.forEach((colInfo) => {
-				const { x, width, name } = colInfo;
-				const gridStartY = tableStartY + 14;
 
-				pdfA3.setDrawColor(71, 85, 105);
-				pdfA3.setLineWidth(0.2);
-				pdfA3.setFillColor(243, 244, 246);
-				pdfA3.rect(x, gridStartY, width, totalGridHeight, "F");
-				pdfA3.rect(x, gridStartY, width, totalGridHeight, "D");
-
-				let fs = 9;
-				pdfA3.setFont("helvetica", "bold");
-				pdfA3.setFontSize(fs);
-				const nameUpper = name.toUpperCase();
-				while (pdfA3.getTextWidth(nameUpper) > totalGridHeight - 8 && fs > 6) {
-					fs -= 0.5;
-					pdfA3.setFontSize(fs);
-				}
-				pdfA3.setTextColor(71, 85, 105);
-				const textWidth = pdfA3.getTextWidth(nameUpper);
-				const charHeight = fs * 0.3528 * 0.7;
-				const xCenter = x + width / 2;
-				const yCenter = gridStartY + totalGridHeight / 2;
-				pdfA3.text(nameUpper, xCenter + charHeight / 2, yCenter + textWidth / 2, {
-					align: "left",
-					angle: 90
-				});
-			});
 
 			// Render Footer
 			pdfA3.setFont("helvetica", "normal");
