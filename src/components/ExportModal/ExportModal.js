@@ -18,6 +18,7 @@ export default function ExportModal({
 	const [departmentId, setDepartmentId] = useState("ALL");
 	const [paperSize, setPaperSize] = useState("a3");
 	const [monochrome, setMonochrome] = useState(true);
+	const [cbtOnly, setCbtOnly] = useState(false);
 
 	useEffect(() => {
 		if (isOpen) {
@@ -30,6 +31,7 @@ export default function ExportModal({
 			setDepartmentId("ALL");
 			setPaperSize("a3");
 			setMonochrome(true);
+			setCbtOnly(false);
 			/* eslint-enable react-hooks/set-state-in-effect */
 		}
 	}, [isOpen, sessions]);
@@ -50,6 +52,7 @@ export default function ExportModal({
 			format,
 			monochrome,
 			paperSize,
+			cbtOnly,
 		});
 	};
 
@@ -167,6 +170,19 @@ export default function ExportModal({
 							Include colors - PDF only (default is black &amp; white)
 						</label>
 					</div>
+
+					{mode === "exam" && (
+						<div className={styles.formGroup}>
+							<label className={styles.checkboxLabel}>
+								<input
+									type="checkbox"
+									checked={cbtOnly}
+									onChange={(e) => setCbtOnly(e.target.checked)}
+								/>
+								CBT exams only
+							</label>
+						</div>
+					)}
 
 					<div className={styles.footer}>
 						<button

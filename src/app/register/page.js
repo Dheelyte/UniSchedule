@@ -23,15 +23,9 @@ export default function RegisterPage() {
 
     useEffect(() => {
         if (!authLoading && user) {
-            if (token) {
-                apiClient.post('/auth/logout', {}).catch(() => {}).finally(() => {
-                    window.location.reload();
-                });
-            } else {
-                router.push('/');
-            }
+            router.push('/');
         }
-    }, [user, authLoading, router, token]);
+    }, [user, authLoading, router]);
 
     const handleSubmit = async (e) => {
         e.preventDefault();
@@ -54,8 +48,8 @@ export default function RegisterPage() {
         setLoading(true);
         try {
             await apiClient.post(`/auth/register/${token}`, { password });
-            addToast({ type: 'success', title: 'Account Created', message: 'Your account has been successfully configured.' });
-            window.location.href = '/';
+            addToast({ type: 'success', title: 'Account Created', message: 'Your account has been successfully configured. You may now login.' });
+            router.push('/login');
         } catch (e) {
             addToast({ type: 'error', title: 'Registration Failed', message: e.message || 'The invitation token is invalid or expired natively.' });
         } finally {

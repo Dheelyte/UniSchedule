@@ -329,6 +329,7 @@ export default function ExamTimetablePage() {
 		format = "pdf",
 		monochrome = false,
 		paperSize = "a4",
+		cbtOnly = false,
 	}) => {
 		setIsExportModalOpen(false);
 		const deptIdNum =
@@ -354,6 +355,11 @@ export default function ExamTimetablePage() {
 				return false;
 			}
 			if (deptIdNum !== null && s.departmentId !== deptIdNum) return false;
+			if (cbtOnly) {
+				const course = state.courses.find((c) => c.id === s.courseId);
+				const isCbt = course?.isCbtExam || course?.is_cbt_exam || false;
+				if (!isCbt) return false;
+			}
 			return true;
 		});
 		// Attribute GST/ENT courses to the General Studies faculty in the export.
@@ -413,9 +419,9 @@ export default function ExamTimetablePage() {
 			exportTimetablePDF({
 				schedules: exportableSchedules,
 				blockedSlots,
-				rooms: state.rooms,
+				rooms: cbtOnly ? state.rooms.filter(r => r.name?.toUpperCase().includes("CBT")) : state.rooms,
 				faculties: state.faculties,
-				title: "Examination Timetable",
+				title: cbtOnly ? "CBT Examination Timetable" : "Examination Timetable",
 				session,
 				semester,
 				faculty: facultyInfo,
@@ -445,9 +451,9 @@ export default function ExamTimetablePage() {
 		exportTimetablePDF({
 				schedules: exportableSchedules,
 			blockedSlots,
-				rooms: state.rooms,
+			rooms: cbtOnly ? state.rooms.filter(r => r.name?.toUpperCase().includes("CBT")) : state.rooms,
 			faculties: state.faculties,
-			title: "Examination Timetable",
+			title: cbtOnly ? "CBT Examination Timetable" : "Examination Timetable",
 			session,
 			semester,
 			faculty: facultyInfo,

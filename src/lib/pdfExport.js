@@ -692,6 +692,9 @@ export function exportTimetablePDF({
 				pageRows.forEach((r, rIdx) => {
 					const rowH = getA3RoomRowHeight(r.room, schedules);
 
+					pdfA3.setDrawColor(71, 85, 105);
+					pdfA3.setLineWidth(0.2);
+
 					// Draw Room Cell
 					pdfA3.setFillColor(255, 255, 255);
 					pdfA3.rect(m, rowY, venueColW, rowH, "F");
@@ -715,6 +718,8 @@ export function exportTimetablePDF({
 						for (let k = rIdx; k < rIdx + r.pageBlockLength; k++) {
 							spanH += getA3RoomRowHeight(pageRows[k].room, schedules);
 						}
+						pdfA3.setDrawColor(71, 85, 105);
+						pdfA3.setLineWidth(0.2);
 						pdfA3.setFillColor(255, 255, 255);
 						pdfA3.rect(m + venueColW, rowY, facultyColW, spanH, "F");
 						pdfA3.rect(m + venueColW, rowY, facultyColW, spanH, "D");
@@ -782,6 +787,8 @@ export function exportTimetablePDF({
 								return startMin < slotEndMin && slotStartMin < endMin;
 							});
 
+							pdfA3.setDrawColor(71, 85, 105);
+							pdfA3.setLineWidth(0.2);
 							pdfA3.setFillColor(255, 255, 255);
 							pdfA3.rect(cellX, rowY, slotWidth, rowH, "F");
 							pdfA3.rect(cellX, rowY, slotWidth, rowH, "D");
@@ -916,6 +923,8 @@ export function exportTimetablePDF({
 					const { x, width, name } = colInfo;
 					const gridStartY = tableStartY + 14;
 
+					pdfA3.setDrawColor(71, 85, 105);
+					pdfA3.setLineWidth(0.2);
 					pdfA3.setFillColor(243, 244, 246); // light grey vertical span
 					pdfA3.rect(x, gridStartY, width, totalGridHeight, "F");
 					pdfA3.rect(x, gridStartY, width, totalGridHeight, "D");
