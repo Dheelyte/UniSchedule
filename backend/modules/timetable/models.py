@@ -14,6 +14,8 @@ class Faculty(Base):
     __tablename__ = "faculties"
     id: Mapped[str] = mapped_column(String, primary_key=True) # e.g. "ENG"
     name: Mapped[str] = mapped_column(String, unique=True)
+    # Special faculties are exempt from timetable conflict detection.
+    is_special: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
 
 class Department(Base):
     __tablename__ = "departments"
