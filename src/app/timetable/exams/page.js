@@ -570,6 +570,7 @@ export default function ExamTimetablePage() {
 				onExport={handleExportConfirm}
 				mode="exam"
 				sessions={sessions}
+				semesters={semesters}
 			/>
 			{isRequestModalOpen && (
 				<RequestEditModal

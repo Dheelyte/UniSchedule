@@ -611,6 +611,7 @@ export default function CBTTimetablePage() {
 				onExport={handleExportConfirm}
 				mode="exam"
 				sessions={sessions}
+				semesters={semesters}
 			/>
 			{isRequestModalOpen && (
 				<RequestEditModal

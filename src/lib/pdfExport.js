@@ -618,10 +618,6 @@ export function exportTimetablePDF({
 			pdfA3.setTextColor(15, 23, 42);
 			pdfA3.text((schoolName || "University of Lagos").toUpperCase(), m + logoSize + 4, y + 5);
 
-			pdfA3.setFontSize(11);
-			pdfA3.setFont("helvetica", "normal");
-			pdfA3.setTextColor(71, 85, 105);
-			
 			// Subtitle: Replace generic faculty filter with printed faculty name
 			let currentFacultyName = facName.toUpperCase();
 			if (isGSTSection) {
@@ -631,12 +627,45 @@ export function exportTimetablePDF({
 					currentFacultyName = `GENERAL STUDIES TIMETABLE - ${facName.toUpperCase()}`;
 				}
 			}
-			const sub = [`${session} Session`, semester, currentFacultyName, department].filter(Boolean).join("   ·   ");
+
+			// Helper to draw mixed normal/bold text for the subtitle
+			const drawMixedSubtitle = (pdf, startX, startY, maxW) => {
+				let curX = startX;
+				let curY = startY;
+				
+				const parts = [
+					{ text: `${session} Session`, bold: false },
+					{ text: `   ·   ${semester}   ·   `, bold: false },
+					{ text: currentFacultyName, bold: true }
+				];
+				if (department) {
+					parts.push({ text: `   ·   ${department}`, bold: false });
+				}
+
+				parts.forEach(part => {
+					pdf.setFont("helvetica", part.bold ? "bold" : "normal");
+					const tokens = part.text.split(/(\s+)/);
+					tokens.forEach(token => {
+						if (!token) return;
+						if (token.trim() === "") {
+							curX += pdf.getTextWidth(token);
+						} else {
+							const tokenW = pdf.getTextWidth(token);
+							if (curX + tokenW > startX + maxW) {
+								curX = startX;
+								curY += 4.5;
+							}
+							pdf.text(token, curX, curY);
+							curX += tokenW;
+						}
+					});
+				});
+			};
+
+			pdfA3.setFontSize(11);
+			pdfA3.setTextColor(71, 85, 105);
 			const maxSubW = a3W / 2 - (m + logoSize + 8);
-			const subLines = pdfA3.splitTextToSize(sub, maxSubW);
-			subLines.forEach((line, idx) => {
-				pdfA3.text(line, m + logoSize + 4, y + 12 + idx * 4.5);
-			});
+			drawMixedSubtitle(pdfA3, m + logoSize + 4, y + 12, maxSubW);
 
 			// WEEK label at the center
 			const weekLabel = `WEEK ${weekIdx + 1}`;

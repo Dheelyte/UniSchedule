@@ -8,6 +8,7 @@ export default function ExportModal({
 	onExport,
 	mode,
 	sessions = [],
+	semesters = [],
 }) {
 	const { state } = useApp();
 
@@ -26,7 +27,11 @@ export default function ExportModal({
 			const current = sessions.find((s) => s.is_current) || sessions[0];
 			/* eslint-disable react-hooks/set-state-in-effect */
 			setSession(current ? current.name : "2025/2026");
-			setSemester("1st Semester");
+			
+			// Find current semester from database and set as default
+			const currentSem = semesters.find((s) => s.is_current) || semesters[0];
+			setSemester(currentSem ? currentSem.name : "1st Semester");
+			
 			setFacultyId("ALL");
 			setDepartmentId("ALL");
 			setPaperSize("a3");
@@ -34,7 +39,7 @@ export default function ExportModal({
 			setCbtOnly(false);
 			/* eslint-enable react-hooks/set-state-in-effect */
 		}
-	}, [isOpen, sessions]);
+	}, [isOpen, sessions, semesters]);
 
 	if (!isOpen) return null;
 
@@ -111,8 +116,21 @@ export default function ExportModal({
 							className={styles.input}
 							value={semester}
 							onChange={(e) => setSemester(e.target.value)}>
-							<option value="1st Semester">1st Semester</option>
-							<option value="2nd Semester">2nd Semester</option>
+							{semesters.length > 0 ? (
+								semesters
+									.filter((s) => !session || s.sessionName === session)
+									.map((s) => (
+										<option key={s.id} value={s.name}>
+											{s.name}
+											{s.is_current ? " (Current)" : ""}
+										</option>
+									))
+							) : (
+								<>
+									<option value="1st Semester">1st Semester</option>
+									<option value="2nd Semester">2nd Semester</option>
+								</>
+							)}
 						</select>
 					</div>
 
