@@ -123,7 +123,7 @@ function computeVerticalOverlapLayout(events) {
     return assignments;
 }
 
-export default function TimetableGrid({ mode = 'lecture', semesterId = null, semesterName = null, readOnly = false, readOnlyReasons = [], blockedSlots = [], enrollmentsByCourse = null }) {
+export default function TimetableGrid({ mode = 'lecture', semesterId = null, semesterName = null, readOnly = false, readOnlyReasons = [], blockedSlots = [], enrollmentsByCourse = null, cbtOnly = false }) {
     const { state, dispatch, getSchedulesWithDetails } = useApp();
     const { faculties, departments, courses, rooms } = state;
     const { addToast } = useToast();
@@ -227,8 +227,20 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
 
     // ALL schedules of this mode (for conflicts across days/weeks)
     const allModeSchedules = useMemo(() => {
-        return getSchedulesWithDetails.filter((s) => s.type === mode);
-    }, [getSchedulesWithDetails, mode]);
+        let list = getSchedulesWithDetails.filter((s) => s.type === mode);
+        if (cbtOnly) {
+            list = list.filter((s) => {
+                const course = courses.find((c) => c.id === s.courseId);
+                const isCbtCourse = course?.isCbtExam || course?.is_cbt_exam;
+                const hasCbtRoom = (s.roomIds || []).some(rid => {
+                    const r = rooms.find(rm => rm.id === rid);
+                    return r && r.name && r.name.toUpperCase().includes('CBT');
+                });
+                return isCbtCourse || hasCbtRoom;
+            });
+        }
+        return list;
+    }, [getSchedulesWithDetails, mode, cbtOnly, courses, rooms]);
 
     const departmentsById = useMemo(() => {
         const m = new Map();
@@ -289,11 +301,16 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
     // Rooms to render: own-faculty rooms + any room referenced by a visible schedule item.
     // Global-scope users see everything; this trims the grid for FACULTY editors/viewers.
     const displayedRooms = useMemo(() => {
-        if (hasGlobalScope(user?.role) || !user?.faculty_id) return rooms;
-        const referenced = new Set();
-        allModeSchedules.forEach((s) => (s.roomIds || []).forEach((rid) => referenced.add(rid)));
-        return rooms.filter((r) => r.faculty_id === user.faculty_id || r.faculty_id === null || referenced.has(r.id));
-    }, [rooms, allModeSchedules, user?.role, user?.faculty_id]);
+        let pool = rooms;
+        if (cbtOnly) {
+            pool = rooms.filter((r) => r.name && r.name.toUpperCase().includes('CBT'));
+        } else if (!hasGlobalScope(user?.role) && user?.faculty_id) {
+            const referenced = new Set();
+            allModeSchedules.forEach((s) => (s.roomIds || []).forEach((rid) => referenced.add(rid)));
+            pool = rooms.filter((r) => r.faculty_id === user.faculty_id || r.faculty_id === null || referenced.has(r.id));
+        }
+        return pool;
+    }, [rooms, allModeSchedules, user?.role, user?.faculty_id, cbtOnly]);
 
     // Filtered mode schedules (respecting faculty, dept, week) but independent of day
     const filteredModeSchedules = useMemo(() => {
@@ -378,6 +395,9 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
 
     const modalCourses = useMemo(() => {
         let filteredCourses = courses;
+        if (cbtOnly) {
+            filteredCourses = filteredCourses.filter((c) => c.isCbtExam || c.is_cbt_exam);
+        }
         // Restrict to courses offered in the current semester. Legacy courses with
         // no semester set are still shown so older data remains schedulable.
         if (semesterName) {
@@ -758,8 +778,9 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
     const getAvailableRooms = (currentIndex) => {
         const selectedIds = modalForm.roomIds.filter((_, i) => i !== currentIndex);
         let pool = rooms;
-        // Faculty editors can only schedule into their own faculty's rooms (and shared/unassigned ones).
-        if (!hasGlobalScope(user?.role) && user?.faculty_id) {
+        if (cbtOnly) {
+            pool = pool.filter((r) => r.name && r.name.toUpperCase().includes('CBT'));
+        } else if (!hasGlobalScope(user?.role) && user?.faculty_id) {
             pool = pool.filter((r) => r.faculty_id === user.faculty_id || r.faculty_id === null);
         }
         return pool.filter((r) => !selectedIds.includes(r.id));

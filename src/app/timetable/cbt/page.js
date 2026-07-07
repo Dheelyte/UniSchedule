@@ -7,7 +7,6 @@ import { apiClient } from "@/lib/apiClient";
 import { detectAllConflicts } from "@/lib/conflicts";
 import { exportTimetablePDF } from "@/lib/pdfExport";
 import { exportTimetableCSV } from "@/lib/csvExport";
-import { isGeneralStudiesCourse, GENERAL_STUDIES_FACULTY } from "@/lib/utils";
 import TimetableGrid from "@/components/TimetableGrid/TimetableGrid";
 import { useToast } from "@/components/Toast/Toast";
 import ExportModal from "@/components/ExportModal/ExportModal";
@@ -17,13 +16,11 @@ import RequestChangeModal from "@/components/RequestChangeModal/RequestChangeMod
 import { isViewerRole, canRequestChange } from "@/lib/roles";
 import { useConfirm } from "@/components/ConfirmModal/ConfirmContext";
 import { TimetableSkeleton } from "@/components/Skeleton/Skeleton";
-import styles from "./exams.module.css";
+import styles from "../exams/exams.module.css";
 
-// Toggle to bypass the conflict warning modal before PDF export.
-// Set to false to skip showing conflict warning popups.
 const SHOW_CONFLICTS_BEFORE_EXPORT = false;
 
-export default function ExamTimetablePage() {
+export default function CBTTimetablePage() {
 	const { getSchedulesWithDetails, state, dispatch } = useApp();
 	const { user } = useAuth();
 	const { addToast } = useToast();
@@ -41,6 +38,11 @@ export default function ExamTimetablePage() {
 	const [isChangeModalOpen, setIsChangeModalOpen] = useState(false);
 	const [changeBusy, setChangeBusy] = useState(false);
 	const [enrollmentsByCourse, setEnrollmentsByCourse] = useState(new Map());
+
+	// CBT Management state
+	const [isManageModalOpen, setIsManageModalOpen] = useState(false);
+	const [courseSearch, setCourseSearch] = useState("");
+	const [togglingCourseId, setTogglingCourseId] = useState(null);
 
 	const handleChangeRequestSubmit = async (payload) => {
 		if (selectedSemesterId === null || changeBusy) return;
@@ -254,7 +256,12 @@ export default function ExamTimetablePage() {
 
 	const handleExportInit = async (format) => {
 		if (SHOW_CONFLICTS_BEFORE_EXPORT) {
-			const schedules = getSchedulesWithDetails.filter((s) => s.type === "exam");
+			const schedules = getSchedulesWithDetails.filter(
+				(s) => s.type === "exam" && (
+					state.courses.find(c => c.id === s.courseId)?.isCbtExam ||
+					(s.roomIds || []).some(rid => state.rooms.find(rm => rm.id === rid)?.name?.toUpperCase().includes("CBT"))
+				)
+			);
 			const conflictsMap = detectAllConflicts(schedules);
 			const errorMessages = [
 				...new Set(
@@ -279,82 +286,33 @@ export default function ExamTimetablePage() {
 		setIsExportModalOpen(true);
 	};
 
-	const handleExportConfirm = async ({
-		session,
-		semester,
-		facultyId,
-		departmentId,
-		format = "pdf",
-		monochrome = false,
-		paperSize = "a4",
-	}) => {
+	const handleExportConfirm = async ({ paperSize = "a4", monochrome = false, groupByFaculty = false }) => {
 		setIsExportModalOpen(false);
-		const deptIdNum =
-			departmentId && departmentId !== "ALL" ? Number(departmentId) : null;
-		const allExams = getSchedulesWithDetails.filter((s) => s.type === "exam");
-		const selectedFaculty =
-			facultyId === "ALL"
-				? null
-				: state.faculties.find((f) => f.id === facultyId);
-		const isGeneralStudies =
-			selectedFaculty?.name?.trim().toLowerCase() === "general studies";
-		const filtered = allExams.filter((s) => {
-			if (isGeneralStudies) {
-				// General Studies courses are university-wide; match by course code prefix.
-				if (!isGeneralStudiesCourse(s.courseCode)) return false;
-			} else if (facultyId !== "ALL" && s.facultyId !== facultyId) {
-				return false;
-			}
-			if (deptIdNum !== null && s.departmentId !== deptIdNum) return false;
-			return true;
-		});
-		// Attribute GST/ENT courses to the General Studies faculty in the export.
-		const filteredSchedules = filtered.map((s) =>
-			isGeneralStudiesCourse(s.courseCode)
-				? { ...s, facultyName: GENERAL_STUDIES_FACULTY }
-				: s,
-		);
-		if (filteredSchedules.length === 0) {
-			addToast({
-				type: "error",
-				title: "Export Failed",
-				message: "No schedules found for the selected filters.",
+		const rawSchedules = getSchedulesWithDetails.filter((s) => s.type === "exam");
+		const filteredSchedules = rawSchedules.filter((s) => {
+			const course = state.courses.find((c) => c.id === s.courseId);
+			const isCbtCourse = course?.isCbtExam || course?.is_cbt_exam;
+			const hasCbtRoom = (s.roomIds || []).some(rid => {
+				const r = state.rooms.find(rm => rm.id === rid);
+				return r && r.name && r.name.toUpperCase().includes("CBT");
 			});
-			return;
-		}
-		// When exporting every faculty, group output by faculty with General Studies first.
-		const groupByFaculty = facultyId === "ALL";
+			return isCbtCourse || hasCbtRoom;
+		});
 
-		const facultyInfo =
-			facultyId === "ALL"
-				? "All Faculties"
-				: state.faculties.find((f) => f.id === facultyId)?.name ||
-					"Unknown Faculty";
-		const departmentInfo =
-			deptIdNum === null
-				? null
-				: state.departments.find((d) => d.id === deptIdNum)?.name ||
-					"Unknown Department";
+		const sem = semesters.find((s) => s.id === selectedSemesterId);
+		const semester = sem?.name || "";
+		const session = sem?.sessionName || "";
 
 		if (format === "csv") {
-			exportTimetableCSV({
-				schedules: filteredSchedules,
-				title: "Examination Timetable",
-				session,
-				semester,
-				faculty: facultyInfo,
-				department: departmentInfo,
-				mode: "exam",
-				groupByFaculty,
-			});
+			exportTimetableCSV(filteredSchedules, `CBT_Timetable_${session}_${semester}`);
 			addToast({
 				type: "success",
 				title: "CSV Exported",
-				message: "Exam timetable downloaded as CSV.",
+				message: "CBT timetable downloaded as CSV.",
 			});
 			return;
 		}
-		// A3 structured PDF export (use structured layout on A3)
+
 		if (format === "pdf" && paperSize === "a3") {
 			const blockedSlots = await apiClient
 				.get(`/timetable/blocked-slots?semester_id=${selectedSemesterId}`)
@@ -363,13 +321,11 @@ export default function ExamTimetablePage() {
 			exportTimetablePDF({
 				schedules: filteredSchedules,
 				blockedSlots,
-				rooms: state.rooms,
+				rooms: state.rooms.filter(r => r.name?.toUpperCase().includes("CBT")),
 				faculties: state.faculties,
-				title: "Examination Timetable",
+				title: "CBT Examination Timetable",
 				session,
 				semester,
-				faculty: facultyInfo,
-				department: departmentInfo,
 				schoolName: "University of Lagos",
 				mode: "exam",
 				monochrome,
@@ -382,12 +338,11 @@ export default function ExamTimetablePage() {
 			addToast({
 				type: "success",
 				title: "PDF Exported",
-				message: "Exam timetable downloaded (A3 structured).",
+				message: "CBT timetable downloaded (A3 structured).",
 			});
 			return;
 		}
 
-		// Default A4 PDF export (existing behavior)
 		const blockedSlots = await apiClient
 			.get(`/timetable/blocked-slots?semester_id=${selectedSemesterId}`)
 			.catch(() => []);
@@ -395,13 +350,11 @@ export default function ExamTimetablePage() {
 		exportTimetablePDF({
 			schedules: filteredSchedules,
 			blockedSlots,
-			rooms: state.rooms,
+			rooms: state.rooms.filter(r => r.name?.toUpperCase().includes("CBT")),
 			faculties: state.faculties,
-			title: "Examination Timetable",
+			title: "CBT Examination Timetable",
 			session,
 			semester,
-			faculty: facultyInfo,
-			department: departmentInfo,
 			schoolName: "University of Lagos",
 			mode: "exam",
 			monochrome,
@@ -411,8 +364,14 @@ export default function ExamTimetablePage() {
 		addToast({
 			type: "success",
 			title: "PDF Exported",
-			message: "Exam timetable downloaded as PDF.",
+			message: "CBT timetable downloaded as PDF.",
 		});
+	};
+
+	const [format, setFormat] = useState("pdf");
+	const triggerExport = (fmt) => {
+		setFormat(fmt);
+		handleExportInit(fmt);
 	};
 
 	if (selectedSemesterId === null) return <TimetableSkeleton />;
@@ -428,18 +387,27 @@ export default function ExamTimetablePage() {
 		);
 	if (isLocked)
 		readOnlyReasons.push(
-			"The exam timetable has been locked (FINAL) by a super admin.",
+			"The CBT timetable has been locked (FINAL) by a super admin.",
 		);
 	const readOnly = readOnlyReasons.length > 0;
 	const showRequestChange =
 		!isLocked && isCurrentSemester && canRequestChange(user?.role);
-	const examSchedules = getSchedulesWithDetails.filter(
-		(s) => s.type === "exam",
+	const cbtSchedules = getSchedulesWithDetails.filter(
+		(s) => s.type === "exam" && (
+			state.courses.find(c => c.id === s.courseId)?.isCbtExam ||
+			(s.roomIds || []).some(rid => state.rooms.find(rm => rm.id === rid)?.name?.toUpperCase().includes("CBT"))
+		)
 	);
+
+	const canManageCourses = user?.role === "SUPER_ADMIN" || user?.role === "GS_ADMIN" || user?.role === "FACULTY_EDITOR";
 
 	return (
 		<div className={styles.page}>
 			<div className={styles.pageHeader}>
+				<div>
+					<h2 className={styles.pageTitle}>CBT Examination Timetable</h2>
+					<p className={styles.pageSub}>Central schedule for Computer-Based Testing</p>
+				</div>
 				<TimetableStatusBadge
 					isLocked={isLocked}
 					canToggle={user?.role === "SUPER_ADMIN" && isCurrentSemester}
@@ -466,6 +434,14 @@ export default function ExamTimetablePage() {
 							))}
 						</select>
 					)}
+					{canManageCourses && !readOnly && (
+						<button
+							className="btn btn-primary"
+							onClick={() => setIsManageModalOpen(true)}
+						>
+							Manage CBT Courses
+						</button>
+					)}
 					{showRequestChange && (
 						<button
 							className="btn btn-secondary"
@@ -475,7 +451,7 @@ export default function ExamTimetablePage() {
 					)}
 					<button
 						className="btn btn-secondary"
-						onClick={() => handleExportInit("csv")}>
+						onClick={() => triggerExport("csv")}>
 						<svg
 							width="16"
 							height="16"
@@ -493,8 +469,10 @@ export default function ExamTimetablePage() {
 					</button>
 				</div>
 			</div>
+			
 			<TimetableGrid
 				mode="exam"
+				cbtOnly={true}
 				semesterId={selectedSemesterId}
 				semesterName={
 					semesters.find((s) => s.id === selectedSemesterId)?.name || null
@@ -504,6 +482,7 @@ export default function ExamTimetablePage() {
 				readOnlyReasons={readOnlyReasons}
 				enrollmentsByCourse={enrollmentsByCourse}
 			/>
+			
 			<ExportModal
 				isOpen={isExportModalOpen}
 				onClose={() => setIsExportModalOpen(false)}
@@ -525,12 +504,105 @@ export default function ExamTimetablePage() {
 					onSubmit={handleChangeRequestSubmit}
 					busy={changeBusy}
 					mode="exam"
-					courses={state.courses}
+					courses={state.courses.filter(c => c.isCbtExam)}
 					departments={state.departments}
 					faculties={state.faculties}
-					rooms={state.rooms}
-					scheduleItems={examSchedules}
+					rooms={state.rooms.filter(r => r.name?.toUpperCase().includes("CBT"))}
+					scheduleItems={cbtSchedules}
 				/>
+			)}
+
+			{/* Manage CBT Courses Modal */}
+			{isManageModalOpen && (
+				<div className="modal-overlay" onClick={() => setIsManageModalOpen(false)}>
+					<div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: "600px", width: "100%" }}>
+						<div className="modal-header">
+							<h3>Manage CBT Courses</h3>
+							<button className="modal-close" onClick={() => setIsManageModalOpen(false)}>✕</button>
+						</div>
+						<div className="modal-body" style={{ maxHeight: "400px", overflowY: "auto", padding: "16px 20px" }}>
+							<p style={{ color: "var(--color-text-secondary)", marginBottom: "16px", fontSize: "0.88rem", lineHeight: 1.4 }}>
+								Select which courses require Computer-Based Testing (CBT). Courses selected here will be eligible to be scheduled on the CBT Timetable grid.
+							</p>
+							<div className="form-group" style={{ marginBottom: "16px" }}>
+								<input
+									className="form-input"
+									placeholder="Search courses by code or title..."
+									value={courseSearch}
+									onChange={(e) => setCourseSearch(e.target.value)}
+									style={{ width: "100%" }}
+								/>
+							</div>
+							<div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+								{state.courses
+									.filter(c => {
+										if (!courseSearch) return true;
+										const q = courseSearch.toLowerCase();
+										return c.code.toLowerCase().includes(q) || (c.title && c.title.toLowerCase().includes(q));
+									})
+									.map(course => {
+										const isToggling = togglingCourseId === course.id;
+										return (
+											<div
+												key={course.id}
+												style={{
+													display: "flex",
+													alignItems: "center",
+													justifyContent: "space-between",
+													padding: "10px 14px",
+													background: "rgba(255, 255, 255, 0.02)",
+													border: "1px solid var(--color-border)",
+													borderRadius: "6px",
+												}}
+											>
+												<div style={{ display: "flex", flexDirection: "column" }}>
+													<span style={{ fontWeight: 600, fontSize: "0.95rem" }}>{course.code}</span>
+													<span style={{ fontSize: "0.78rem", color: "var(--color-text-secondary)" }}>{course.title || "No Title"}</span>
+												</div>
+												<label style={{ cursor: isToggling ? "not-allowed" : "pointer", display: "flex", alignItems: "center", padding: "4px" }}>
+													<input
+														type="checkbox"
+														checked={course.isCbtExam || false}
+														disabled={isToggling}
+														onChange={async (e) => {
+															const checked = e.target.checked;
+															setTogglingCourseId(course.id);
+															try {
+																await apiClient.put(`/timetable/courses/${course.id}`, {
+																	is_cbt_exam: checked
+																});
+																dispatch({
+																	type: ACTION_TYPES.UPDATE_COURSE,
+																	payload: { ...course, isCbtExam: checked }
+																});
+																addToast({
+																	type: "success",
+																	title: "CBT Status Updated",
+																	message: `${course.code} has been ${checked ? "marked" : "unmarked"} as a CBT exam.`,
+																});
+															} catch (err) {
+																addToast({
+																	type: "error",
+																	title: "Update Failed",
+																	message: err.message || "Unable to update CBT status.",
+																});
+															} finally {
+																setTogglingCourseId(null);
+															}
+														}}
+														style={{ width: "18px", height: "18px" }}
+													/>
+												</label>
+											</div>
+										);
+									})}
+							</div>
+						</div>
+						<div className="modal-footer">
+							<button className="btn btn-secondary" onClick={() => setIsManageModalOpen(false)}>Close</button>
+						</div>
+					</div>
+				</div>
 			)}
 		</div>
 	);

@@ -38,7 +38,7 @@ export default function CoursesPage() {
     const [deleteConfirm, setDeleteConfirm] = useState(null);
 
     // Form state
-    const [form, setForm] = useState({ code: '', title: '', creditLoad: 3, lecturers: '', departmentId: '', scope: SCOPES.DEPARTMENTAL, level: 100, semester: '' });
+    const [form, setForm] = useState({ code: '', title: '', creditLoad: 3, lecturers: '', departmentId: '', scope: SCOPES.DEPARTMENTAL, level: 100, semester: '', isCbtExam: false });
     const [loading, setLoading] = useState(true);
     // course_id -> [{ id, course_id, department_id, level }]
     const [enrollmentsByCourse, setEnrollmentsByCourse] = useState(new Map());
@@ -70,6 +70,7 @@ export default function CoursesPage() {
                                 creditLoad: c.credit_load,
                                 departmentId: c.department_id,
                                 scope: c.scope || SCOPES.DEPARTMENTAL,
+                                isCbtExam: c.is_cbt_exam || false,
                             })),
                             faculties: faculties || [],
                             departments: (departments || []).map(d => ({ ...d, facultyId: d.faculty_id }))
@@ -119,6 +120,7 @@ export default function CoursesPage() {
             scope: isGsAdmin(role) ? SCOPES.UNIVERSITY_WIDE : SCOPES.DEPARTMENTAL,
             level: isGsAdmin(role) ? null : 100,
             semester: '',
+            isCbtExam: false,
         });
         setShowModal(true);
     };
@@ -137,6 +139,7 @@ export default function CoursesPage() {
             scope: course.scope || SCOPES.DEPARTMENTAL,
             level: course.level ?? 100,
             semester: course.semester || '',
+            isCbtExam: course.isCbtExam || false,
         });
         setShowModal(true);
     };
@@ -170,19 +173,20 @@ export default function CoursesPage() {
                 scope: form.scope,
                 level: form.scope === SCOPES.UNIVERSITY_WIDE ? (form.level || null) : parseInt(form.level, 10),
                 semester: form.semester,
+                is_cbt_exam: form.isCbtExam,
             };
 
             if (editing) {
                 await apiClient.put(`/timetable/courses/${editing.id}`, payload);
                 dispatch({
                     type: ACTION_TYPES.UPDATE_COURSE,
-                    payload: { id: editing.id, code: payload.code, title: payload.title, creditLoad: payload.credit_load, lecturers: payload.lecturers, departmentId: payload.department_id, scope: payload.scope, level: payload.level, semester: payload.semester }
+                    payload: { id: editing.id, code: payload.code, title: payload.title, creditLoad: payload.credit_load, lecturers: payload.lecturers, departmentId: payload.department_id, scope: payload.scope, level: payload.level, semester: payload.semester, isCbtExam: payload.is_cbt_exam }
                 });
             } else {
                 const res = await apiClient.post('/timetable/courses', payload);
                 dispatch({
                     type: ACTION_TYPES.ADD_COURSE,
-                    payload: { id: res.id, code: res.code, title: res.title, creditLoad: res.credit_load, lecturers: res.lecturers, departmentId: res.department_id, scope: res.scope, level: res.level, semester: res.semester }
+                    payload: { id: res.id, code: res.code, title: res.title, creditLoad: res.credit_load, lecturers: res.lecturers, departmentId: res.department_id, scope: res.scope, level: res.level, semester: res.semester, isCbtExam: res.is_cbt_exam }
                 });
             }
         } catch (e) {
@@ -324,6 +328,7 @@ export default function CoursesPage() {
                                 <td>
                                     <span className={styles.courseCode}>{c.code}</span>
                                     {c.level && <span className={styles.levelBadge}>{c.level}L</span>}
+                                    {c.isCbtExam && <span className={styles.cbtBadge} style={{ background: '#2563eb', color: '#fff', fontSize: '0.68rem', padding: '2px 6px', borderRadius: '4px', marginLeft: '4px', fontWeight: 'bold', display: 'inline-block', verticalAlign: 'middle' }}>CBT</span>}
                                     <ScopeBadge scope={c.scope} />
                                 </td>
                                 <td style={{ fontWeight: 500, color: 'var(--color-text)' }}>{c.title}</td>
@@ -540,6 +545,18 @@ export default function CoursesPage() {
                             <div className="form-group">
                                 <label className="form-label">Lecturers (comma-separated)</label>
                                 <input className="form-input" value={form.lecturers} onChange={(e) => setForm({ ...form, lecturers: e.target.value })} placeholder="e.g. Dr. Adebayo Ojo, Prof. Nwankwo" />
+                            </div>
+
+                            <div className="form-group">
+                                <label className="form-label" style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', marginTop: '12px' }}>
+                                    <input
+                                        type="checkbox"
+                                        checked={form.isCbtExam || false}
+                                        onChange={(e) => setForm({ ...form, isCbtExam: e.target.checked })}
+                                        style={{ width: '16px', height: '16px' }}
+                                    />
+                                    Is CBT Exam?
+                                </label>
                             </div>
                         </div>
                         <div className="modal-footer">

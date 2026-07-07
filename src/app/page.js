@@ -79,6 +79,7 @@ export default function DashboardPage() {
 								...c,
 								creditLoad: c.credit_load,
 								departmentId: c.department_id,
+								isCbtExam: c.is_cbt_exam || false,
 							})),
 							scheduleItems: (scheduleItems || []).map((s) => ({
 								...s,

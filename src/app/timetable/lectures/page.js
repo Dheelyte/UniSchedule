@@ -88,7 +88,7 @@ export default function LectureTimetablePage() {
                     faculties: faculties || [],
                     departments: (departments || []).map(d => ({ ...d, facultyId: d.faculty_id })),
                     rooms: rooms || [],
-                    courses: (courses || []).map(c => ({ ...c, creditLoad: c.credit_load, departmentId: c.department_id })),
+                    courses: (courses || []).map(c => ({ ...c, creditLoad: c.credit_load, departmentId: c.department_id, isCbtExam: c.is_cbt_exam || false })),
                     scheduleItems: (scheduleItems || []).map(s => ({
                         ...s,
                         courseId: s.course_id,
