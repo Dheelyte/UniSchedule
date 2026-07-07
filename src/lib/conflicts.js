@@ -100,10 +100,15 @@ export function detectConflicts(candidate, allSchedules, excludeId = null, enrol
     };
     const conflicts = [];
 
+    // Courses in special faculties are exempt from conflict detection.
+    if (candidate.isSpecialFaculty) {
+        return { hasConflict: false, hasWarning: false, conflicts };
+    }
+
     // For exam mode: check for duplicate course across ALL weeks/days
     if (candidate.type === 'exam') {
         const duplicateCourse = allSchedules.find(
-            (s) => s.id !== excludeId && s.type === 'exam' && s.courseId === candidate.courseId
+            (s) => s.id !== excludeId && !s.isSpecialFaculty && s.type === 'exam' && s.courseId === candidate.courseId
         );
         if (duplicateCourse) {
             conflicts.push({
@@ -120,6 +125,7 @@ export function detectConflicts(candidate, allSchedules, excludeId = null, enrol
     // In exam mode, also scope to same week.
     const relevantSchedules = allSchedules.filter((s) => {
         if (s.id === excludeId) return false;
+        if (s.isSpecialFaculty) return false;
         if (s.type !== candidate.type) return false;
         if (candidate.type === 'exam') {
             if (candidate.examDate && s.examDate) {
@@ -285,6 +291,8 @@ export function detectAllConflicts(allSchedules, enrollmentsByCourse = null, dep
 
     for (let i = 0; i < allSchedules.length; i++) {
         const a = allSchedules[i];
+        // Courses in special faculties are exempt from conflict detection.
+        if (a.isSpecialFaculty) continue;
         const itemConflicts = [];
 
         // Exam mode: check for duplicate course across all weeks/days
@@ -292,6 +300,7 @@ export function detectAllConflicts(allSchedules, enrollmentsByCourse = null, dep
             for (let j = 0; j < allSchedules.length; j++) {
                 if (i === j) continue;
                 const b = allSchedules[j];
+                if (b.isSpecialFaculty) continue;
                 if (b.type !== 'exam') continue;
                 if (a.courseId === b.courseId) {
                     itemConflicts.push({
@@ -307,6 +316,7 @@ export function detectAllConflicts(allSchedules, enrollmentsByCourse = null, dep
         for (let j = 0; j < allSchedules.length; j++) {
             if (i === j) continue;
             const b = allSchedules[j];
+            if (b.isSpecialFaculty) continue;
 
             if (a.type !== b.type) continue;
             if (a.type === 'exam') {

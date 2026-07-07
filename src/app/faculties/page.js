@@ -24,6 +24,7 @@ export default function FacultiesPage() {
 
     // Form state
     const [facultyName, setFacultyName] = useState('');
+    const [facultySpecial, setFacultySpecial] = useState(false);
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
@@ -61,12 +62,14 @@ export default function FacultiesPage() {
     const openAddFaculty = () => {
         setEditingFaculty(null);
         setFacultyName('');
+        setFacultySpecial(false);
         setShowFacultyModal(true);
     };
 
     const openEditFaculty = (fac) => {
         setEditingFaculty(fac);
         setFacultyName(fac.name);
+        setFacultySpecial(!!(fac.is_special ?? fac.isSpecial));
         setShowFacultyModal(true);
     };
 
@@ -74,13 +77,13 @@ export default function FacultiesPage() {
         if (!facultyName.trim()) return;
         try {
             if (editingFaculty) {
-                await apiClient.put(`/timetable/faculties/${editingFaculty.id}`, { name: facultyName.trim() });
-                dispatch({ type: ACTION_TYPES.UPDATE_FACULTY, payload: { id: editingFaculty.id, name: facultyName.trim() } });
+                await apiClient.put(`/timetable/faculties/${editingFaculty.id}`, { name: facultyName.trim(), is_special: facultySpecial });
+                dispatch({ type: ACTION_TYPES.UPDATE_FACULTY, payload: { id: editingFaculty.id, name: facultyName.trim(), is_special: facultySpecial } });
             } else {
                 const words = facultyName.trim().split(/\s+/).filter(w => w.toLowerCase() !== 'of');
                 const acronym = words.map(w => w[0]).join('').toUpperCase() || 'FAC';
                 const uniqueId = `${acronym}-${Math.floor(Math.random() * 10000)}`;
-                const req = { id: uniqueId, name: facultyName.trim() };
+                const req = { id: uniqueId, name: facultyName.trim(), is_special: facultySpecial };
                 const res = await apiClient.post('/timetable/faculties', req);
                 dispatch({ type: ACTION_TYPES.ADD_FACULTY, payload: res });
             }
@@ -196,7 +199,12 @@ export default function FacultiesPage() {
                         <tbody>
                             {faculties.map((fac) => (
                                 <tr key={fac.id}>
-                                    <td style={{ fontWeight: 500, color: 'var(--color-text)' }}>{fac.name}</td>
+                                    <td style={{ fontWeight: 500, color: 'var(--color-text)' }}>
+                                        {fac.name}
+                                        {(fac.is_special ?? fac.isSpecial) && (
+                                            <span className={styles.specialTag} title="Exempt from conflict detection">Special</span>
+                                        )}
+                                    </td>
                                     <td>
                                         <span className="badge badge-primary">{deptCount(fac.id)} dept{deptCount(fac.id) !== 1 ? 's' : ''}</span>
                                     </td>
@@ -277,6 +285,21 @@ export default function FacultiesPage() {
                             <div className="form-group">
                                 <label className="form-label">Faculty Name</label>
                                 <input className="form-input" value={facultyName} onChange={(e) => setFacultyName(e.target.value)} placeholder="e.g. Faculty of Science" autoFocus />
+                            </div>
+                            <div className="form-group">
+                                <label className={styles.toggleRow}>
+                                    <span className={styles.toggleText}>
+                                        <span className="form-label" style={{ marginBottom: 2 }}>Special faculty</span>
+                                        <span className={styles.toggleHint}>Courses in this faculty are exempt from timetable conflict detection</span>
+                                    </span>
+                                    <input
+                                        type="checkbox"
+                                        className={styles.toggleInput}
+                                        checked={facultySpecial}
+                                        onChange={(e) => setFacultySpecial(e.target.checked)}
+                                    />
+                                    <span className={styles.toggleSwitch} aria-hidden="true" />
+                                </label>
                             </div>
                         </div>
                         <div className="modal-footer">
