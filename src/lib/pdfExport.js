@@ -1,12 +1,14 @@
 import jsPDF from "jspdf";
 import { unilagLogoBase64 } from "@/lib/logo";
-import { GENERAL_STUDIES_FACULTY } from "@/lib/utils";
+import { GENERAL_STUDIES_FACULTY, isGeneralStudiesCourse } from "@/lib/utils";
 
 export function exportTimetablePDF({
 	schedules,
 	blockedSlots = [],
 	rooms = [],
 	faculties = [],
+	departments = [],
+	enrollments = [],
 	title,
 	session,
 	semester,
@@ -21,6 +23,8 @@ export function exportTimetablePDF({
 	isLocked = false,
 }) {
 	if (!schedules || schedules.length === 0) return;
+
+
 
 	// Helper: get Monday of date string
 	const getMondayOfDate = (dateStr) => {
@@ -271,39 +275,6 @@ export function exportTimetablePDF({
 			return match ? match.name : null;
 		}
 
-		// Helper: draw centered course code list text inside grid cells (A3)
-		function drawCenteredText(pdf, lines, x, y, w, h) {
-			let fs = 9.0;
-			let lineHeight = fs * 0.3528 * 1.3;
-			let totalH = lines.length * lineHeight;
-			
-			const exceedsWidth = () => {
-				pdf.setFontSize(fs);
-				pdf.setFont("helvetica", "bold");
-				for (let line of lines) {
-					if (pdf.getTextWidth(line) > w - 1.5) {
-						return true;
-					}
-				}
-				return false;
-			};
-
-			while ((totalH > h - 1.5 || exceedsWidth()) && fs > 4.5) {
-				fs -= 0.5;
-				lineHeight = fs * 0.3528 * 1.3;
-				totalH = lines.length * lineHeight;
-			}
-			pdf.setFontSize(fs);
-			pdf.setFont("helvetica", "bold");
-			pdf.setTextColor(15, 23, 42);
-			const startY = y + h / 2 - totalH / 2 + (fs * 0.3528 * 0.85);
-			lines.forEach((line, idx) => {
-				pdf.text(line, x + w / 2, startY + idx * lineHeight, { align: "center" });
-			});
-		}
-
-		// getMondayOfDate moved to shared top-level helper
-
 		// 1. Gather all unique dates (or legacy days) from schedules
 		const uniqueDates = [];
 		const STANDARD_SLOTS = [
@@ -361,7 +332,7 @@ export function exportTimetablePDF({
 		activeRooms.forEach(r => {
 			const fac = faculties.find(f => String(f.id) === String(r.faculty_id));
 			if (fac) {
-				roomFacFaculties: roomFaculties[r.id] = fac.name;
+				roomFaculties[r.id] = fac.name;
 			} else {
 				const sched = schedules.find(s => (s.roomIds || []).includes(r.id) || s.roomId === r.id);
 				if (sched && sched.facultyName && sched.facultyName !== "NIL") {
@@ -372,29 +343,12 @@ export function exportTimetablePDF({
 			}
 		});
 
-		const facultyGroups = {};
-		activeRooms.forEach(r => {
-			const facName = roomFaculties[r.id] || "SHARED";
-			if (!facultyGroups[facName]) facultyGroups[facName] = [];
-			facultyGroups[facName].push(r);
-		});
+		const venueColW = 35; // Wider column for rooms
+		const facultyColW = 0;  // No faculty column
 
-		const sortedFacultyNames = Object.keys(facultyGroups).sort((a, b) => {
-			const isAGS = a.toLowerCase().includes("general studies") || a === GENERAL_STUDIES_FACULTY;
-			const isBGS = b.toLowerCase().includes("general studies") || b === GENERAL_STUDIES_FACULTY;
-			if (isAGS && !isBGS) return -1;
-			if (!isAGS && isBGS) return 1;
-			if (a === "SHARED" && b !== "SHARED") return 1;
-			if (a !== "SHARED" && b === "SHARED") return -1;
-			return a.localeCompare(b);
-		});
-
-		const venueColW = 22;
-		const facultyColW = 28;
-
-		// Dynamic row height calculator for A3
-		const getA3RoomRowHeight = (room, allSchedules) => {
-			const roomSchedules = allSchedules.filter(si => {
+		// Dynamic row height calculator for A3 (based on a custom list of schedules)
+		const getA3RoomRowHeight = (room, targetSchedules) => {
+			const roomSchedules = targetSchedules.filter(si => {
 				const rids = si.roomIds || (si.roomId ? [si.roomId] : []);
 				return rids.includes(room.id);
 			});
@@ -418,7 +372,18 @@ export function exportTimetablePDF({
 			let maxLinesInAnySlot = 1;
 			Object.keys(slotGroups).forEach(key => {
 				const sittings = slotGroups[key];
-				const sorted = [...sittings].sort((a, b) => {
+				// Deduplicate by courseCode to avoid duplicate lanes for identical courses
+				const uniqueSittings = [];
+				const seen = new Set();
+				sittings.forEach(si => {
+					const code = si.courseCode || si.courseId || "N/A";
+					if (!seen.has(code)) {
+						seen.add(code);
+						uniqueSittings.push(si);
+					}
+				});
+
+				const sorted = [...uniqueSittings].sort((a, b) => {
 					const startA = timeToMinutes(a.startTime);
 					const startB = timeToMinutes(b.startTime);
 					if (startA !== startB) return startA - startB;
@@ -445,8 +410,6 @@ export function exportTimetablePDF({
 						lanes.push([si]);
 					}
 				});
-				// Since course codes are displayed on a single line,
-				// each lane takes exactly 1 line height.
 				maxLinesInAnySlot = Math.max(maxLinesInAnySlot, lanes.length);
 			});
 
@@ -461,503 +424,544 @@ export function exportTimetablePDF({
 			return Math.max(12, labelH, eventsH);
 		};
 
-		// 3. Dynamic row slicing per faculty (separating faculties on new pages)
-		const rowChunks = [];
-		sortedFacultyNames.forEach(facName => {
-			const facRooms = facultyGroups[facName];
-			const facRows = facRooms.map((room) => ({
-				room,
-				facultyName: facName
-			}));
-
-			let i = 0;
-			while (i < facRows.length) {
-				let currentChunkHeight = 0;
-				let chunk = [];
-				let j = i;
-				while (j < facRows.length) {
-					const rowH = getA3RoomRowHeight(facRows[j].room, schedules);
-					// Maximum vertical space for rows on A3 paper is approx 230mm
-					if (chunk.length > 0 && currentChunkHeight + rowH > 230) {
-						break;
-					}
-					chunk.push(facRows[j]);
-					currentChunkHeight += rowH;
-					j++;
-				}
-				if (chunk.length === 0 && j < facRows.length) {
-					chunk.push(facRows[j]);
-					j++;
-				}
-				rowChunks.push(chunk);
-				i = j;
-			}
-		});
-
+		// 3. Dynamic row slicing per week and faculty grouping
 		const daysPerPage = 6;
 		const dayChunks = [];
 		for (let i = 0; i < uniqueDates.length; i += daysPerPage) {
 			dayChunks.push(uniqueDates.slice(i, i + daysPerPage));
 		}
 
-		let pageIdx = 0;
-		dayChunks.forEach((dayChunk, dayChunkIdx) => {
-			rowChunks.forEach((rowChunk, rowChunkIdx) => {
-				const roomsInChunk = rowChunk.map(r => r.room.id);
-				const hasSchedulesInChunk = schedules.some(si => {
-					const rids = si.roomIds || (si.roomId ? [si.roomId] : []);
-					const matchesRoom = rids.some(id => roomsInChunk.includes(id));
-					if (!matchesRoom) return false;
+		// Build all pages to print in order: GST section first, then normal section
+		const pagesToRender = [];
 
-					return dayChunk.some(dayVal => {
-						if (mode === "exam" && !dayVal.startsWith("legacy:")) {
-							return si.examDate === dayVal;
-						} else {
-							const targetDay = dayVal.replace("legacy:", "");
-							return si.day === targetDay;
+		// Determine which weeks contain General Studies exams
+		const gstWeekIndexes = [];
+		dayChunks.forEach((dayChunk, idx) => {
+			const hasGST = schedules.some(si => {
+				const inWeek = mode === "exam" ? dayChunk.includes(si.examDate) : dayChunk.includes(si.day);
+				return inWeek && isGeneralStudiesCourse(si.courseCode);
+			});
+			if (hasGST) {
+				gstWeekIndexes.push(idx);
+			}
+		});
+
+		// Phase 1: General Studies Examination Timetable pages (Prioritized first)
+		gstWeekIndexes.forEach(weekIdx => {
+			const dayChunk = dayChunks[weekIdx];
+			const weekGstSchedules = schedules.filter(si => {
+				const inWeek = mode === "exam" ? dayChunk.includes(si.examDate) : dayChunk.includes(si.day);
+				return inWeek && isGeneralStudiesCourse(si.courseCode);
+			});
+
+			// Group GST schedules by faculty name
+			const gstFacultySchedules = {};
+			weekGstSchedules.forEach(si => {
+				let facName = "SHARED";
+				if (si.facultyId) {
+					const fac = faculties.find(f => String(f.id) === String(si.facultyId));
+					if (fac) facName = fac.name;
+				} else if (si.facultyName && si.facultyName !== "NIL") {
+					facName = si.facultyName;
+				}
+				if (!gstFacultySchedules[facName]) {
+					gstFacultySchedules[facName] = [];
+				}
+				gstFacultySchedules[facName].push(si);
+			});
+
+			// Sort faculties alphabetically, with SHARED last
+			const sortedGstFacs = Object.keys(gstFacultySchedules).sort((a, b) => {
+				if (a === "SHARED" && b !== "SHARED") return 1;
+				if (a !== "SHARED" && b === "SHARED") return -1;
+				return a.localeCompare(b);
+			});
+
+			sortedGstFacs.forEach(facName => {
+				const facSchedules = gstFacultySchedules[facName];
+				const facRooms = activeRooms.filter(r => {
+					return facSchedules.some(si => (si.roomIds || [si.roomId]).includes(r.id));
+				});
+				if (facRooms.length === 0) return;
+
+				// Slice active rooms of this faculty into page row chunks (vertical fit)
+				const rowChunks = [];
+				let idxRoom = 0;
+				while (idxRoom < facRooms.length) {
+					let currentHeight = 0;
+					let chunk = [];
+					let j = idxRoom;
+					while (j < facRooms.length) {
+						const rowH = getA3RoomRowHeight(facRooms[j], facSchedules);
+						if (chunk.length > 0 && currentHeight + rowH > 230) {
+							break;
 						}
+						chunk.push(facRooms[j]);
+						currentHeight += rowH;
+						j++;
+					}
+					if (chunk.length === 0 && j < facRooms.length) {
+						chunk.push(facRooms[j]);
+						j++;
+					}
+					rowChunks.push(chunk);
+					idxRoom = j;
+				}
+
+				rowChunks.forEach(rowChunk => {
+					pagesToRender.push({
+						weekIdx,
+						dayChunk,
+						facultyName: facName,
+						rowChunk,
+						facWeekSchedules: facSchedules,
+						isGSTSection: true
 					});
 				});
+			});
+		});
 
-				if (!hasSchedulesInChunk) return;
-				// Skip printing the page if there are no schedules for the rooms and days on this page
-				const pageRoomIds = rowChunk.map(r => r.room.id);
-				const hasAnySchedules = schedules.some(si => {
-					const rids = si.roomIds || (si.roomId ? [si.roomId] : []);
-					const matchesRoom = rids.some(rid => pageRoomIds.includes(rid));
-					if (!matchesRoom) return false;
+		// Phase 2: Departmental / Normal Examination Timetable pages (Remaining courses)
+		dayChunks.forEach((dayChunk, weekIdx) => {
+			const weekNormalSchedules = schedules.filter(si => {
+				const inWeek = mode === "exam" ? dayChunk.includes(si.examDate) : dayChunk.includes(si.day);
+				return inWeek && !isGeneralStudiesCourse(si.courseCode);
+			});
 
-					if (mode === "exam") {
-						return dayChunk.includes(si.examDate);
-					} else {
-						return dayChunk.includes(si.day);
-					}
+			if (weekNormalSchedules.length === 0) return;
+
+			// Group normal schedules by faculty name
+			const normalFacultySchedules = {};
+			weekNormalSchedules.forEach(si => {
+				let facName = "SHARED";
+				if (si.facultyId) {
+					const fac = faculties.find(f => String(f.id) === String(si.facultyId));
+					if (fac) facName = fac.name;
+				} else if (si.facultyName && si.facultyName !== "NIL") {
+					facName = si.facultyName;
+				}
+				if (!normalFacultySchedules[facName]) {
+					normalFacultySchedules[facName] = [];
+				}
+				normalFacultySchedules[facName].push(si);
+			});
+
+			// Sort faculties alphabetically, with SHARED last
+			const sortedNormalFacs = Object.keys(normalFacultySchedules).sort((a, b) => {
+				if (a === "SHARED" && b !== "SHARED") return 1;
+				if (a !== "SHARED" && b === "SHARED") return -1;
+				return a.localeCompare(b);
+			});
+
+			sortedNormalFacs.forEach(facName => {
+				const facSchedules = normalFacultySchedules[facName];
+				const facRooms = activeRooms.filter(r => {
+					return facSchedules.some(si => (si.roomIds || [si.roomId]).includes(r.id));
 				});
+				if (facRooms.length === 0) return;
 
-				if (!hasAnySchedules) {
-					return;
-				}
-
-				if (pageIdx > 0) {
-					pdfA3.addPage();
-				}
-
-				// Compute dynamic page-specific faculty blocks
-				const pageRows = [];
-				let currentFac = null;
-				let facStartIndex = 0;
-
-				rowChunk.forEach((row, idx) => {
-					const info = {
-						...row,
-						isFirstInPageBlock: false,
-						pageBlockLength: 1
-					};
-					pageRows.push(info);
-
-					if (row.facultyName !== currentFac) {
-						if (currentFac !== null) {
-							pageRows[facStartIndex].pageBlockLength = idx - facStartIndex;
+				// Slice active rooms of this faculty into page row chunks (vertical fit)
+				const rowChunks = [];
+				let idxRoom = 0;
+				while (idxRoom < facRooms.length) {
+					let currentHeight = 0;
+					let chunk = [];
+					let j = idxRoom;
+					while (j < facRooms.length) {
+						const rowH = getA3RoomRowHeight(facRooms[j], facSchedules);
+						if (chunk.length > 0 && currentHeight + rowH > 230) {
+							break;
 						}
-						info.isFirstInPageBlock = true;
-						currentFac = row.facultyName;
-						facStartIndex = idx;
+						chunk.push(facRooms[j]);
+						currentHeight += rowH;
+						j++;
 					}
-				});
-				if (currentFac !== null) {
-					pageRows[facStartIndex].pageBlockLength = rowChunk.length - facStartIndex;
+					if (chunk.length === 0 && j < facRooms.length) {
+						chunk.push(facRooms[j]);
+						j++;
+					}
+					rowChunks.push(chunk);
+					idxRoom = j;
 				}
 
-				// Render Header
-				let y = 12;
-				const logoSize = 16;
-				try {
-					pdfA3.addImage(unilagLogoBase64, "PNG", m, y, logoSize, logoSize);
-				} catch (e) {}
-
-				pdfA3.setFont("helvetica", "bold");
-				pdfA3.setFontSize(16);
-				pdfA3.setTextColor(15, 23, 42);
-				pdfA3.text((schoolName || "University of Lagos").toUpperCase(), m + logoSize + 4, y + 5);
-
-				pdfA3.setFontSize(11);
-				pdfA3.setFont("helvetica", "normal");
-				pdfA3.setTextColor(71, 85, 105);
-				const sub = [`${session} Session`, semester, faculty, department].filter(Boolean).join("   ·   ");
-				const maxSubW = a3W / 2 - (m + logoSize + 8); // ~174mm max width
-				const subLines = pdfA3.splitTextToSize(sub, maxSubW);
-				subLines.forEach((line, idx) => {
-					pdfA3.text(line, m + logoSize + 4, y + 12 + idx * 4.5);
+				rowChunks.forEach(rowChunk => {
+					pagesToRender.push({
+						weekIdx,
+						dayChunk,
+						facultyName: facName,
+						rowChunk,
+						facWeekSchedules: facSchedules,
+						isGSTSection: false
+					});
 				});
+			});
+		});
 
-				// WEEK label at the center
-				const weekLabel = `WEEK ${dayChunkIdx + 1}`;
-				pdfA3.setFont("helvetica", "bold");
-				pdfA3.setFontSize(14);
-				pdfA3.setTextColor(15, 23, 42);
-				pdfA3.text(weekLabel, a3W / 2, y + 8, { align: "center" });
+		// Now render all built pages
+		let pageIdx = 0;
+		pagesToRender.forEach(pageSpec => {
+			const { weekIdx, dayChunk, facultyName: facName, rowChunk, facWeekSchedules, isGSTSection } = pageSpec;
 
-				const timetableTitle = getTimetableTypeLabel(title, faculty, department);
-				pdfA3.setFont("helvetica", "bold");
-				pdfA3.setFontSize(14);
-				pdfA3.setTextColor(15, 23, 42);
-				const maxTitleW = a3W / 2 - m - 20; // ~178mm max width
-				const titleLines = pdfA3.splitTextToSize(timetableTitle.toUpperCase(), maxTitleW);
-				titleLines.forEach((line, idx) => {
-					pdfA3.text(line, a3W - m, y + 5 + idx * 5.5, { align: "right" });
-				});
+			if (pageIdx > 0) {
+				pdfA3.addPage();
+			}
 
-				const docStatus = isLocked ? "FINAL TIMETABLE" : "DRAFT TIMETABLE";
-				pdfA3.setFontSize(10);
-				pdfA3.setFont("helvetica", "bold");
-				pdfA3.setTextColor(...(isLocked ? [16, 185, 129] : [245, 158, 11]));
-				pdfA3.text(docStatus, a3W - m, y + 12 + (titleLines.length - 1) * 5.5, { align: "right" });
+			// Render Header
+			let y = 12;
+			const logoSize = 16;
+			try {
+				pdfA3.addImage(unilagLogoBase64, "PNG", m, y, logoSize, logoSize);
+			} catch (e) {}
 
-				// Render Grid Table
-				const tableStartY = 34;
-				const tableW = a3W - 2 * m; // 396
-				const remainingW = tableW - venueColW - facultyColW; // 346
-				const dayWidth = remainingW / dayChunk.length;
-				const slotWidth = dayWidth / 3;
+			pdfA3.setFont("helvetica", "bold");
+			pdfA3.setFontSize(16);
+			pdfA3.setTextColor(15, 23, 42);
+			pdfA3.text((schoolName || "University of Lagos").toUpperCase(), m + logoSize + 4, y + 5);
 
-				// Draw Header background
-				pdfA3.setFillColor(241, 245, 249);
-				pdfA3.rect(m, tableStartY, tableW, 14, "F");
+			pdfA3.setFontSize(11);
+			pdfA3.setFont("helvetica", "normal");
+			pdfA3.setTextColor(71, 85, 105);
+			
+			// Subtitle: Replace generic faculty filter with printed faculty name
+			let currentFacultyName = facName.toUpperCase();
+			if (isGSTSection) {
+				if (facName.toLowerCase().includes("general studies")) {
+					currentFacultyName = "GENERAL STUDIES TIMETABLE";
+				} else {
+					currentFacultyName = `GENERAL STUDIES TIMETABLE - ${facName.toUpperCase()}`;
+				}
+			}
+			const sub = [`${session} Session`, semester, currentFacultyName, department].filter(Boolean).join("   ·   ");
+			const maxSubW = a3W / 2 - (m + logoSize + 8);
+			const subLines = pdfA3.splitTextToSize(sub, maxSubW);
+			subLines.forEach((line, idx) => {
+				pdfA3.text(line, m + logoSize + 4, y + 12 + idx * 4.5);
+			});
 
-				// Header grid outlines & text
-				pdfA3.setDrawColor(71, 85, 105);
-				pdfA3.setLineWidth(0.2);
-				pdfA3.rect(m, tableStartY, venueColW, 14, "D");
-				pdfA3.rect(m + venueColW, tableStartY, facultyColW, 14, "D");
+			// WEEK label at the center
+			const weekLabel = `WEEK ${weekIdx + 1}`;
+			pdfA3.setFont("helvetica", "bold");
+			pdfA3.setFontSize(14);
+			pdfA3.setTextColor(15, 23, 42);
+			pdfA3.text(weekLabel, a3W / 2, y + 8, { align: "center" });
+
+			// Title
+			let timetableTitle = getTimetableTypeLabel(title, facName, department);
+			if (isGSTSection) {
+				timetableTitle = "GENERAL STUDIES EXAMINATION TIMETABLE";
+			}
+			pdfA3.setFont("helvetica", "bold");
+			pdfA3.setFontSize(14);
+			pdfA3.setTextColor(15, 23, 42);
+			const maxTitleW = a3W / 2 - m - 20;
+			const titleLines = pdfA3.splitTextToSize(timetableTitle.toUpperCase(), maxTitleW);
+			titleLines.forEach((line, idx) => {
+				pdfA3.text(line, a3W - m, y + 5 + idx * 5.5, { align: "right" });
+			});
+
+			const docStatus = isLocked ? "FINAL TIMETABLE" : "DRAFT TIMETABLE";
+			pdfA3.setFontSize(10);
+			pdfA3.setFont("helvetica", "bold");
+			pdfA3.setTextColor(...(isLocked ? [16, 185, 129] : [245, 158, 11]));
+			pdfA3.text(docStatus, a3W - m, y + 12 + (titleLines.length - 1) * 5.5, { align: "right" });
+
+			// Render Grid Table
+			const tableStartY = 34;
+			const tableW = a3W - 2 * m; // 396
+			const remainingW = tableW - venueColW - facultyColW; // 361
+			const dayWidth = remainingW / dayChunk.length;
+			const slotWidth = dayWidth / 3;
+
+			// Draw Header background
+			pdfA3.setFillColor(241, 245, 249);
+			pdfA3.rect(m, tableStartY, tableW, 14, "F");
+
+			// Draw Grid Border lines and background
+			pdfA3.setDrawColor(71, 85, 105);
+			pdfA3.setLineWidth(0.2);
+			pdfA3.rect(m, tableStartY, tableW, 14, "D");
+
+			// Draw Day/Slot Headers
+			dayChunk.forEach((dayVal, dIdx) => {
+				const dayX = m + venueColW + facultyColW + dIdx * dayWidth;
+
+				// Day boundary lines
+				if (dIdx > 0) {
+					pdfA3.line(dayX, tableStartY, dayX, tableStartY + 14);
+				}
+
+				// Day Label
+				const isDate = !dayVal.startsWith("legacy:") && dayVal.includes("-");
+				const formattedDayStr = isDate
+					? new Date(dayVal).toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "short" })
+					: dayVal.replace("legacy:", "");
 
 				pdfA3.setFont("helvetica", "bold");
 				pdfA3.setFontSize(8.5);
 				pdfA3.setTextColor(15, 23, 42);
-				pdfA3.text("VENUE", m + venueColW / 2, tableStartY + 8.5, { align: "center" });
-				pdfA3.text("FACULTY", m + venueColW + facultyColW / 2, tableStartY + 8.5, { align: "center" });
+				pdfA3.text(formattedDayStr.toUpperCase(), dayX + dayWidth / 2, tableStartY + 5, { align: "center" });
 
+				// Slots
+				STANDARD_SLOTS.forEach((slot, sIdx) => {
+					const slotX = dayX + sIdx * slotWidth;
+					if (sIdx > 0) {
+						pdfA3.setDrawColor(148, 163, 184);
+						pdfA3.setLineWidth(0.08);
+						pdfA3.line(slotX, tableStartY + 7, slotX, tableStartY + 14);
+						pdfA3.setDrawColor(71, 85, 105);
+						pdfA3.setLineWidth(0.2);
+					}
+
+					const slotLabel = slot.label;
+					const eventName = getGeneralEvent(dayVal, sIdx);
+
+					pdfA3.setFont("helvetica", eventName ? "bold" : "normal");
+					pdfA3.setFontSize(7);
+					pdfA3.setTextColor(15, 23, 42);
+					pdfA3.text(slotLabel, slotX + slotWidth / 2, tableStartY + 11.5, { align: "center" });
+				});
+			});
+
+			// Render Grid Rows
+			let rowY = tableStartY + 14;
+			const pageBlockedCols = new Map();
+
+			rowChunk.forEach((room) => {
+				const rowH = getA3RoomRowHeight(room, facWeekSchedules);
+
+				pdfA3.setDrawColor(71, 85, 105);
+				pdfA3.setLineWidth(0.2);
+
+				// Draw Room Cell
+				pdfA3.setFillColor(255, 255, 255);
+				pdfA3.rect(m, rowY, venueColW, rowH, "F");
+				pdfA3.rect(m, rowY, venueColW, rowH, "D");
+
+				pdfA3.setFont("helvetica", "bold");
+				pdfA3.setFontSize(7.5);
+				pdfA3.setTextColor(15, 23, 42);
+
+				const roomLabel = getRoomLabel(room);
+				const roomLines = pdfA3.splitTextToSize(roomLabel, venueColW - 2);
+				const rLineSpacing = 3.6;
+				const rStartY = rowY + (rowH - (roomLines.length - 1) * rLineSpacing) / 2 + 1;
+				roomLines.forEach((line, index) => {
+					pdfA3.text(line, m + venueColW / 2, rStartY + index * rLineSpacing, { align: "center" });
+				});
+
+				// Draw Grid Cells
 				dayChunk.forEach((dayVal, dIdx) => {
 					const dayX = m + venueColW + facultyColW + dIdx * dayWidth;
 
-					// Format Day/Date Label
-					let dateLabel = "";
-					if (mode === "exam") {
-						if (dayVal.startsWith("legacy:")) {
-							dateLabel = dayVal.replace("legacy:", "").toUpperCase();
-						} else {
-							const dateObj = new Date(dayVal);
-							const dayIndex = uniqueDates.indexOf(dayVal) + 1;
-							const formattedDate = dateObj.toLocaleDateString("en-GB", {
-								weekday: "long",
-								day: "2-digit",
-								month: "long",
-								year: "numeric"
-							}).toUpperCase();
-							dateLabel = `DAY ${dayIndex}: ${formattedDate}`;
-						}
-					} else {
-						dateLabel = dayVal.toUpperCase();
-					}
-
-					// Day block
-					pdfA3.rect(dayX, tableStartY, dayWidth, 7, "D");
-					pdfA3.setFont("helvetica", "bold");
-					pdfA3.setFontSize(8);
-					pdfA3.setTextColor(15, 23, 42);
-					pdfA3.text(dateLabel, dayX + dayWidth / 2, tableStartY + 4.5, { align: "center" });
-
-					// Timeslots
 					STANDARD_SLOTS.forEach((slot, sIdx) => {
-						const slotX = dayX + sIdx * slotWidth;
+						const cellX = dayX + sIdx * slotWidth;
 						const eventName = getGeneralEvent(dayVal, sIdx);
-						const slotLabel = eventName ? eventName.toUpperCase() : slot.label;
 
 						if (eventName) {
-							pdfA3.setFillColor(229, 231, 235); // darker grey fill for blocked slots
-							pdfA3.rect(slotX, tableStartY + 7, slotWidth, 7, "F");
+							const colKey = `${dIdx}-${sIdx}`;
+							if (!pageBlockedCols.has(colKey)) {
+								pageBlockedCols.set(colKey, {
+									x: cellX,
+									width: slotWidth,
+									name: eventName
+								});
+							}
+							return;
 						}
-						pdfA3.rect(slotX, tableStartY + 7, slotWidth, 7, "D");
 
-						pdfA3.setFont("helvetica", eventName ? "bold" : "normal");
-						pdfA3.setFontSize(7);
-						pdfA3.setTextColor(15, 23, 42);
-						pdfA3.text(slotLabel, slotX + slotWidth / 2, tableStartY + 11.5, { align: "center" });
-					});
-				});
+						// Fetch scheduled sittings for this faculty/room/day/timeslot
+						const cellSchedules = facWeekSchedules.filter(si => {
+							const rids = si.roomIds || (si.roomId ? [si.roomId] : []);
+							if (!rids.includes(room.id)) return false;
 
-				// Render Grid Rows
-				let rowY = tableStartY + 14;
-				const pageBlockedCols = new Map(); // tracks column block overlays to draw at the end
+							if (mode === "exam" && !dayVal.startsWith("legacy:")) {
+								if (si.examDate !== dayVal) return false;
+							} else {
+								const targetDay = dayVal.replace("legacy:", "");
+								if (si.day !== targetDay) return false;
+							}
 
-				pageRows.forEach((r, rIdx) => {
-					const rowH = getA3RoomRowHeight(r.room, schedules);
+							const startMin = timeToMinutes(si.startTime);
+							const endMin = timeToMinutes(si.endTime);
+							const slotStartMin = (9 + sIdx * 3) * 60;
+							const slotEndMin = slotStartMin + 3 * 60;
+							return startMin < slotEndMin && slotStartMin < endMin;
+						});
 
-					pdfA3.setDrawColor(71, 85, 105);
-					pdfA3.setLineWidth(0.2);
+						// Deduplicate cellSchedules by courseCode to avoid duplicate cards in the cell
+						const uniqueCellSchedules = [];
+						const seenCodes = new Set();
+						cellSchedules.forEach(si => {
+							const code = si.courseCode || si.courseId || "N/A";
+							if (!seenCodes.has(code)) {
+								seenCodes.add(code);
+								uniqueCellSchedules.push(si);
+							}
+						});
 
-					// Draw Room Cell
-					pdfA3.setFillColor(255, 255, 255);
-					pdfA3.rect(m, rowY, venueColW, rowH, "F");
-					pdfA3.rect(m, rowY, venueColW, rowH, "D");
-
-					pdfA3.setFont("helvetica", "bold");
-					pdfA3.setFontSize(7.5);
-					pdfA3.setTextColor(15, 23, 42);
-
-					const roomLabel = getRoomLabel(r.room);
-					const roomLines = pdfA3.splitTextToSize(roomLabel, venueColW - 2);
-					const rLineSpacing = 3.6;
-					const rStartY = rowY + (rowH - (roomLines.length - 1) * rLineSpacing) / 2 + 1;
-					roomLines.forEach((line, index) => {
-						pdfA3.text(line, m + venueColW / 2, rStartY + index * rLineSpacing, { align: "center" });
-					});
-
-					// Draw Faculty Cell (merged vertically)
-					if (r.isFirstInPageBlock) {
-						let spanH = 0;
-						for (let k = rIdx; k < rIdx + r.pageBlockLength; k++) {
-							spanH += getA3RoomRowHeight(pageRows[k].room, schedules);
-						}
 						pdfA3.setDrawColor(71, 85, 105);
 						pdfA3.setLineWidth(0.2);
 						pdfA3.setFillColor(255, 255, 255);
-						pdfA3.rect(m + venueColW, rowY, facultyColW, spanH, "F");
-						pdfA3.rect(m + venueColW, rowY, facultyColW, spanH, "D");
+						pdfA3.rect(cellX, rowY, slotWidth, rowH, "F");
+						pdfA3.rect(cellX, rowY, slotWidth, rowH, "D");
 
-						const fSize = 8;
-						pdfA3.setFont("helvetica", "bold");
-						pdfA3.setFontSize(fSize);
-						pdfA3.setTextColor(71, 85, 105);
+						pdfA3.setDrawColor(226, 232, 240);
+						pdfA3.setLineWidth(0.08);
+						pdfA3.line(cellX + slotWidth / 3, rowY, cellX + slotWidth / 3, rowY + rowH);
+						pdfA3.line(cellX + 2 * slotWidth / 3, rowY, cellX + 2 * slotWidth / 3, rowY + rowH);
+						pdfA3.setDrawColor(71, 85, 105);
+						pdfA3.setLineWidth(0.2);
 
-						const facNameUpper = r.facultyName.toUpperCase();
-						const maxWidth = Math.max(10, spanH - 6);
-						const lines = wrapTextWithHyphens(pdfA3, facNameUpper, maxWidth);
-						const lineSpacing = 3.6;
-						const charHeight = fSize * 0.3528 * 0.7;
-						const xCenter = m + venueColW + facultyColW / 2;
-						const yCenter = rowY + spanH / 2;
-
-						lines.forEach((line, index) => {
-							const textWidth = pdfA3.getTextWidth(line);
-							const lineX = xCenter - ((lines.length - 1) * lineSpacing) / 2 + index * lineSpacing;
-							const lineY = yCenter + textWidth / 2;
-							pdfA3.text(line, lineX + charHeight / 2, lineY, {
-								align: "left",
-								angle: 90
+						if (uniqueCellSchedules.length > 0) {
+							const sortedSchedules = [...uniqueCellSchedules].sort((a, b) => {
+								const startA = timeToMinutes(a.startTime);
+								const startB = timeToMinutes(b.startTime);
+								if (startA !== startB) return startA - startB;
+								return timeToMinutes(a.endTime) - timeToMinutes(b.endTime);
 							});
-						});
-					}
 
-					// Draw Grid Cells
-					dayChunk.forEach((dayVal, dIdx) => {
-						const dayX = m + venueColW + facultyColW + dIdx * dayWidth;
-
-						STANDARD_SLOTS.forEach((slot, sIdx) => {
-							const cellX = dayX + sIdx * slotWidth;
-							const eventName = getGeneralEvent(dayVal, sIdx);
-
-							if (eventName) {
-								const colKey = `${dIdx}-${sIdx}`;
-								if (!pageBlockedCols.has(colKey)) {
-									pageBlockedCols.set(colKey, {
-										x: cellX,
-										width: slotWidth,
-										name: eventName
-									});
-								}
-								return; // skip drawing individual cell, handled by vertical overlay later
-							}
-
-							// Fetch scheduled sittings in this room/day/timeslot
-							const cellSchedules = schedules.filter(si => {
-								const rids = si.roomIds || (si.roomId ? [si.roomId] : []);
-								if (!rids.includes(r.room.id)) return false;
-
-								if (mode === "exam" && !dayVal.startsWith("legacy:")) {
-									if (si.examDate !== dayVal) return false;
-								} else {
-									const targetDay = dayVal.replace("legacy:", "");
-									if (si.day !== targetDay) return false;
-								}
-
+							const lanes = [];
+							sortedSchedules.forEach(si => {
 								const startMin = timeToMinutes(si.startTime);
 								const endMin = timeToMinutes(si.endTime);
-								const slotStartMin = (9 + sIdx * 3) * 60;
-								const slotEndMin = slotStartMin + 3 * 60;
-								return startMin < slotEndMin && slotStartMin < endMin;
+								let placed = false;
+								for (let i = 0; i < lanes.length; i++) {
+									const hasOverlap = lanes[i].some(item => {
+										const itemStart = timeToMinutes(item.startTime);
+										const itemEnd = timeToMinutes(item.endTime);
+										return startMin < itemEnd && itemStart < endMin;
+									});
+									if (!hasOverlap) {
+										lanes[i].push(si);
+										placed = true;
+										break;
+									}
+								}
+								if (!placed) {
+									lanes.push([si]);
+								}
 							});
 
-							pdfA3.setDrawColor(71, 85, 105);
-							pdfA3.setLineWidth(0.2);
-							pdfA3.setFillColor(255, 255, 255);
-							pdfA3.rect(cellX, rowY, slotWidth, rowH, "F");
-							pdfA3.rect(cellX, rowY, slotWidth, rowH, "D");
+							const numLanes = lanes.length;
+							const laneH = rowH / numLanes;
+							const slotStartHour = 9 + sIdx * 3;
 
-							// Draw two very faint vertical guidelines to divide the 3-hour timeslot into 1-hour intervals
-							pdfA3.setDrawColor(226, 232, 240); // slate-200 (very faint)
-							pdfA3.setLineWidth(0.08);
-							pdfA3.line(cellX + slotWidth / 3, rowY, cellX + slotWidth / 3, rowY + rowH);
-							pdfA3.line(cellX + 2 * slotWidth / 3, rowY, cellX + 2 * slotWidth / 3, rowY + rowH);
-							pdfA3.setDrawColor(71, 85, 105); // restore default grid line color
-							pdfA3.setLineWidth(0.2); // restore default line width
+							lanes.forEach((laneSchedules, laneIdx) => {
+								const laneY = rowY + laneIdx * laneH;
+								laneSchedules.forEach(si => {
+									const startHour = timeToMinutes(si.startTime) / 60.0;
+									const endHour = timeToMinutes(si.endTime) / 60.0;
 
-							if (cellSchedules.length > 0) {
-								const sortedSchedules = [...cellSchedules].sort((a, b) => {
-									const startA = timeToMinutes(a.startTime);
-									const startB = timeToMinutes(b.startTime);
-									if (startA !== startB) return startA - startB;
-									return timeToMinutes(a.endTime) - timeToMinutes(b.endTime);
-								});
+									let relStart = (startHour - slotStartHour) / 3.0;
+									let relEnd = (endHour - slotStartHour) / 3.0;
+									relStart = Math.max(0.0, Math.min(1.0, relStart));
+									relEnd = Math.max(0.0, Math.min(1.0, relEnd));
 
-								const lanes = [];
-								sortedSchedules.forEach(si => {
-									const startMin = timeToMinutes(si.startTime);
-									const endMin = timeToMinutes(si.endTime);
-									let placed = false;
-									for (let i = 0; i < lanes.length; i++) {
-										const hasOverlap = lanes[i].some(item => {
-											const itemStart = timeToMinutes(item.startTime);
-											const itemEnd = timeToMinutes(item.endTime);
-											return startMin < itemEnd && itemStart < endMin;
-										});
-										if (!hasOverlap) {
-											lanes[i].push(si);
-											placed = true;
-											break;
-										}
+									const itemX = cellX + relStart * slotWidth;
+									const itemW = (relEnd - relStart) * slotWidth;
+									const code = si.courseCode || si.courseId || "N/A";
+									const cleanCode = code.split(/[,/]+/).map(p => p.trim()).filter(Boolean).join(" / ");
+									const parts = [cleanCode];
+
+									let fs = 7.8;
+									let lineHeight = fs * 0.3528 * 1.3;
+									let totalH = parts.length * lineHeight;
+
+									const standardCardH = 5.2;
+									let cardH = Math.min(laneH - 0.8, standardCardH);
+									
+									const requiredH = totalH + 1.2;
+									if (requiredH > cardH && requiredH <= laneH - 0.6) {
+										cardH = requiredH;
 									}
-									if (!placed) {
-										lanes.push([si]);
-									}
-								});
 
-								const numLanes = lanes.length;
-								const laneH = rowH / numLanes;
-								const slotStartHour = 9 + sIdx * 3;
+									const cardY = laneY + (laneH - cardH) / 2;
+									const isMono = monochrome;
+									const bgCol = isMono ? [255, 255, 255] : [239, 246, 255];
+									const borderCol = isMono ? [156, 163, 175] : [191, 219, 254];
+									const textCol = isMono ? [75, 85, 99] : [29, 78, 216];
 
-								lanes.forEach((laneSchedules, laneIdx) => {
-									const laneY = rowY + laneIdx * laneH;
-									laneSchedules.forEach(si => {
-										const startHour = timeToMinutes(si.startTime) / 60.0;
-										const endHour = timeToMinutes(si.endTime) / 60.0;
+									pdfA3.setFillColor(...bgCol);
+									pdfA3.roundedRect(itemX + 0.6, cardY, itemW - 1.2, cardH, 0.6, 0.6, "F");
 
-										let relStart = (startHour - slotStartHour) / 3.0;
-										let relEnd = (endHour - slotStartHour) / 3.0;
-										relStart = Math.max(0.0, Math.min(1.0, relStart));
-										relEnd = Math.max(0.0, Math.min(1.0, relEnd));
+									pdfA3.setDrawColor(...borderCol);
+									pdfA3.setLineWidth(0.12);
+									pdfA3.roundedRect(itemX + 0.6, cardY, itemW - 1.2, cardH, 0.6, 0.6, "D");
 
-										const itemX = cellX + relStart * slotWidth;
-										const itemW = (relEnd - relStart) * slotWidth;
-										const code = si.courseCode || si.courseId || "N/A";
-										const cleanCode = code.split(/[,/]+/).map(p => p.trim()).filter(Boolean).join(" / ");
-										const parts = [cleanCode];
-
-										// Custom inline drawing with card color mapping
-										let fs = 7.8;
-										let lineHeight = fs * 0.3528 * 1.3;
-										let totalH = parts.length * lineHeight;
-
-										// Compute card height and vertical center alignment in the lane
-										const standardCardH = 5.2;
-										let cardH = Math.min(laneH - 0.8, standardCardH);
-										
-										// If there are multiple lines that require more space, expand if laneH permits
-										const requiredH = totalH + 1.2;
-										if (requiredH > cardH && requiredH <= laneH - 0.6) {
-											cardH = requiredH;
-										}
-
-										// Center the card vertically inside the lane bounds
-										const cardY = laneY + (laneH - cardH) / 2;
-
-										// Draw rounded rectangle card with light background and outline
-										const isMono = monochrome || false;
-										const bgCol = isMono ? [249, 250, 251] : [239, 246, 255];
-										const borderCol = isMono ? [209, 213, 219] : [191, 219, 254];
-										const textCol = isMono ? [75, 85, 99] : [29, 78, 216];
-
-										pdfA3.setFillColor(...bgCol);
-										pdfA3.roundedRect(itemX + 0.6, cardY, itemW - 1.2, cardH, 0.6, 0.6, "F");
-
-										pdfA3.setDrawColor(...borderCol);
-										pdfA3.setLineWidth(0.12);
-										pdfA3.roundedRect(itemX + 0.6, cardY, itemW - 1.2, cardH, 0.6, 0.6, "D");
-
-										const exceedsWidth = () => {
-											pdfA3.setFontSize(fs);
-											pdfA3.setFont("helvetica", "bold");
-											for (let line of parts) {
-												if (pdfA3.getTextWidth(line) > itemW - 1.5) {
-													return true;
-												}
-											}
-											return false;
-										};
-
-										while ((totalH > cardH - 1.0 || exceedsWidth()) && fs > 4.5) {
-											fs -= 0.5;
-											lineHeight = fs * 0.3528 * 1.3;
-											totalH = parts.length * lineHeight;
-										}
-
+									const exceedsWidth = () => {
 										pdfA3.setFontSize(fs);
 										pdfA3.setFont("helvetica", "bold");
-										pdfA3.setTextColor(...textCol);
-										
-										const startY = cardY + cardH / 2 - totalH / 2 + (fs * 0.3528 * 0.85);
-										parts.forEach((line, idx) => {
-											pdfA3.text(line, itemX + itemW / 2, startY + idx * lineHeight, { align: "center" });
-										});
+										for (let line of parts) {
+											if (pdfA3.getTextWidth(line) > itemW - 1.5) {
+												return true;
+											}
+										}
+										return false;
+									};
+
+									while ((totalH > cardH - 1.0 || exceedsWidth()) && fs > 4.5) {
+										fs -= 0.5;
+										lineHeight = fs * 0.3528 * 1.3;
+										totalH = parts.length * lineHeight;
+									}
+
+									pdfA3.setFontSize(fs);
+									pdfA3.setFont("helvetica", "bold");
+									pdfA3.setTextColor(...textCol);
+									
+									const startY = cardY + cardH / 2 - totalH / 2 + (fs * 0.3528 * 0.85);
+									parts.forEach((line, idx) => {
+										pdfA3.text(line, itemX + itemW / 2, startY + idx * lineHeight, { align: "center" });
 									});
 								});
-							}
-						});
-					});
-
-					rowY += rowH;
-				});
-
-				// Render Blocked Column Overlays (General Events)
-				const totalGridHeight = pageRows.reduce((sum, r) => sum + getA3RoomRowHeight(r.room, schedules), 0);
-				pageBlockedCols.forEach((colInfo) => {
-					const { x, width, name } = colInfo;
-					const gridStartY = tableStartY + 14;
-
-					pdfA3.setDrawColor(71, 85, 105);
-					pdfA3.setLineWidth(0.2);
-					pdfA3.setFillColor(243, 244, 246); // light grey vertical span
-					pdfA3.rect(x, gridStartY, width, totalGridHeight, "F");
-					pdfA3.rect(x, gridStartY, width, totalGridHeight, "D");
-
-					let fs = 9;
-					pdfA3.setFont("helvetica", "bold");
-					pdfA3.setFontSize(fs);
-					const nameUpper = name.toUpperCase();
-					while (pdfA3.getTextWidth(nameUpper) > totalGridHeight - 8 && fs > 6) {
-						fs -= 0.5;
-						pdfA3.setFontSize(fs);
-					}
-					pdfA3.setTextColor(71, 85, 105);
-					const textWidth = pdfA3.getTextWidth(nameUpper);
-					const charHeight = fs * 0.3528 * 0.7;
-					const xCenter = x + width / 2;
-					const yCenter = gridStartY + totalGridHeight / 2;
-					pdfA3.text(nameUpper, xCenter + charHeight / 2, yCenter + textWidth / 2, {
-						align: "left",
-						angle: 90
+							});
+						}
 					});
 				});
 
-				// Render Footer
-				pdfA3.setFont("helvetica", "normal");
-				pdfA3.setFontSize(7);
-				pdfA3.setTextColor(148, 163, 184);
-				pdfA3.text("University of Lagos Timetable Manager", m, a3H - 6);
-				pdfA3.text(`Generated: ${generatedDate}`, a3W / 2, a3H - 6, { align: "center" });
-				pdfA3.text(`Page ${pageIdx + 1}`, a3W - m, a3H - 6, { align: "right" });
-
-				pageIdx++;
+				rowY += rowH;
 			});
+
+			// Render Blocked Column Overlays (General Events)
+			const totalGridHeight = rowChunk.reduce((sum, r) => sum + getA3RoomRowHeight(r, facWeekSchedules), 0);
+			pageBlockedCols.forEach((colInfo) => {
+				const { x, width, name } = colInfo;
+				const gridStartY = tableStartY + 14;
+
+				pdfA3.setDrawColor(71, 85, 105);
+				pdfA3.setLineWidth(0.2);
+				pdfA3.setFillColor(243, 244, 246);
+				pdfA3.rect(x, gridStartY, width, totalGridHeight, "F");
+				pdfA3.rect(x, gridStartY, width, totalGridHeight, "D");
+
+				let fs = 9;
+				pdfA3.setFont("helvetica", "bold");
+				pdfA3.setFontSize(fs);
+				const nameUpper = name.toUpperCase();
+				while (pdfA3.getTextWidth(nameUpper) > totalGridHeight - 8 && fs > 6) {
+					fs -= 0.5;
+					pdfA3.setFontSize(fs);
+				}
+				pdfA3.setTextColor(71, 85, 105);
+				const textWidth = pdfA3.getTextWidth(nameUpper);
+				const charHeight = fs * 0.3528 * 0.7;
+				const xCenter = x + width / 2;
+				const yCenter = gridStartY + totalGridHeight / 2;
+				pdfA3.text(nameUpper, xCenter + charHeight / 2, yCenter + textWidth / 2, {
+					align: "left",
+					angle: 90
+				});
+			});
+
+			// Render Footer
+			pdfA3.setFont("helvetica", "normal");
+			pdfA3.setFontSize(7);
+			pdfA3.setTextColor(148, 163, 184);
+			pdfA3.text("University of Lagos Timetable Manager", m, a3H - 6);
+			pdfA3.text(`Generated: ${generatedDate}`, a3W / 2, a3H - 6, { align: "center" });
+			pdfA3.text(`Page ${pageIdx + 1}`, a3W - m, a3H - 6, { align: "right" });
+
+			pageIdx++;
 		});
 
 		const fname = getExportFileName(title, session, semester, faculty, department, "a3");
