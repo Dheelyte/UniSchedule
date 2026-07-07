@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, Response, HTTPException, status
-from core.security import verify_password
+from core.security import verify_password, create_access_token
 from modules.auth.service import AuthService, PasswordResetService
 from modules.auth.schemas import LoginRequest, InviteRequest, MsgResponse, PasswordReset, PasswordResetCodeCheck, PasswordResetRequest, PasswordResetVerify, RegisterRequest, UserResponse, InvitationResponse, ImpersonateRequest
 from core.config import settings
@@ -88,11 +88,15 @@ async def invite_staff(
 
 @router.post("/register/{token}")
 async def complete_registration(
+    response: Response,
     token: str, 
     data: RegisterRequest, 
     service: AuthService = Depends()
 ):
     user = await service.process_invitation(token, data.password)
+    # Mint token and set cookie to log the user in immediately
+    access_token = create_access_token(data={"sub": str(user.id), "email": user.email, "role": user.role.value, "faculty_id": user.faculty_id})
+    _set_session_cookie(response, access_token)
     return {"message": "Registration successful", "user_id": user.id}
 
 @router.get("/users", response_model=list[UserResponse])
