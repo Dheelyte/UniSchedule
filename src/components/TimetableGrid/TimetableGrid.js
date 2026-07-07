@@ -439,15 +439,10 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
             filteredCourses = filteredCourses.filter((c) => c.scope === 'UNIVERSITY_WIDE');
         }
 
-        if (mode === 'exam') {
-            const scheduledCourseIds = new Set(allModeSchedules.map(s => s.courseId));
-            if (editing) {
-                scheduledCourseIds.delete(editing.courseId);
-            }
-            return filteredCourses.filter(c => !scheduledCourseIds.has(c.id));
-        }
+        // A course may be scheduled multiple times (e.g. several exam sittings)
+        // within a faculty, so already-scheduled courses stay selectable.
         return filteredCourses;
-    }, [courses, departments, filterFaculty, filterDept, mode, allModeSchedules, editing, user?.role, user?.faculty_id, semesterName]);
+    }, [courses, departments, filterFaculty, filterDept, mode, editing, user?.role, user?.faculty_id, semesterName]);
 
     const handleCellClick = (roomId, hour) => {
         if (readOnly) return;
@@ -551,45 +546,52 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
             departmentsById,
         );
 
+        const candidateCourse = courses.find((c) => c.id === modalForm.courseId);
+        // Conflicts the user chose to ignore — recorded as dismissals after saving.
+        let ignoredConflicts = [];
         if (result.hasConflict) {
-            result.conflicts.filter((c) => c.severity === 'error').forEach((c) => {
-                addToast({
-                    type: 'error',
-                    title: 'Conflict Detected',
-                    message: c.message,
-                    duration: 8000,
-                });
-            });
-            return;
-        }
-
-        const overrides = result.conflicts.filter((c) => c.priorityOverride);
-        if (overrides.length > 0) {
-            const candidateCourse = courses.find((c) => c.id === modalForm.courseId);
+            const errorConflicts = result.conflicts.filter((c) => c.severity === 'error');
             const ok = await confirm({
-                title: 'Higher-priority schedule will override',
+                title: 'Schedule despite conflicts?',
                 message:
-                    `Saving "${candidateCourse?.code || 'this course'}" will create the following conflict(s) with lower-priority courses. ` +
-                    `It will still be scheduled, but the affected faculty editors will be notified by email to reschedule. Continue?`,
-                details: overrides.map((c) => c.message),
-                confirmLabel: 'Schedule anyway',
+                    `Scheduling "${candidateCourse?.code || 'this course'}" clashes with the following. ` +
+                    `You can ignore the conflict(s) and schedule anyway — they'll be recorded as ignored and can be reviewed or restored under "Manage conflicts".`,
+                details: errorConflicts.map((c) => c.message),
+                confirmLabel: 'Ignore & schedule',
                 cancelLabel: 'Cancel',
                 tone: 'primary',
             });
             if (!ok) return;
-        } else if (result.hasWarning) {
-            result.conflicts.filter((c) => c.severity === 'warning').forEach((c) => {
-                addToast({
-                    type: 'warning',
-                    title: 'Schedule Warning',
-                    message: c.message,
-                    duration: 6000,
+            ignoredConflicts = errorConflicts;
+        } else {
+            const overrides = result.conflicts.filter((c) => c.priorityOverride);
+            if (overrides.length > 0) {
+                const ok = await confirm({
+                    title: 'Higher-priority schedule will override',
+                    message:
+                        `Saving "${candidateCourse?.code || 'this course'}" will create the following conflict(s) with lower-priority courses. ` +
+                        `It will still be scheduled, but the affected faculty editors will be notified by email to reschedule. Continue?`,
+                    details: overrides.map((c) => c.message),
+                    confirmLabel: 'Schedule anyway',
+                    cancelLabel: 'Cancel',
+                    tone: 'primary',
                 });
-            });
+                if (!ok) return;
+            } else if (result.hasWarning) {
+                result.conflicts.filter((c) => c.severity === 'warning').forEach((c) => {
+                    addToast({
+                        type: 'warning',
+                        title: 'Schedule Warning',
+                        message: c.message,
+                        duration: 6000,
+                    });
+                });
+            }
         }
 
         const payload = { ...formWithCleanRooms, type: mode };
 
+        let savedItemId = null;
         setIsSaving(true);
         try {
             if (editing) {
@@ -602,6 +604,7 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
                 };
                 await apiClient.put(`/timetable/schedule-items/${editing.id}`, apiPayload);
                 dispatch({ type: ACTION_TYPES.UPDATE_SCHEDULE, payload: { id: editing.id, ...payload, examDate: payload.examDate } });
+                savedItemId = editing.id;
                 addToast({ type: 'success', title: 'Schedule Updated', message: `${courses.find(c => c.id === modalForm.courseId)?.code || 'Course'} updated successfully.` });
             } else {
                 const course = courses.find(c => c.id === modalForm.courseId);
@@ -631,6 +634,7 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
                         semester_id: semesterId,
                     }
                 });
+                savedItemId = res.id;
                 addToast({ type: 'success', title: 'Course Scheduled', message: `${courses.find(c => c.id === modalForm.courseId)?.code || 'Course'} added to timetable.` });
             }
         } catch (e) {
@@ -638,6 +642,25 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
             addToast({ type: 'error', title: 'Scheduling Error', message: e.message || 'Failed to synchronize with server.', duration: 8000 });
         } finally {
             setIsSaving(false);
+        }
+
+        // Record any conflicts the user chose to ignore so they stay suppressed.
+        if (savedItemId && ignoredConflicts.length > 0) {
+            const reason = `Ignored while scheduling ${candidateCourse?.code || 'course'}`;
+            try {
+                await Promise.all(ignoredConflicts.map((c) =>
+                    apiClient.post('/timetable/conflict-dismissals', {
+                        conflict_type: c.type,
+                        item_a_id: savedItemId,
+                        item_b_id: c.relatedId ?? null,
+                        reason,
+                    })
+                ));
+                await refreshDismissals();
+            } catch (e) {
+                console.error('Failed to record ignored conflicts', e);
+                addToast({ type: 'error', title: 'Conflicts not recorded', message: 'The schedule was saved, but the ignored conflict(s) could not be recorded. They may reappear as unresolved.' });
+            }
         }
         setShowModal(false);
     };
@@ -719,6 +742,7 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
             courseDepartmentId: dragItem.courseDepartmentId ?? null,
             courseLevel: dragItem.courseLevel ?? null,
             courseScope: dragItem.courseScope ?? null,
+            facultyId: dragItem.facultyId ?? null,
             isSpecialFaculty: dragItem.isSpecialFaculty ?? false,
         };
 
