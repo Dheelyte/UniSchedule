@@ -29,6 +29,7 @@ class Room(Base):
     capacity: Mapped[int] = mapped_column(Integer)
     faculty_id: Mapped[str | None] = mapped_column(ForeignKey("faculties.id"), nullable=True)
     display_order: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    is_lab: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
 
 class Course(Base):
     __tablename__ = "courses"

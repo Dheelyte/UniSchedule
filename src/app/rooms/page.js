@@ -40,10 +40,10 @@ export default function RoomsPage() {
     const [deleteConfirm, setDeleteConfirm] = useState(null);
 
     // Form state
-    const [form, setForm] = useState({ name: '', capacity: 100, facultyId: '' });
+    const [form, setForm] = useState({ name: '', capacity: 100, facultyId: '', isLab: false });
     const [loading, setLoading] = useState(true);
 
-    const normalizeRoom = (r) => ({ ...r, facultyId: r.faculty_id ?? r.facultyId ?? null });
+    const normalizeRoom = (r) => ({ ...r, facultyId: r.faculty_id ?? r.facultyId ?? null, isLab: r.is_lab ?? r.isLab ?? false });
 
     useEffect(() => {
         let mounted = true;
@@ -126,13 +126,13 @@ export default function RoomsPage() {
 
     const openAdd = () => {
         setEditing(null);
-        setForm({ name: '', capacity: 100, facultyId: isGsAdmin(role) ? '' : (faculties[0]?.id || '') });
+        setForm({ name: '', capacity: 100, facultyId: isGsAdmin(role) ? '' : (faculties[0]?.id || ''), isLab: false });
         setShowModal(true);
     };
 
     const openEdit = (room) => {
         setEditing(room);
-        setForm({ name: room.name, capacity: room.capacity, facultyId: room.facultyId || '' });
+        setForm({ name: room.name, capacity: room.capacity, facultyId: room.facultyId || '', isLab: !!room.isLab });
         setShowModal(true);
     };
 
@@ -140,13 +140,13 @@ export default function RoomsPage() {
         if (!form.name.trim() || !form.capacity) return;
         if (!form.facultyId && !isGsAdmin(role)) return;
         try {
-            const payload = { name: form.name.trim(), capacity: parseInt(form.capacity) || 100, faculty_id: form.facultyId || null };
+            const payload = { name: form.name.trim(), capacity: parseInt(form.capacity) || 100, faculty_id: form.facultyId || null, is_lab: !!form.isLab };
             if (editing) {
                 await apiClient.put(`/timetable/rooms/${editing.id}`, payload);
-                dispatch({ type: ACTION_TYPES.UPDATE_ROOM, payload: { id: editing.id, name: payload.name, capacity: payload.capacity, facultyId: payload.faculty_id } });
+                dispatch({ type: ACTION_TYPES.UPDATE_ROOM, payload: { id: editing.id, name: payload.name, capacity: payload.capacity, facultyId: payload.faculty_id, isLab: payload.is_lab } });
             } else {
                 const res = await apiClient.post('/timetable/rooms', payload);
-                dispatch({ type: ACTION_TYPES.ADD_ROOM, payload: { id: res.id, name: res.name, capacity: res.capacity, facultyId: res.faculty_id } });
+                dispatch({ type: ACTION_TYPES.ADD_ROOM, payload: { id: res.id, name: res.name, capacity: res.capacity, facultyId: res.faculty_id, isLab: res.is_lab ?? payload.is_lab } });
             }
             setShowModal(false);
             addToast({ type: 'success', title: editing ? 'Room Updated' : 'Room Added', message: 'Room has been saved successfully.' });
@@ -213,12 +213,16 @@ export default function RoomsPage() {
                                     <td style={{ fontWeight: 500, color: 'var(--color-text)' }}>{room.name}</td>
                                     <td style={{ fontSize: '0.82rem', color: 'var(--color-text-muted)' }}>{fac?.name || '-'}</td>
                                     <td>
-                                        <div className={styles.capacityCell}>
-                                            <span className={styles.capacityNum}>{room.capacity}</span>
-                                            <div className={styles.capacityBar}>
-                                                <div className={styles.capacityFill} style={{ width: `${Math.min(100, (room.capacity / 600) * 100)}%` }} />
+                                        {room.isLab ? (
+                                            <span className={styles.labTag}>Lab</span>
+                                        ) : (
+                                            <div className={styles.capacityCell}>
+                                                <span className={styles.capacityNum}>{room.capacity}</span>
+                                                <div className={styles.capacityBar}>
+                                                    <div className={styles.capacityFill} style={{ width: `${Math.min(100, (room.capacity / 600) * 100)}%` }} />
+                                                </div>
                                             </div>
-                                        </div>
+                                        )}
                                     </td>
                                     <td><span className={`${styles.tier} ${tier.cls}`}>{tier.label}</span></td>
                                     <td>
@@ -412,6 +416,21 @@ export default function RoomsPage() {
                             <div className="form-group">
                                 <label className="form-label">Seating Capacity</label>
                                 <input className="form-input" type="number" min="1" value={form.capacity} onChange={(e) => setForm({ ...form, capacity: e.target.value })} placeholder="e.g. 300" />
+                            </div>
+                            <div className="form-group">
+                                <label className={styles.toggleRow}>
+                                    <span className={styles.toggleText}>
+                                        <span className="form-label" style={{ marginBottom: 2 }}>Lab</span>
+                                        <span className={styles.toggleHint}>Mark this venue as a laboratory</span>
+                                    </span>
+                                    <input
+                                        type="checkbox"
+                                        className={styles.toggleInput}
+                                        checked={!!form.isLab}
+                                        onChange={(e) => setForm({ ...form, isLab: e.target.checked })}
+                                    />
+                                    <span className={styles.toggleSwitch} aria-hidden="true" />
+                                </label>
                             </div>
                         </div>
                         <div className="modal-footer">

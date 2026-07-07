@@ -4,6 +4,7 @@ import { usePathname } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import { useConfirm } from "@/components/ConfirmModal/ConfirmContext";
 import NotificationsDropdown from "@/components/NotificationsDropdown/NotificationsDropdown";
+import RoleSwitcher from "@/components/RoleSwitcher/RoleSwitcher";
 import styles from "./TopBar.module.css";
 
 const MOBILE_QUERY = "(max-width: 768px)";
@@ -94,6 +95,7 @@ export default function TopBar({
 			</div>
 
 			<div className={styles.right}>
+				<RoleSwitcher />
 				<NotificationsDropdown />
 				{/* Logout Button */}
 				<button

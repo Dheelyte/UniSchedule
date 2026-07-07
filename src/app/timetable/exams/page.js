@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useApp, ACTION_TYPES } from "@/context/AppContext";
 import { useAuth } from "@/context/AuthContext";
 import { apiClient } from "@/lib/apiClient";
-import { detectAllConflicts } from "@/lib/conflicts";
+import { detectAllConflicts, dismissalSignatureSet } from "@/lib/conflicts";
 import { exportTimetablePDF } from "@/lib/pdfExport";
 import { exportTimetableCSV } from "@/lib/csvExport";
 import { isGeneralStudiesCourse, GENERAL_STUDIES_FACULTY } from "@/lib/utils";
@@ -255,7 +255,8 @@ export default function ExamTimetablePage() {
 	const handleExportInit = async (format) => {
 		if (SHOW_CONFLICTS_BEFORE_EXPORT) {
 			const schedules = getSchedulesWithDetails.filter((s) => s.type === "exam");
-			const conflictsMap = detectAllConflicts(schedules);
+			const dismissals = await apiClient.get("/timetable/conflict-dismissals").catch(() => []);
+			const conflictsMap = detectAllConflicts(schedules, null, null, dismissalSignatureSet(dismissals));
 			const errorMessages = [
 				...new Set(
 					Array.from(conflictsMap.values())

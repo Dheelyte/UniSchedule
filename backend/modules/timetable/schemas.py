@@ -32,6 +32,7 @@ class RoomCreate(BaseModel):
     capacity: int
     faculty_id: str | None = None
     display_order: int = 0
+    is_lab: bool = False
 
 class RoomResponse(RoomCreate):
     id: int
@@ -42,6 +43,7 @@ class RoomUpdate(BaseModel):
     capacity: int | None = None
     faculty_id: str | None = None
     display_order: int | None = None
+    is_lab: bool | None = None
 
 class RoomReorderItem(BaseModel):
     id: int

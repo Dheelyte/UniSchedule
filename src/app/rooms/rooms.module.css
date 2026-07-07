@@ -168,6 +168,81 @@
     color: #34d399;
 }
 
+/* Lab tag (shown in place of capacity for laboratories) */
+.labTag {
+    display: inline-flex;
+    align-items: center;
+    padding: 3px 12px;
+    border-radius: 50px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    background: rgba(139, 92, 246, 0.12);
+    color: #a78bfa;
+}
+
+/* Lab toggle (add/edit room modal) */
+.toggleRow {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    cursor: pointer;
+}
+
+.toggleText {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+}
+
+.toggleHint {
+    font-size: 0.75rem;
+    color: var(--color-text-muted);
+}
+
+.toggleInput {
+    position: absolute;
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.toggleSwitch {
+    position: relative;
+    flex-shrink: 0;
+    width: 42px;
+    height: 24px;
+    border-radius: 50px;
+    background: var(--color-border);
+    transition: background 0.2s ease;
+}
+
+.toggleSwitch::after {
+    content: '';
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: #fff;
+    transition: transform 0.2s ease;
+}
+
+.toggleInput:checked + .toggleSwitch {
+    background: #8b5cf6;
+}
+
+.toggleInput:checked + .toggleSwitch::after {
+    transform: translateX(18px);
+}
+
+.toggleInput:focus-visible + .toggleSwitch {
+    outline: 2px solid #8b5cf6;
+    outline-offset: 2px;
+}
+
 /* Actions */
 .actions {
     display: flex;

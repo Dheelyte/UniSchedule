@@ -1,0 +1,126 @@
+.tabs {
+	display: flex;
+	gap: 8px;
+	margin-bottom: 16px;
+	border-bottom: 1px solid var(--color-border);
+}
+
+.tab {
+	padding: 8px 14px;
+	border: none;
+	background: none;
+	color: var(--color-text-muted);
+	font-size: 0.85rem;
+	font-weight: 600;
+	cursor: pointer;
+	border-bottom: 2px solid transparent;
+	margin-bottom: -1px;
+}
+
+.tabActive {
+	color: var(--color-text);
+	border-bottom-color: #6366f1;
+}
+
+.reasonLabel {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	font-size: 0.78rem;
+	font-weight: 600;
+	color: var(--color-text-muted);
+	margin-bottom: 12px;
+}
+
+.reason {
+	padding: 8px 10px;
+	border: 1px solid var(--color-border);
+	border-radius: var(--radius-md);
+	background: var(--color-bg);
+	color: var(--color-text);
+	font-size: 0.85rem;
+	font-family: inherit;
+	resize: vertical;
+}
+
+.bulkRow {
+	display: flex;
+	gap: 8px;
+	margin-bottom: 16px;
+}
+
+.select {
+	flex: 1;
+	height: 38px;
+	padding: 0 10px;
+	border: 1px solid var(--color-border);
+	border-radius: var(--radius-md);
+	background: var(--color-bg);
+	color: var(--color-text);
+	font-size: 0.85rem;
+	cursor: pointer;
+}
+
+.list {
+	list-style: none;
+	margin: 0;
+	padding: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	max-height: 46vh;
+	overflow-y: auto;
+}
+
+.row {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	padding: 10px 12px;
+	border: 1px solid var(--color-border);
+	border-radius: var(--radius-md);
+	background: var(--color-bg-card);
+}
+
+.rowMain {
+	flex: 1;
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 3px;
+}
+
+.badge {
+	align-self: flex-start;
+	font-size: 0.66rem;
+	font-weight: 700;
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+	color: #b45309;
+	background: rgba(217, 119, 6, 0.12);
+	padding: 1px 7px;
+	border-radius: 6px;
+}
+
+.rowLabel {
+	font-size: 0.85rem;
+	font-weight: 600;
+	color: var(--color-text);
+}
+
+.rowMsg {
+	font-size: 0.78rem;
+	color: var(--color-text-secondary);
+	line-height: 1.4;
+}
+
+.meta {
+	color: var(--color-text-muted);
+}
+
+.empty {
+	text-align: center;
+	padding: 28px 0;
+	color: var(--color-text-muted);
+	font-size: 0.9rem;
+}
