@@ -1,9 +1,9 @@
 from fastapi import APIRouter, Depends, Response, HTTPException, status
 from core.security import verify_password
 from modules.auth.service import AuthService, PasswordResetService
-from modules.auth.schemas import LoginRequest, InviteRequest, MsgResponse, PasswordReset, PasswordResetCodeCheck, PasswordResetRequest, PasswordResetVerify, RegisterRequest, UserResponse, InvitationResponse
+from modules.auth.schemas import LoginRequest, InviteRequest, MsgResponse, PasswordReset, PasswordResetCodeCheck, PasswordResetRequest, PasswordResetVerify, RegisterRequest, UserResponse, InvitationResponse, ImpersonateRequest
 from core.config import settings
-from api.dependencies.auth import RequireRole, get_current_user
+from api.dependencies.auth import RequireRole, get_current_user, require_real_super_admin
 from modules.auth.models import RoleEnum
 from modules.timetable.repository import TimetableRepository
 from core.mail import EmailService
@@ -31,6 +31,37 @@ async def logout(response: Response):
 @router.get("/me")
 async def get_current_session(user: dict = Depends(get_current_user)):
     return user
+
+def _set_session_cookie(response: Response, token: str) -> None:
+    response.set_cookie(
+        key="access_token",
+        value=token,
+        httponly=True,
+        secure=settings.COOKIE_SECURE,
+        samesite=settings.COOKIE_SAMESITE,
+        max_age=1440 * 60,
+    )
+
+@router.post("/impersonate")
+async def impersonate(
+    response: Response,
+    data: ImpersonateRequest,
+    service: AuthService = Depends(),
+    current_user: dict = Depends(require_real_super_admin),
+):
+    token = await service.impersonate(current_user, data.role, data.faculty_id)
+    _set_session_cookie(response, token)
+    return {"message": f"Now acting as {data.role.value}"}
+
+@router.post("/impersonate/stop")
+async def stop_impersonation(
+    response: Response,
+    service: AuthService = Depends(),
+    current_user: dict = Depends(require_real_super_admin),
+):
+    token = await service.stop_impersonation(current_user)
+    _set_session_cookie(response, token)
+    return {"message": "Stopped impersonating"}
 
 @router.post("/invite")
 async def invite_staff(

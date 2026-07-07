@@ -11,6 +11,7 @@ from modules.timetable.schemas import (
     TimetableLockResponse, TimetableLockUpdate, EditRequestCreate,
     CourseEnrollmentCreate, CourseEnrollmentResponse,
     ChangeRequestCreate, ChangeRequestResponse, ChangeRequestReview,
+    ConflictDismissalCreate, ConflictDismissalBulkCreate, ConflictDismissalResponse,
 )
 from api.dependencies.auth import RequireRole, get_current_user
 from modules.auth.models import RoleEnum
@@ -193,6 +194,42 @@ async def delete_schedule(
 ):
     await service.delete_schedule_item(item_id, user)
     return {"message": "Deleted"}
+
+# ---------- Conflict Dismissals ----------
+
+EDITOR_ROLES = [RoleEnum.SUPER_ADMIN.value, RoleEnum.FACULTY_EDITOR.value, RoleEnum.GS_ADMIN.value]
+
+@router.get("/conflict-dismissals", response_model=list[ConflictDismissalResponse])
+async def get_conflict_dismissals(
+    service: TimetableService = Depends(),
+    user: dict = Depends(get_current_user),
+):
+    return await service.get_dismissals(user)
+
+@router.post("/conflict-dismissals", response_model=ConflictDismissalResponse)
+async def create_conflict_dismissal(
+    data: ConflictDismissalCreate,
+    service: TimetableService = Depends(),
+    user: dict = Depends(RequireRole(EDITOR_ROLES)),
+):
+    return await service.create_dismissal(data, user)
+
+@router.post("/conflict-dismissals/bulk", response_model=list[ConflictDismissalResponse])
+async def bulk_dismiss_conflicts(
+    data: ConflictDismissalBulkCreate,
+    service: TimetableService = Depends(),
+    user: dict = Depends(RequireRole(EDITOR_ROLES)),
+):
+    return await service.bulk_dismiss(data, user)
+
+@router.delete("/conflict-dismissals/{id}")
+async def delete_conflict_dismissal(
+    id: int,
+    service: TimetableService = Depends(),
+    user: dict = Depends(RequireRole(EDITOR_ROLES)),
+):
+    await service.delete_dismissal(id, user)
+    return {"message": "Restored"}
 
 # ---------- Blocked Slots ----------
 

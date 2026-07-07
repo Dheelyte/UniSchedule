@@ -46,6 +46,17 @@ class AuditService:
                 if not user_email and user_id is not None:
                     u = await self.auth_repo.get_user_by_id(user_id)
                     user_email = u.email if u else None
+                # Attribute impersonated actions to the real super admin while
+                # recording the assumed role/faculty in the effective fields.
+                if current_user.get("impersonating"):
+                    extra = {
+                        **(extra or {}),
+                        "impersonation": {
+                            "real_role": current_user.get("real_role"),
+                            "acting_as_role": current_user.get("role"),
+                            "acting_as_faculty_id": current_user.get("faculty_id"),
+                        },
+                    }
 
             entry = ActivityLog(
                 user_id=user_id,

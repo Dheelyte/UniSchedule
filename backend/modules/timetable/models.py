@@ -133,3 +133,25 @@ class CourseEnrollment(Base):
     level: Mapped[int] = mapped_column(Integer)
     enrolled_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     enrolled_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class ConflictDismissal(Base):
+    """A manually acknowledged/overridden schedule conflict.
+
+    Conflicts are computed on the fly (never stored), so a dismissal is keyed by
+    the schedule items involved plus the conflict type. Pairwise conflicts store
+    both item ids (normalized so item_a_id <= item_b_id); single-item conflicts
+    (e.g. outside-hours warnings) leave item_b_id null. Deleting or moving a
+    schedule item cascades the dismissal away, so the conflict re-surfaces.
+    """
+    __tablename__ = "conflict_dismissals"
+    __table_args__ = (
+        UniqueConstraint("conflict_type", "item_a_id", "item_b_id", name="uq_dismissal_signature"),
+    )
+    id: Mapped[int] = mapped_column(primary_key=True)
+    conflict_type: Mapped[str] = mapped_column(String)  # room | course | audience | duplicate | time
+    item_a_id: Mapped[int] = mapped_column(ForeignKey("schedule_items.id", ondelete="CASCADE"), index=True)
+    item_b_id: Mapped[int | None] = mapped_column(ForeignKey("schedule_items.id", ondelete="CASCADE"), nullable=True, index=True)
+    reason: Mapped[str] = mapped_column(String)
+    created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

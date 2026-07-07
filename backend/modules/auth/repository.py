@@ -4,6 +4,7 @@ from sqlalchemy import func, select, update
 from sqlalchemy.orm import joinedload
 from core.database import get_db
 from modules.auth.models import PasswordResetToken, User, Invitation, RoleEnum
+from modules.timetable.models import Faculty
 
 class AuthRepository:
     def __init__(self, db: AsyncSession = Depends(get_db)):
@@ -64,6 +65,12 @@ class AuthRepository:
     async def get_user_by_id(self, id: int) -> User | None:
         result = await self.db.execute(select(User).where(User.id == id))
         return result.scalars().first()
+
+    async def faculty_exists(self, faculty_id: str) -> bool:
+        result = await self.db.execute(
+            select(Faculty.id).where(Faculty.id == faculty_id)
+        )
+        return result.scalars().first() is not None
 
     async def delete_user(self, user: User) -> None:
         await self.db.delete(user)

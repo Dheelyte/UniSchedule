@@ -17,6 +17,10 @@ class InviteRequest(BaseModel):
 class RegisterRequest(BaseModel):
     password: str
 
+class ImpersonateRequest(BaseModel):
+    role: RoleEnum
+    faculty_id: str | None = None
+
 class UserResponse(BaseModel):
     id: int
     email: EmailStr
