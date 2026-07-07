@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Fragment } from 'react';
 import { useApp, ACTION_TYPES } from '@/context/AppContext';
 import { apiClient } from '@/lib/apiClient';
 import { useToast } from '@/components/Toast/Toast';
@@ -56,6 +56,17 @@ export default function FacultiesPage() {
 
     // Delete confirmation
     const [deleteConfirm, setDeleteConfirm] = useState(null);
+
+    // Expanded faculties set (to show departments inline)
+    const [expandedFaculties, setExpandedFaculties] = useState(new Set());
+
+    const toggleFacultyExpand = (id) => {
+        setExpandedFaculties((prev) => {
+            const isOpen = prev.has(id);
+            if (isOpen) return new Set(); // close all
+            return new Set([id]); // open only this one (accordion behavior)
+        });
+    };
 
     // ---- Faculty CRUD ----
     const openAddFaculty = () => {
@@ -181,7 +192,7 @@ export default function FacultiesPage() {
                 </div>
             )}
 
-            {/* Faculties Table */}
+            {/* Faculties Table (click faculty to expand departments) */}
             <div className={styles.section}>
                 <h3 className={styles.sectionTitle}>Faculties</h3>
                 <div className="table-container">
@@ -195,26 +206,84 @@ export default function FacultiesPage() {
                         </thead>
                         <tbody>
                             {faculties.map((fac) => (
-                                <tr key={fac.id}>
-                                    <td style={{ fontWeight: 500, color: 'var(--color-text)' }}>{fac.name}</td>
-                                    <td>
-                                        <span className="badge badge-primary">{deptCount(fac.id)} dept{deptCount(fac.id) !== 1 ? 's' : ''}</span>
-                                    </td>
-                                    <td>
-                                        {role === 'SUPER_ADMIN' ? (
-                                            <div className={styles.actions}>
-                                                <button className={styles.actionBtn} onClick={() => openEditFaculty(fac)} title="Edit">
-                                                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" /><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" /></svg>
-                                                </button>
-                                                <button className={`${styles.actionBtn} ${styles.deleteBtn}`} onClick={() => setDeleteConfirm({ type: 'faculty', id: fac.id, name: fac.name })} title="Delete">
-                                                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /></svg>
-                                                </button>
-                                            </div>
-                                        ) : (
-                                            <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Read Only</span>
-                                        )}
-                                    </td>
-                                </tr>
+                                <Fragment key={fac.id}>
+                                    <tr key={fac.id}>
+                                        <td
+                                            onClick={() => toggleFacultyExpand(fac.id)}
+                                            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleFacultyExpand(fac.id); } }}
+                                            tabIndex={0}
+                                            role="button"
+                                            aria-expanded={expandedFaculties.has(fac.id)}
+                                            aria-controls={`depts-${fac.id}`}
+                                            style={{ fontWeight: 500, color: 'var(--color-text)', display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}
+                                        >
+                                            <button className={styles.expandBtn} onClick={(e) => { e.stopPropagation(); toggleFacultyExpand(fac.id); }} aria-expanded={expandedFaculties.has(fac.id)} title="Toggle departments" style={{ background: 'transparent', border: 'none', padding: 4 }}>
+                                                {expandedFaculties.has(fac.id) ? (
+                                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9" /></svg>
+                                                ) : (
+                                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 15 12 9 18 15" /></svg>
+                                                )}
+                                            </button>
+                                            <span>{fac.name}</span>
+                                        </td>
+                                        <td>
+                                            <span className="badge badge-primary">{deptCount(fac.id)} dept{deptCount(fac.id) !== 1 ? 's' : ''}</span>
+                                        </td>
+                                        <td>
+                                            {role === 'SUPER_ADMIN' ? (
+                                                <div className={styles.actions}>
+                                                    <button className={styles.actionBtn} onClick={() => openEditFaculty(fac)} title="Edit">
+                                                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" /><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" /></svg>
+                                                    </button>
+                                                    <button className={`${styles.actionBtn} ${styles.deleteBtn}`} onClick={() => setDeleteConfirm({ type: 'faculty', id: fac.id, name: fac.name })} title="Delete">
+                                                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /></svg>
+                                                    </button>
+                                                </div>
+                                            ) : (
+                                                <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Read Only</span>
+                                            )}
+                                        </td>
+                                    </tr>
+
+                                    {expandedFaculties.has(fac.id) && (
+                                        <tr key={`${fac.id}-depts`} id={`depts-${fac.id}`} className={styles.deptRow}>
+                                            <td colSpan={3} style={{ padding: 0 }}>
+                                                <div className={styles.deptList}>
+                                                    <div className={styles.deptHeader}>
+                                                        <strong>Departments</strong>
+                                                        {!isViewerRole(role) && !isGsAdmin(role) && (
+                                                            <button className="btn btn-secondary" onClick={() => { setDeptFacultyId(fac.id); openAddDept(); }} style={{ marginLeft: 'auto' }}>Add Department</button>
+                                                        )}
+                                                    </div>
+                                                    <div className={styles.deptItems}>
+                                                        {state.departments.filter(d => d.facultyId === fac.id).map((dept) => (
+                                                            <div key={dept.id} className={styles.deptItem}>
+                                                                <div className={styles.deptName}>{dept.name}</div>
+                                                                <div className={styles.actions}>
+                                                                    {!isViewerRole(role) && !isGsAdmin(role) ? (
+                                                                        <>
+                                                                            <button className={styles.actionBtn} onClick={() => openEditDept(dept)} title="Edit">
+                                                                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" /><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" /></svg>
+                                                                            </button>
+                                                                            <button className={`${styles.actionBtn} ${styles.deleteBtn}`} onClick={() => setDeleteConfirm({ type: 'dept', id: dept.id, name: dept.name })} title="Delete">
+                                                                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /></svg>
+                                                                            </button>
+                                                                        </>
+                                                                    ) : (
+                                                                        <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Read Only</span>
+                                                                    )}
+                                                                </div>
+                                                            </div>
+                                                        ))}
+                                                        {state.departments.filter(d => d.facultyId === fac.id).length === 0 && (
+                                                            <div className={styles.emptyDept}>No departments.</div>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    )}
+                                </Fragment>
                             ))}
                             {faculties.length === 0 && (
                                 <tr><td colSpan={3} className={styles.empty}>No faculties added yet.</td></tr>
@@ -224,46 +293,7 @@ export default function FacultiesPage() {
                 </div>
             </div>
 
-            {/* Departments Table */}
-            <div className={styles.section}>
-                <h3 className={styles.sectionTitle}>Departments</h3>
-                <div className="table-container">
-                    <table className="data-table">
-                        <thead>
-                            <tr>
-                                <th>Department Name</th>
-                                <th>Faculty</th>
-                                <th style={{ width: 140 }}>Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {getDepartmentsWithFaculty.map((dept) => (
-                                <tr key={dept.id}>
-                                    <td style={{ fontWeight: 500, color: 'var(--color-text)' }}>{dept.name}</td>
-                                    <td>{dept.facultyName}</td>
-                                    <td>
-                                        {!isViewerRole(role) && !isGsAdmin(role) ? (
-                                            <div className={styles.actions}>
-                                                <button className={styles.actionBtn} onClick={() => openEditDept(dept)} title="Edit">
-                                                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" /><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" /></svg>
-                                                </button>
-                                                <button className={`${styles.actionBtn} ${styles.deleteBtn}`} onClick={() => setDeleteConfirm({ type: 'dept', id: dept.id, name: dept.name })} title="Delete">
-                                                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /></svg>
-                                                </button>
-                                            </div>
-                                        ) : (
-                                            <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Read Only</span>
-                                        )}
-                                    </td>
-                                </tr>
-                            ))}
-                            {getDepartmentsWithFaculty.length === 0 && (
-                                <tr><td colSpan={3} className={styles.empty}>No departments added yet.</td></tr>
-                            )}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
+            {/* Departments are shown inline under each faculty when expanded */}
 
             {/* Faculty Modal */}
             {showFacultyModal && (

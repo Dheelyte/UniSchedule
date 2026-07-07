@@ -42,6 +42,7 @@ export default function DashboardPage() {
 	const { user } = useAuth();
 	const [currentTerm, setCurrentTerm] = useState(null);
 	const [currentSession, setCurrentSession] = useState(null);
+	const [facultyOverviewType, setFacultyOverviewType] = useState('exams');
 	const [loaded, setLoaded] = useState(false);
 
 	useEffect(() => {
@@ -116,31 +117,26 @@ export default function DashboardPage() {
 			.sort((a, b) => a.startTime.localeCompare(b.startTime));
 	}, [getSchedulesWithDetails, today]);
 
-	// Faculty distribution
-	const facultyDistribution = useMemo(() => {
+	// Faculty distribution by schedule type
+	const facultyOverviewDistribution = useMemo(() => {
 		const map = {};
 		state.faculties.forEach((f) => {
-			map[f.id] = { name: f.name, courses: 0, schedules: 0 };
+			map[f.id] = { id: f.id, name: f.name, lectures: 0, exams: 0 };
 		});
-		const deptFacultyMap = {};
-		state.departments.forEach((d) => {
-			deptFacultyMap[d.id] = d.facultyId;
+		getSchedulesWithDetails.forEach((s) => {
+			const facultyId = s.facultyId;
+			if (!facultyId || !map[facultyId]) return;
+			if (s.type === 'lecture') map[facultyId].lectures++;
+			if (s.type === 'exam') map[facultyId].exams++;
 		});
-		state.courses.forEach((c) => {
-			const fId = deptFacultyMap[c.departmentId];
-			if (fId && map[fId]) map[fId].courses++;
-		});
-		state.scheduleItems.forEach((s) => {
-			if (s.facultyId && map[s.facultyId]) map[s.facultyId].schedules++;
-		});
-		return Object.entries(map)
-			.map(([id, data]) => ({ id, ...data }))
-			.sort((a, b) => b.courses - a.courses);
-	}, [state]);
+		return Object.values(map).sort(
+			(a, b) => b[facultyOverviewType] - a[facultyOverviewType],
+		);
+	}, [state.faculties, getSchedulesWithDetails, facultyOverviewType]);
 
-	const maxFacultyCourses = Math.max(
+	const maxFacultySchedules = Math.max(
 		1,
-		...facultyDistribution.map((f) => f.courses),
+		...facultyOverviewDistribution.map((f) => f[facultyOverviewType]),
 	);
 
 	// Room utilization (top 8)
@@ -445,36 +441,52 @@ export default function DashboardPage() {
 				{/* Faculty Distribution */}
 				<div className={styles.panel}>
 					<div className={styles.panelHeader}>
-						<span className={styles.panelTitle}>
-							<svg
-								width="16"
-								height="16"
+							<span className={styles.panelTitle}>
+								<svg
+								width="24"
+								height="24"
 								viewBox="0 0 24 24"
 								fill="none"
 								stroke="currentColor"
 								strokeWidth="2"
 								strokeLinecap="round"
 								strokeLinejoin="round">
-								<path d="M2 20V8l10-5 10 5v12" />
-								<path d="M6 10v10" />
-								<path d="M18 10v10" />
-								<path d="M2 20h20" />
+								<path d="M3 11L12 4l9 7" />
+								<path d="M4 12v7a2 2 0 0 0 2 2h4v-6h4v6h4a2 2 0 0 0 2-2v-7" />
 							</svg>
-							Faculty Overview
-						</span>
+								Overview
+							</span>
+						<div className={styles.panelHeaderActions}>
+							<button
+								type="button"
+								className={`${styles.panelHeaderButton} ${
+									facultyOverviewType === 'exams' ? styles.activePanelButton : ''
+								}`}
+								onClick={() => setFacultyOverviewType('exams')}>
+								Exams
+							</button>
+							<button
+								type="button"
+								className={`${styles.panelHeaderButton} ${
+									facultyOverviewType === 'lectures' ? styles.activePanelButton : ''
+								}`}
+								onClick={() => setFacultyOverviewType('lectures')}>
+								Lectures
+							</button>
+						</div>
 						<Link href="/faculties" className={styles.panelLink}>
 							Manage →
 						</Link>
 					</div>
 					<div className={styles.panelBody}>
-						{facultyDistribution.length === 0 ? (
+						{state.faculties.length === 0 ? (
 							<div className={styles.emptyState}>
 								<div className={styles.emptyIcon}>🏛️</div>
 								No faculties registered yet.
 							</div>
 						) : (
 							<div className={styles.facultyList}>
-								{facultyDistribution.map((f, i) => (
+								{facultyOverviewDistribution.map((f, i) => (
 									<div key={f.id} className={styles.facultyRow}>
 										<span className={styles.facultyName} title={f.name}>
 											{f.name}
@@ -483,12 +495,12 @@ export default function DashboardPage() {
 											<div
 												className={styles.facultyBarFill}
 												style={{
-													width: `${(f.courses / maxFacultyCourses) * 100}%`,
+													width: `${(f[facultyOverviewType] / maxFacultySchedules) * 100}%`,
 													background: BAR_COLORS[i % BAR_COLORS.length],
 												}}
 											/>
 										</div>
-										<span className={styles.facultyCount}>{f.courses}</span>
+										<span className={styles.facultyCount}>{f[facultyOverviewType]}</span>
 									</div>
 								))}
 							</div>
