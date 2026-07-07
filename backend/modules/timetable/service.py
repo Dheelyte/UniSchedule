@@ -77,7 +77,7 @@ class TimetableService:
         self.audit_service = audit_service
         
     async def create_faculty(self, data: FacultyCreate, current_user: dict | None = None) -> Faculty:
-        faculty = Faculty(id=data.id, name=data.name)
+        faculty = Faculty(id=data.id, name=data.name, is_special=data.is_special)
         created = await self.repo.create_faculty(faculty)
         await self.audit_service.log(
             current_user=current_user,
@@ -101,6 +101,7 @@ class TimetableService:
         faculty = await self.repo.get_faculty(id)
         if not faculty: raise HTTPException(status_code=404, detail="Faculty not found")
         if data.name is not None: faculty.name = data.name
+        if data.is_special is not None: faculty.is_special = data.is_special
         updated = await self.repo.update_faculty(faculty)
         await self.audit_service.log(
             current_user=current_user,

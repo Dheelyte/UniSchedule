@@ -6,12 +6,14 @@ from modules.timetable.models import CourseScope
 class FacultyCreate(BaseModel):
     id: str
     name: str
+    is_special: bool = False
 
 class FacultyResponse(FacultyCreate):
     model_config = ConfigDict(from_attributes=True)
 
 class FacultyUpdate(BaseModel):
     name: str | None = None
+    is_special: bool | None = None
 
 
 class DepartmentCreate(BaseModel):
