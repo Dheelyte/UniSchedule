@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, or_
 from datetime import date, datetime, timezone
 from core.database import get_db
-from modules.timetable.models import Faculty, Room, Course, ScheduleItem, Department, TimetableLock, CourseEnrollment, ChangeRequest
+from modules.timetable.models import Faculty, Room, Course, ScheduleItem, Department, TimetableLock, CourseEnrollment, ChangeRequest, ConflictDismissal
 
 class TimetableRepository:
     def __init__(self, db: AsyncSession = Depends(get_db)):
@@ -146,6 +146,45 @@ class TimetableRepository:
 
     async def delete_schedule_item(self, item: ScheduleItem) -> None:
         await self.db.delete(item)
+        await self.db.flush()
+
+    async def get_schedule_items_by_ids(self, ids: list[int]) -> list[ScheduleItem]:
+        if not ids:
+            return []
+        result = await self.db.execute(select(ScheduleItem).where(ScheduleItem.id.in_(ids)))
+        return list(result.scalars().all())
+
+    # ---------- Conflict Dismissals ----------
+
+    async def create_dismissal(self, dismissal: ConflictDismissal) -> ConflictDismissal:
+        self.db.add(dismissal)
+        await self.db.flush()
+        return dismissal
+
+    async def get_dismissals(self) -> list[ConflictDismissal]:
+        result = await self.db.execute(
+            select(ConflictDismissal).order_by(ConflictDismissal.created_at.desc())
+        )
+        return list(result.scalars().all())
+
+    async def get_dismissal(self, id: int) -> ConflictDismissal | None:
+        result = await self.db.execute(select(ConflictDismissal).where(ConflictDismissal.id == id))
+        return result.scalar_one_or_none()
+
+    async def find_dismissal(self, conflict_type: str, item_a_id: int, item_b_id: int | None) -> ConflictDismissal | None:
+        query = select(ConflictDismissal).where(
+            ConflictDismissal.conflict_type == conflict_type,
+            ConflictDismissal.item_a_id == item_a_id,
+        )
+        if item_b_id is None:
+            query = query.where(ConflictDismissal.item_b_id.is_(None))
+        else:
+            query = query.where(ConflictDismissal.item_b_id == item_b_id)
+        result = await self.db.execute(query)
+        return result.scalar_one_or_none()
+
+    async def delete_dismissal(self, dismissal: ConflictDismissal) -> None:
+        await self.db.delete(dismissal)
         await self.db.flush()
 
     # ---------- Blocked Slots ----------

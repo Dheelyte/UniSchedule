@@ -1,4 +1,4 @@
-from pydantic import BaseModel, ConfigDict, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from datetime import time, date as date_type, datetime
 from typing import Literal
 from modules.timetable.models import CourseScope
@@ -293,4 +293,34 @@ class CourseEnrollmentResponse(BaseModel):
     department_id: int
     level: int
     enrolled_at: datetime
+    model_config = ConfigDict(from_attributes=True)
+
+
+ConflictType = Literal["room", "course", "audience", "duplicate", "time"]
+
+
+class ConflictDismissalSignature(BaseModel):
+    conflict_type: ConflictType
+    item_a_id: int
+    item_b_id: int | None = None
+
+
+class ConflictDismissalCreate(ConflictDismissalSignature):
+    reason: str = Field(..., min_length=1, max_length=500)
+
+
+class ConflictDismissalBulkCreate(BaseModel):
+    department_id: int
+    reason: str = Field(..., min_length=1, max_length=500)
+    dismissals: list[ConflictDismissalSignature]
+
+
+class ConflictDismissalResponse(BaseModel):
+    id: int
+    conflict_type: str
+    item_a_id: int
+    item_b_id: int | None
+    reason: str
+    created_by: int | None
+    created_at: datetime
     model_config = ConfigDict(from_attributes=True)

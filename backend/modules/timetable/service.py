@@ -2,11 +2,11 @@ from fastapi import Depends, HTTPException
 from datetime import date, datetime, timezone
 from modules.timetable.repository import TimetableRepository
 from modules.calendar.repository import CalendarRepository
-from modules.timetable.models import Faculty, Room, Course, ScheduleItem, Department, CourseScope, BlockedSlot, TimetableLock, CourseEnrollment, ChangeRequest, ChangeRequestAction, ChangeRequestStatus
+from modules.timetable.models import Faculty, Room, Course, ScheduleItem, Department, CourseScope, BlockedSlot, TimetableLock, CourseEnrollment, ChangeRequest, ChangeRequestAction, ChangeRequestStatus, ConflictDismissal
 from modules.timetable.schemas import (
     FacultyCreate, RoomCreate, CourseCreate, ScheduleItemCreate, DepartmentCreate, ScheduleItemUpdate,
     FacultyUpdate, DepartmentUpdate, RoomUpdate, CourseUpdate, BlockedSlotCreate, RoomReorderRequest,
-    ChangeRequestCreate
+    ChangeRequestCreate, ConflictDismissalCreate, ConflictDismissalBulkCreate
 )
 from modules.auth.models import RoleEnum
 from modules.auth.repository import AuthRepository
@@ -31,6 +31,13 @@ def _has_global_read_scope(user: dict) -> bool:
 
 def _is_gs_admin(user: dict) -> bool:
     return user.get("role") == RoleEnum.GS_ADMIN.value
+
+
+def _normalize_signature(conflict_type: str, item_a_id: int, item_b_id: int | None):
+    """Order the pair so a signature is stable regardless of argument order."""
+    if item_b_id is not None and item_b_id < item_a_id:
+        item_a_id, item_b_id = item_b_id, item_a_id
+    return conflict_type, item_a_id, item_b_id
 
 
 # Higher number = higher scheduling priority. A higher-priority item is allowed to
@@ -1078,3 +1085,131 @@ class TimetableService:
         if not enrollment:
             raise HTTPException(status_code=404, detail="Enrollment not found")
         await self.repo.delete_enrollment(enrollment)
+
+    # ---------- Conflict Dismissals ----------
+
+    def _assert_faculty_can_dismiss(self, current_user: dict, items: list[ScheduleItem]) -> None:
+        """Global-scope roles may dismiss any conflict; a faculty editor may only
+        dismiss conflicts that involve at least one of their faculty's items."""
+        if _has_global_scope(current_user):
+            return
+        if current_user.get("role") == RoleEnum.FACULTY_EDITOR.value:
+            fid = current_user.get("faculty_id")
+            if fid and any(getattr(i, "faculty_id", None) == fid for i in items):
+                return
+        raise HTTPException(status_code=403, detail="You can only dismiss conflicts involving your faculty")
+
+    async def get_dismissals(self, current_user: dict) -> list[ConflictDismissal]:
+        return await self.repo.get_dismissals()
+
+    async def create_dismissal(self, data: ConflictDismissalCreate, current_user: dict) -> ConflictDismissal:
+        ctype, a_id, b_id = _normalize_signature(data.conflict_type, data.item_a_id, data.item_b_id)
+        if b_id is not None and b_id == a_id:
+            raise HTTPException(status_code=400, detail="A conflict must reference two different schedule items")
+        ids = [a_id] + ([b_id] if b_id is not None else [])
+        items = await self.repo.get_schedule_items_by_ids(ids)
+        found = {i.id for i in items}
+        for i in ids:
+            if i not in found:
+                raise HTTPException(status_code=404, detail=f"Schedule item {i} not found")
+        self._assert_faculty_can_dismiss(current_user, items)
+
+        existing = await self.repo.find_dismissal(ctype, a_id, b_id)
+        if existing:
+            return existing
+
+        sub = current_user.get("sub")
+        actor_id = int(sub) if sub is not None else None
+        dismissal = ConflictDismissal(
+            conflict_type=ctype, item_a_id=a_id, item_b_id=b_id,
+            reason=data.reason.strip(), created_by=actor_id,
+        )
+        try:
+            created = await self.repo.create_dismissal(dismissal)
+        except IntegrityError:
+            raise HTTPException(status_code=400, detail="This conflict is already dismissed")
+        await self.audit_service.log(
+            current_user=current_user,
+            action="conflict.dismiss",
+            entity_type="conflict_dismissal",
+            entity_id=created.id,
+            description=f"Dismissed {ctype} conflict for schedule item {a_id}"
+            + (f" & {b_id}" if b_id is not None else ""),
+            extra={"conflict_type": ctype, "item_a_id": a_id, "item_b_id": b_id, "reason": data.reason.strip()},
+        )
+        return created
+
+    async def bulk_dismiss(self, data: ConflictDismissalBulkCreate, current_user: dict) -> list[ConflictDismissal]:
+        dept = await self.repo.get_department(data.department_id)
+        if not dept:
+            raise HTTPException(status_code=404, detail="Department not found")
+        if not _has_global_scope(current_user):
+            if current_user.get("role") == RoleEnum.FACULTY_EDITOR.value:
+                fid = current_user.get("faculty_id")
+                if not fid or dept.faculty_id != fid:
+                    raise HTTPException(status_code=403, detail="You can only resolve conflicts for departments in your faculty")
+            else:
+                raise HTTPException(status_code=403, detail="Not authorized")
+
+        all_ids = set()
+        for s in data.dismissals:
+            all_ids.add(s.item_a_id)
+            if s.item_b_id is not None:
+                all_ids.add(s.item_b_id)
+        items = await self.repo.get_schedule_items_by_ids(list(all_ids))
+        items_map = {i.id: i for i in items}
+        existing = {(d.conflict_type, d.item_a_id, d.item_b_id) for d in await self.repo.get_dismissals()}
+
+        sub = current_user.get("sub")
+        actor_id = int(sub) if sub is not None else None
+        reason = data.reason.strip()
+        created: list[ConflictDismissal] = []
+        for s in data.dismissals:
+            ctype, a_id, b_id = _normalize_signature(s.conflict_type, s.item_a_id, s.item_b_id)
+            if a_id not in items_map:
+                continue
+            if b_id is not None and (b_id not in items_map or b_id == a_id):
+                continue
+            involved = [items_map[a_id]] + ([items_map[b_id]] if b_id is not None else [])
+            try:
+                self._assert_faculty_can_dismiss(current_user, involved)
+            except HTTPException:
+                continue
+            if (ctype, a_id, b_id) in existing:
+                continue
+            dismissal = ConflictDismissal(
+                conflict_type=ctype, item_a_id=a_id, item_b_id=b_id,
+                reason=reason, created_by=actor_id,
+            )
+            await self.repo.create_dismissal(dismissal)
+            created.append(dismissal)
+            existing.add((ctype, a_id, b_id))
+
+        await self.audit_service.log(
+            current_user=current_user,
+            action="conflict.dismiss.bulk",
+            entity_type="department",
+            entity_id=data.department_id,
+            description=f"Bulk-dismissed {len(created)} conflict(s) in department '{dept.name}'",
+            extra={"department_id": data.department_id, "count": len(created), "reason": reason},
+        )
+        return created
+
+    async def delete_dismissal(self, id: int, current_user: dict) -> None:
+        dismissal = await self.repo.get_dismissal(id)
+        if not dismissal:
+            raise HTTPException(status_code=404, detail="Dismissal not found")
+        ids = [dismissal.item_a_id] + ([dismissal.item_b_id] if dismissal.item_b_id is not None else [])
+        items = await self.repo.get_schedule_items_by_ids(ids)
+        self._assert_faculty_can_dismiss(current_user, items)
+        ctype = dismissal.conflict_type
+        item_a = dismissal.item_a_id
+        await self.repo.delete_dismissal(dismissal)
+        await self.audit_service.log(
+            current_user=current_user,
+            action="conflict.restore",
+            entity_type="conflict_dismissal",
+            entity_id=id,
+            description=f"Restored {ctype} conflict for schedule item {item_a}",
+            extra={"conflict_type": ctype},
+        )

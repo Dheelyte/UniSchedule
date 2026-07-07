@@ -10,10 +10,79 @@ from core.security import TokenGenerator, verify_password, create_access_token, 
 from core.config import settings
 from modules.audit.service import AuditService
 
+# Roles a super admin may assume (everything except SUPER_ADMIN itself).
+IMPERSONABLE_ROLES = {
+    RoleEnum.FACULTY_EDITOR,
+    RoleEnum.FACULTY_VIEWER,
+    RoleEnum.GS_ADMIN,
+    RoleEnum.SUPER_VIEWER,
+}
+# Assumed roles that must be scoped to a specific faculty.
+FACULTY_SCOPED_ROLES = {RoleEnum.FACULTY_EDITOR, RoleEnum.FACULTY_VIEWER}
+
+
 class AuthService:
     def __init__(self, repo: AuthRepository = Depends(), audit_service: AuditService = Depends()):
         self.repo = repo
         self.audit_service = audit_service
+
+    async def impersonate(self, current_user: dict, target_role: RoleEnum, faculty_id: str | None) -> str:
+        """Mint an impersonation token for a super admin to act as another role.
+
+        Authorization is checked against the real DB-derived role so a super
+        admin can switch targets without first exiting impersonation.
+        """
+        if current_user.get("real_role") != RoleEnum.SUPER_ADMIN.value:
+            raise HTTPException(status_code=403, detail="Only super admins can assume another role")
+        if target_role == RoleEnum.SUPER_ADMIN or target_role not in IMPERSONABLE_ROLES:
+            raise HTTPException(status_code=400, detail="This role cannot be assumed")
+
+        if target_role in FACULTY_SCOPED_ROLES:
+            if not faculty_id:
+                raise HTTPException(status_code=400, detail=f"{target_role.value} requires a faculty")
+            if not await self.repo.faculty_exists(faculty_id):
+                raise HTTPException(status_code=404, detail="Faculty not found")
+        else:
+            # Global roles carry no single-faculty scope.
+            faculty_id = None
+
+        impersonator_id = current_user.get("sub")
+        impersonator_email = current_user.get("email")
+        token = create_access_token(data={
+            "sub": impersonator_id,
+            "email": impersonator_email,
+            "role": RoleEnum.SUPER_ADMIN.value,
+            "faculty_id": None,
+            "act_as_role": target_role.value,
+            "act_as_faculty_id": faculty_id,
+            "impersonator_id": impersonator_id,
+        })
+        await self.audit_service.log(
+            current_user=current_user,
+            action="auth.impersonate.start",
+            entity_type="user",
+            entity_id=int(impersonator_id) if impersonator_id else None,
+            description=f"{impersonator_email} started acting as {target_role.value}"
+            + (f" (faculty {faculty_id})" if faculty_id else ""),
+            extra={"act_as_role": target_role.value, "act_as_faculty_id": faculty_id},
+        )
+        return token
+
+    async def stop_impersonation(self, current_user: dict) -> str:
+        """Re-mint a normal token for the underlying super admin."""
+        user_id = current_user.get("impersonator_id") or current_user.get("sub")
+        user = await self.repo.get_user_by_id(int(user_id))
+        if not user:
+            raise HTTPException(status_code=401, detail="Account no longer exists")
+        token = create_access_token(data={"sub": str(user.id), "email": user.email, "role": user.role.value, "faculty_id": user.faculty_id})
+        await self.audit_service.log(
+            current_user={"sub": str(user.id), "email": user.email, "role": user.role.value, "faculty_id": user.faculty_id},
+            action="auth.impersonate.stop",
+            entity_type="user",
+            entity_id=user.id,
+            description=f"{user.email} stopped impersonating",
+        )
+        return token
 
     async def authenticate_user(self, email: str, password: str) -> str:
         user = await self.repo.get_user_by_email(email)
