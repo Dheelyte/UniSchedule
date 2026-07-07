@@ -63,6 +63,7 @@ class CourseCreate(BaseModel):
     scope: str = CourseScope.DEPARTMENTAL.value
     level: int | None = None
     semester: str | None = None
+    is_cbt_exam: bool = False
 
     @field_validator('semester')
     @classmethod
@@ -103,6 +104,7 @@ class CourseResponse(BaseModel):
     scope: str | None = None
     level: int | None = None
     semester: str | None = None
+    is_cbt_exam: bool | None = None
     model_config = ConfigDict(from_attributes=True)
 
 class CourseUpdate(BaseModel):
@@ -114,6 +116,7 @@ class CourseUpdate(BaseModel):
     scope: str | None = None
     level: int | None = None
     semester: str | None = None
+    is_cbt_exam: bool | None = None
 
     @field_validator('code')
     @classmethod

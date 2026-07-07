@@ -315,6 +315,7 @@ class TimetableService:
             scope=data.scope,
             level=data.level,
             semester=data.semester,
+            is_cbt_exam=data.is_cbt_exam,
         )
         try:
             created = await self.repo.create_course(course)
@@ -379,6 +380,7 @@ class TimetableService:
         if data.level is not None: course.level = data.level
         # `semester` is nullable — accept None to clear, distinguish from "not provided" via model_fields_set
         if 'semester' in data.model_fields_set: course.semester = data.semester
+        if data.is_cbt_exam is not None: course.is_cbt_exam = data.is_cbt_exam
         try:
             updated = await self.repo.update_course(course)
         except IntegrityError:

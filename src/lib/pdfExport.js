@@ -584,7 +584,11 @@ export function exportTimetablePDF({
 				pdfA3.setFont("helvetica", "normal");
 				pdfA3.setTextColor(71, 85, 105);
 				const sub = [`${session} Session`, semester, faculty, department].filter(Boolean).join("   ·   ");
-				pdfA3.text(sub, m + logoSize + 4, y + 12);
+				const maxSubW = a3W / 2 - (m + logoSize + 8); // ~174mm max width
+				const subLines = pdfA3.splitTextToSize(sub, maxSubW);
+				subLines.forEach((line, idx) => {
+					pdfA3.text(line, m + logoSize + 4, y + 12 + idx * 4.5);
+				});
 
 				// WEEK label at the center
 				const weekLabel = `WEEK ${dayChunkIdx + 1}`;
@@ -597,13 +601,17 @@ export function exportTimetablePDF({
 				pdfA3.setFont("helvetica", "bold");
 				pdfA3.setFontSize(14);
 				pdfA3.setTextColor(15, 23, 42);
-				pdfA3.text(timetableTitle.toUpperCase(), a3W - m, y + 5, { align: "right" });
+				const maxTitleW = a3W / 2 - m - 20; // ~178mm max width
+				const titleLines = pdfA3.splitTextToSize(timetableTitle.toUpperCase(), maxTitleW);
+				titleLines.forEach((line, idx) => {
+					pdfA3.text(line, a3W - m, y + 5 + idx * 5.5, { align: "right" });
+				});
 
 				const docStatus = isLocked ? "FINAL TIMETABLE" : "DRAFT TIMETABLE";
 				pdfA3.setFontSize(10);
 				pdfA3.setFont("helvetica", "bold");
 				pdfA3.setTextColor(...(isLocked ? [16, 185, 129] : [245, 158, 11]));
-				pdfA3.text(docStatus, pdfA3.internal.pageSize.getWidth() - m, y + 12, { align: "right" });
+				pdfA3.text(docStatus, a3W - m, y + 12 + (titleLines.length - 1) * 5.5, { align: "right" });
 
 				// Render Grid Table
 				const tableStartY = 34;
@@ -1178,7 +1186,11 @@ export function exportTimetablePDF({
 		pdf.setFont("helvetica", "normal");
 		pdf.setTextColor(...textMid);
 		const sub = [`${session} Session`, semester, faculty, department].filter(Boolean).join("   ·   ");
-		pdf.text(sub, margin + logoSize + 3, y + 10);
+		const maxSubW = pageW / 2 - (margin + logoSize + 6); // ~108mm max width
+		const subLines = pdf.splitTextToSize(sub, maxSubW);
+		subLines.forEach((line, idx) => {
+			pdf.text(line, margin + logoSize + 3, y + 10 + idx * 3.5);
+		});
 
 		// Week label in the center
 		pdf.setFont("helvetica", "bold");
@@ -1201,13 +1213,17 @@ export function exportTimetablePDF({
 		pdf.setFont("helvetica", "bold");
 		pdf.setFontSize(11);
 		pdf.setTextColor(...textDark);
-		pdf.text(timetableTitle.toUpperCase(), pageW - margin, y + 4.5, { align: "right" });
+		const maxTitleW = pageW / 2 - margin - 15; // ~123.5mm max width
+		const titleLines = pdf.splitTextToSize(timetableTitle.toUpperCase(), maxTitleW);
+		titleLines.forEach((line, idx) => {
+			pdf.text(line, pageW - margin, y + 4.5 + idx * 4.5, { align: "right" });
+		});
 
 		const docStatus = isLocked ? "FINAL TIMETABLE" : "DRAFT TIMETABLE";
 		pdf.setFontSize(8.5);
 		pdf.setFont("helvetica", "bold");
 		pdf.setTextColor(...(isLocked ? [16, 185, 129] : [245, 158, 11]));
-		pdf.text(docStatus, pageW - margin, y + 10, { align: "right" });
+		pdf.text(docStatus, pageW - margin, y + 10 + (titleLines.length - 1) * 4.5, { align: "right" });
 
 		let curY = margin + 16;
 

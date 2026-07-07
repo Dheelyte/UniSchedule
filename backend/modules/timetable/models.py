@@ -41,6 +41,7 @@ class Course(Base):
     scope: Mapped[CourseScope] = mapped_column(Enum(CourseScope), default=CourseScope.DEPARTMENTAL)
     level: Mapped[int | None] = mapped_column(Integer, nullable=True)
     semester: Mapped[str | None] = mapped_column(String, nullable=True)  # "First Semester" | "Second Semester"
+    is_cbt_exam: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
 
 class ScheduleItem(Base):
     __tablename__ = "schedule_items"
