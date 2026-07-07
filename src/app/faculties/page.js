@@ -147,6 +147,10 @@ export default function FacultiesPage() {
     // Count departments per faculty
     const deptCount = (facId) => state.departments.filter((d) => d.facultyId === facId).length;
 
+    const isSpecialFac = (f) => !!(f.is_special ?? f.isSpecial);
+    const specialCount = faculties.filter(isSpecialFac).length;
+    const regularCount = faculties.length - specialCount;
+
     if (loading) return <FacultiesSkeleton />;
 
     return (
@@ -174,8 +178,12 @@ export default function FacultiesPage() {
             {role === 'SUPER_ADMIN' && (
                 <div className={styles.statsBar}>
                     <div className={styles.stat}>
-                        <span className={styles.statValue}>{faculties.length}</span>
+                        <span className={styles.statValue}>{regularCount}</span>
                         <span className={styles.statLabel}>Faculties</span>
+                    </div>
+                    <div className={styles.stat}>
+                        <span className={styles.statValue}>{specialCount}</span>
+                        <span className={styles.statLabel}>Special Faculties</span>
                     </div>
                     <div className={styles.stat}>
                         <span className={styles.statValue}>{getDepartmentsWithFaculty.length}</span>
