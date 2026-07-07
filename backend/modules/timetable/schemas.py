@@ -35,9 +35,11 @@ class RoomCreate(BaseModel):
     faculty_id: str | None = None
     display_order: int = 0
     is_lab: bool = False
+    is_active: bool = True
 
 class RoomResponse(RoomCreate):
     id: int
+    is_active: bool | None = None
     model_config = ConfigDict(from_attributes=True)
 
 class RoomUpdate(BaseModel):
@@ -46,6 +48,7 @@ class RoomUpdate(BaseModel):
     faculty_id: str | None = None
     display_order: int | None = None
     is_lab: bool | None = None
+    is_active: bool | None = None
 
 class RoomReorderItem(BaseModel):
     id: int

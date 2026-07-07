@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import SearchableSelect from '@/components/SearchableSelect/SearchableSelect';
-import { DAYS, EXAM_DAYS } from '@/lib/utils';
+import { DAYS, EXAM_DAYS, isRoomActive } from '@/lib/utils';
 import styles from './RequestChangeModal.module.css';
 
 // 08:00 → 18:00 in 30-minute steps
@@ -77,11 +77,17 @@ export default function RequestChangeModal({
 
     const roomRows = roomIds.length ? roomIds : [''];
 
+    // A room already assigned to this slot stays selectable/visible even if it's since gone inactive;
+    // inactive rooms are otherwise excluded from new picks.
     const availableRooms = (idx) =>
         rooms.filter((r) => {
             const s = String(r.id);
-            return s === roomRows[idx] || !roomRows.includes(s);
+            if (s === roomRows[idx]) return true;
+            if (!isRoomActive(r)) return false;
+            return !roomRows.includes(s);
         });
+
+    const selectableRoomCount = rooms.filter((r) => isRoomActive(r) || roomRows.includes(String(r.id))).length;
 
     const setRoomAt = (idx, val) => {
         setRoomIds(() => {
@@ -226,7 +232,7 @@ export default function RequestChangeModal({
                             </div>
                             <div className={styles.formGroup}>
                                 <label className={styles.label}>Room{roomIds.filter(Boolean).length > 1 ? 's' : ''}</label>
-                                {rooms.length === 0 ? (
+                                {selectableRoomCount === 0 ? (
                                     <span className={styles.muted}>No rooms available</span>
                                 ) : (
                                     <div className={styles.roomList}>
@@ -244,7 +250,7 @@ export default function RequestChangeModal({
                                                 )}
                                             </div>
                                         ))}
-                                        {roomRows.every(Boolean) && roomRows.length < rooms.length && (
+                                        {roomRows.every(Boolean) && roomRows.length < selectableRoomCount && (
                                             <button type="button" className={styles.addRoomBtn} onClick={addRoom} disabled={busy}>+ Add another room</button>
                                         )}
                                     </div>

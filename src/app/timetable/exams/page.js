@@ -8,6 +8,7 @@ import { detectAllConflicts, dismissalSignatureSet } from "@/lib/conflicts";
 import { exportTimetablePDF } from "@/lib/pdfExport";
 import { exportTimetableCSV } from "@/lib/csvExport";
 import { isGeneralStudiesCourse, GENERAL_STUDIES_FACULTY } from "@/lib/utils";
+import { isRoomActive } from "@/lib/utils";
 import TimetableGrid from "@/components/TimetableGrid/TimetableGrid";
 import { useToast } from "@/components/Toast/Toast";
 import ExportModal from "@/components/ExportModal/ExportModal";
@@ -151,6 +152,10 @@ export default function ExamTimetablePage() {
 						.catch(() => []),
 					apiClient.get("/timetable/enrollments").catch(() => []),
 				]);
+				const normalizedRooms = (rooms || []).map((room) => ({
+					...room,
+					isActive: room.is_active !== false,
+				}));
 				const examLock = (locks || []).find((l) => l.timetable_type === "exam");
 				setIsLocked(!!examLock?.is_locked);
 				dispatch({
@@ -161,7 +166,7 @@ export default function ExamTimetablePage() {
 							...d,
 							facultyId: d.faculty_id,
 						})),
-						rooms: rooms || [],
+						rooms: normalizedRooms,
 						courses: (courses || []).map((c) => ({
 							...c,
 							creditLoad: c.credit_load,
@@ -315,7 +320,9 @@ export default function ExamTimetablePage() {
 				? { ...s, facultyName: GENERAL_STUDIES_FACULTY }
 				: s,
 		);
-		if (filteredSchedules.length === 0) {
+		const activeRoomIds = new Set(state.rooms.filter(isRoomActive).map((room) => room.id));
+		const exportableSchedules = filteredSchedules.filter((s) => (s.roomIds || []).some((rid) => activeRoomIds.has(rid)));
+		if (exportableSchedules.length === 0) {
 			addToast({
 				type: "error",
 				title: "Export Failed",
@@ -362,7 +369,7 @@ export default function ExamTimetablePage() {
 				.catch(() => []);
 
 			exportTimetablePDF({
-				schedules: filteredSchedules,
+				schedules: exportableSchedules,
 				blockedSlots,
 				rooms: state.rooms,
 				faculties: state.faculties,
@@ -394,9 +401,9 @@ export default function ExamTimetablePage() {
 			.catch(() => []);
 
 		exportTimetablePDF({
-			schedules: filteredSchedules,
+				schedules: exportableSchedules,
 			blockedSlots,
-			rooms: state.rooms,
+				rooms: state.rooms,
 			faculties: state.faculties,
 			title: "Examination Timetable",
 			session,

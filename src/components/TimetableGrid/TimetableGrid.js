@@ -3,7 +3,7 @@
 import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { useApp, ACTION_TYPES } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
-import { DAYS, EXAM_DAYS, timeToMinutes } from '@/lib/utils';
+import { DAYS, EXAM_DAYS, timeToMinutes, isRoomActive } from '@/lib/utils';
 import { apiClient } from '@/lib/apiClient';
 import { detectConflicts, detectAllConflicts, dismissalSignatureSet } from '@/lib/conflicts';
 import { useToast } from '@/components/Toast/Toast';
@@ -314,15 +314,14 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
     // Rooms to render: own-faculty rooms + any room referenced by a visible schedule item.
     // Global-scope users see everything; this trims the grid for FACULTY editors/viewers.
     const displayedRooms = useMemo(() => {
-        let pool = rooms;
+        const activeRooms = rooms.filter(isRoomActive);
         if (cbtOnly) {
-            pool = rooms.filter((r) => r.name && r.name.toUpperCase().includes('CBT'));
-        } else if (!hasGlobalScope(user?.role) && user?.faculty_id) {
-            const referenced = new Set();
-            allModeSchedules.forEach((s) => (s.roomIds || []).forEach((rid) => referenced.add(rid)));
-            pool = rooms.filter((r) => r.faculty_id === user.faculty_id || r.faculty_id === null || referenced.has(r.id));
+            return activeRooms.filter((r) => r.name && r.name.toUpperCase().includes('CBT'));
         }
-        return pool;
+        if (hasGlobalScope(user?.role) || !user?.faculty_id) return activeRooms;
+        const referenced = new Set();
+        allModeSchedules.forEach((s) => (s.roomIds || []).forEach((rid) => referenced.add(rid)));
+        return activeRooms.filter((r) => r.faculty_id === user.faculty_id || r.faculty_id === null || referenced.has(r.id));
     }, [rooms, allModeSchedules, user?.role, user?.faculty_id, cbtOnly]);
 
     // Filtered mode schedules (respecting faculty, dept, week) but independent of day
@@ -793,12 +792,15 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
 
     const getAvailableRooms = (currentIndex) => {
         const selectedIds = modalForm.roomIds.filter((_, i) => i !== currentIndex);
+        const currentId = modalForm.roomIds[currentIndex];
         let pool = rooms;
         if (cbtOnly) {
             pool = pool.filter((r) => r.name && r.name.toUpperCase().includes('CBT'));
         } else if (!hasGlobalScope(user?.role) && user?.faculty_id) {
             pool = pool.filter((r) => r.faculty_id === user.faculty_id || r.faculty_id === null);
         }
+        // Inactive rooms can't be picked for a new slot, but stay visible if they're already assigned here.
+        pool = pool.filter((r) => isRoomActive(r) || r.id === currentId);
         return pool.filter((r) => !selectedIds.includes(r.id));
     };
 

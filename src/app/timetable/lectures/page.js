@@ -8,6 +8,7 @@ import { detectAllConflicts, dismissalSignatureSet } from '@/lib/conflicts';
 import { exportTimetablePDF } from '@/lib/pdfExport';
 import { exportTimetableCSV } from '@/lib/csvExport';
 import { isGeneralStudiesCourse, GENERAL_STUDIES_FACULTY } from '@/lib/utils';
+import { isRoomActive } from '@/lib/utils';
 import TimetableGrid from '@/components/TimetableGrid/TimetableGrid';
 import { useToast } from '@/components/Toast/Toast';
 import ExportModal from '@/components/ExportModal/ExportModal';
@@ -80,6 +81,10 @@ export default function LectureTimetablePage() {
                 apiClient.get(`/timetable/locks?semester_id=${semId}`).catch(() => []),
                 apiClient.get('/timetable/enrollments').catch(() => [])
             ]);
+            const normalizedRooms = (rooms || []).map((room) => ({
+                ...room,
+                isActive: room.is_active !== false,
+            }));
             const lecLock = (locks || []).find(l => l.timetable_type === 'lecture');
             setIsLocked(!!lecLock?.is_locked);
             dispatch({
@@ -87,7 +92,7 @@ export default function LectureTimetablePage() {
                 payload: {
                     faculties: faculties || [],
                     departments: (departments || []).map(d => ({ ...d, facultyId: d.faculty_id })),
-                    rooms: rooms || [],
+                    rooms: normalizedRooms,
                     courses: (courses || []).map(c => ({ ...c, creditLoad: c.credit_load, departmentId: c.department_id, isCbtExam: c.is_cbt_exam || false })),
                     scheduleItems: (scheduleItems || []).map(s => ({
                         ...s,
@@ -255,7 +260,9 @@ export default function LectureTimetablePage() {
         const filteredSchedules = filtered.map((s) =>
             isGeneralStudiesCourse(s.courseCode) ? { ...s, facultyName: GENERAL_STUDIES_FACULTY } : s
         );
-        if (filteredSchedules.length === 0) {
+        const activeRoomIds = new Set(state.rooms.filter(isRoomActive).map((room) => room.id));
+        const exportableSchedules = filteredSchedules.filter((s) => (s.roomIds || []).some((rid) => activeRoomIds.has(rid)));
+        if (exportableSchedules.length === 0) {
             addToast({ type: 'error', title: 'Export Failed', message: 'No schedules found for the selected filters.' });
             return;
         }
@@ -271,7 +278,7 @@ export default function LectureTimetablePage() {
 
         if (format === 'csv') {
             exportTimetableCSV({
-                schedules: filteredSchedules,
+                schedules: exportableSchedules,
                 title: 'Lecture Timetable',
                 session,
                 semester,
@@ -287,7 +294,7 @@ export default function LectureTimetablePage() {
         const blockedSlots = await apiClient.get(`/timetable/blocked-slots?semester_id=${selectedSemesterId}`).catch(() => []);
 
         exportTimetablePDF({
-            schedules: filteredSchedules,
+            schedules: exportableSchedules,
             blockedSlots,
             rooms: state.rooms,
             faculties: state.faculties,

@@ -6,7 +6,8 @@ import { apiClient } from '@/lib/apiClient';
 import { useToast } from '@/components/Toast/Toast';
 import { useAuth } from '@/context/AuthContext';
 import { TablePageSkeleton } from '@/components/Skeleton/Skeleton';
-import { isViewerRole, isGsAdmin } from '@/lib/roles';
+import { isViewerRole, isGsAdmin, isSuperAdmin } from '@/lib/roles';
+import { isRoomActive } from '@/lib/utils';
 import styles from './rooms.module.css';
 
 export default function RoomsPage() {
@@ -40,10 +41,15 @@ export default function RoomsPage() {
     const [deleteConfirm, setDeleteConfirm] = useState(null);
 
     // Form state
-    const [form, setForm] = useState({ name: '', capacity: 100, facultyId: '', isLab: false });
+    const [form, setForm] = useState({ name: '', capacity: 100, facultyId: '', isLab: false, isActive: true });
     const [loading, setLoading] = useState(true);
 
-    const normalizeRoom = (r) => ({ ...r, facultyId: r.faculty_id ?? r.facultyId ?? null, isLab: r.is_lab ?? r.isLab ?? false });
+    const normalizeRoom = (r) => ({
+        ...r,
+        facultyId: r.faculty_id ?? r.facultyId ?? null,
+        isLab: r.is_lab ?? r.isLab ?? false,
+        isActive: r.is_active !== false,
+    });
 
     useEffect(() => {
         let mounted = true;
@@ -126,13 +132,13 @@ export default function RoomsPage() {
 
     const openAdd = () => {
         setEditing(null);
-        setForm({ name: '', capacity: 100, facultyId: isGsAdmin(role) ? '' : (faculties[0]?.id || ''), isLab: false });
+        setForm({ name: '', capacity: 100, facultyId: isGsAdmin(role) ? '' : (faculties[0]?.id || ''), isLab: false, isActive: true });
         setShowModal(true);
     };
 
     const openEdit = (room) => {
         setEditing(room);
-        setForm({ name: room.name, capacity: room.capacity, facultyId: room.facultyId || '', isLab: !!room.isLab });
+        setForm({ name: room.name, capacity: room.capacity, facultyId: room.facultyId || '', isLab: !!room.isLab, isActive: room.isActive !== false });
         setShowModal(true);
     };
 
@@ -141,12 +147,15 @@ export default function RoomsPage() {
         if (!form.facultyId && !isGsAdmin(role)) return;
         try {
             const payload = { name: form.name.trim(), capacity: parseInt(form.capacity) || 100, faculty_id: form.facultyId || null, is_lab: !!form.isLab };
+            if (isSuperAdmin(role)) payload.is_active = form.isActive;
             if (editing) {
                 await apiClient.put(`/timetable/rooms/${editing.id}`, payload);
-                dispatch({ type: ACTION_TYPES.UPDATE_ROOM, payload: { id: editing.id, name: payload.name, capacity: payload.capacity, facultyId: payload.faculty_id, isLab: payload.is_lab } });
+                const updatePayload = { id: editing.id, name: payload.name, capacity: payload.capacity, facultyId: payload.faculty_id, isLab: payload.is_lab };
+                if (payload.is_active !== undefined) updatePayload.isActive = payload.is_active;
+                dispatch({ type: ACTION_TYPES.UPDATE_ROOM, payload: updatePayload });
             } else {
                 const res = await apiClient.post('/timetable/rooms', payload);
-                dispatch({ type: ACTION_TYPES.ADD_ROOM, payload: { id: res.id, name: res.name, capacity: res.capacity, facultyId: res.faculty_id, isLab: res.is_lab ?? payload.is_lab } });
+                dispatch({ type: ACTION_TYPES.ADD_ROOM, payload: normalizeRoom(res) });
             }
             setShowModal(false);
             addToast({ type: 'success', title: editing ? 'Room Updated' : 'Room Added', message: 'Room has been saved successfully.' });
@@ -169,8 +178,9 @@ export default function RoomsPage() {
     };
 
     // Capacity distribution
-    const totalCapacity = rooms.reduce((a, r) => a + r.capacity, 0);
-    const avgCapacity = rooms.length ? Math.round(totalCapacity / rooms.length) : 0;
+    const activeRooms = rooms.filter(isRoomActive);
+    const totalCapacity = activeRooms.reduce((a, r) => a + r.capacity, 0);
+    const avgCapacity = activeRooms.length ? Math.round(totalCapacity / activeRooms.length) : 0;
 
     // Capacity tiers
     const getCapacityTier = (cap) => {
@@ -196,6 +206,7 @@ export default function RoomsPage() {
                         <tr>
                             <th>Room Name</th>
                             <th>Faculty</th>
+                            <th>Status</th>
                             <th>Capacity</th>
                             <th>Size</th>
                             <th>Bookings</th>
@@ -208,10 +219,16 @@ export default function RoomsPage() {
                             const tier = getCapacityTier(room.capacity);
                             const bookings = scheduleCount(room.id);
                             const fac = faculties.find(f => f.id === room.facultyId);
+                            const isActive = room.isActive !== false;
                             return (
-                                <tr key={room.id}>
+                                <tr key={room.id} style={{ opacity: isActive ? 1 : 0.62 }}>
                                     <td style={{ fontWeight: 500, color: 'var(--color-text)' }}>{room.name}</td>
                                     <td style={{ fontSize: '0.82rem', color: 'var(--color-text-muted)' }}>{fac?.name || '-'}</td>
+                                    <td>
+                                        <span className={`badge ${isActive ? 'badge-success' : 'badge-secondary'}`}>
+                                            {isActive ? 'Active' : 'Inactive'}
+                                        </span>
+                                    </td>
                                     <td>
                                         {room.isLab ? (
                                             <span className={styles.labTag}>Lab</span>
@@ -432,6 +449,15 @@ export default function RoomsPage() {
                                     <span className={styles.toggleSwitch} aria-hidden="true" />
                                 </label>
                             </div>
+                            {isSuperAdmin(role) && (
+                                <div className="form-group">
+                                    <label className="form-label">Status</label>
+                                    <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                                        <input type="checkbox" checked={form.isActive} onChange={(e) => setForm({ ...form, isActive: e.target.checked })} />
+                                        <span>{form.isActive ? 'Active' : 'Inactive'}</span>
+                                    </label>
+                                </div>
+                            )}
                         </div>
                         <div className="modal-footer">
                             <button className="btn btn-secondary" onClick={() => setShowModal(false)}>Cancel</button>
