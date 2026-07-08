@@ -195,7 +195,7 @@ export default function DashboardPage() {
 			.filter(isRoomActive)
 			.map((r) => ({ ...r, sessions: roomCountMap[r.id] || 0 }))
 			.sort((a, b) => b.sessions - a.sessions)
-			.slice(0, 8);
+			.slice(0, 12);
 	}, [state]);
 
 	// Distinct-course scheduling breakdown (by lecture vs exam)
@@ -223,6 +223,11 @@ export default function DashboardPage() {
 			lectureCount: lectureIds.size,
 			examCount: examIds.size,
 			examOnly,
+			// Per-timetable breakdown. A course counts as unscheduled for a given
+			// timetable when it has no entry of that type — measured against all
+			// courses, so scheduled + unscheduled === total on each row.
+			lectureUnscheduled: Math.max(0, total - lectureIds.size),
+			examUnscheduled: Math.max(0, total - examIds.size),
 		};
 	}, [state.scheduleItems, state.courses]);
 
@@ -247,127 +252,8 @@ export default function DashboardPage() {
 				)}
 			</div>
 
-			{/* Faculty Overview — full width now that Today's Lectures is gone */}
-			<div className={`${styles.contentGrid} ${styles.contentGridFull}`}>
-				{/* Faculty Distribution */}
-				<div className={styles.panel}>
-					<div className={styles.panelHeader}>
-							<span className={styles.panelTitle}>
-								<svg
-								width="24"
-								height="24"
-								viewBox="0 0 24 24"
-								fill="none"
-								stroke="currentColor"
-								strokeWidth="2"
-								strokeLinecap="round"
-								strokeLinejoin="round">
-								<path d="M3 11L12 4l9 7" />
-								<path d="M4 12v7a2 2 0 0 0 2 2h4v-6h4v6h4a2 2 0 0 0 2-2v-7" />
-							</svg>
-								Overview
-							</span>
-						<div className={styles.panelHeaderActions}>
-							<button
-								type="button"
-								className={`${styles.panelHeaderButton} ${
-									facultyOverviewType === 'exams' ? styles.activePanelButton : ''
-								}`}
-								onClick={() => setFacultyOverviewType('exams')}>
-								Exams
-							</button>
-							<button
-								type="button"
-								className={`${styles.panelHeaderButton} ${
-									facultyOverviewType === 'lectures' ? styles.activePanelButton : ''
-								}`}
-								onClick={() => setFacultyOverviewType('lectures')}>
-								Lectures
-							</button>
-						</div>
-						<Link href="/faculties" className={styles.panelLink}>
-							Manage →
-						</Link>
-					</div>
-					<div className={styles.panelBody}>
-						{state.faculties.length === 0 ? (
-							<div className={styles.emptyState}>
-								<div className={styles.emptyIcon}>🏛️</div>
-								No faculties registered yet.
-							</div>
-						) : (
-							<div className={styles.facultyList}>
-								{facultyOverviewDistribution.map((f, i) => (
-									<div key={f.id} className={styles.facultyRow}>
-										<span className={styles.facultyName} title={f.name}>
-											{f.name}
-										</span>
-										<div className={styles.facultyBarTrack}>
-											<div
-												className={styles.facultyBarFill}
-												style={{
-													width: `${(f[facultyOverviewType] / maxFacultySchedules) * 100}%`,
-													background: BAR_COLORS[i % BAR_COLORS.length],
-												}}
-											/>
-										</div>
-										<span className={styles.facultyCount}>{f[facultyOverviewType]}</span>
-									</div>
-								))}
-							</div>
-						)}
-					</div>
-				</div>
-			</div>
-
-			{/* Bottom Grid: Room Utilization + Scheduling Progress */}
+			{/* Scheduling Progress + Room Utilization */}
 			<div className={styles.contentGrid}>
-				{/* Room Utilization */}
-				<div className={styles.panel}>
-					<div className={styles.panelHeader}>
-						<span className={styles.panelTitle}>
-							<svg
-								width="16"
-								height="16"
-								viewBox="0 0 24 24"
-								fill="none"
-								stroke="currentColor"
-								strokeWidth="2"
-								strokeLinecap="round"
-								strokeLinejoin="round">
-								<path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
-								<polyline points="9 22 9 12 15 12 15 22" />
-							</svg>
-							Room Utilization
-						</span>
-						<Link href="/rooms" className={styles.panelLink}>
-							All Rooms →
-						</Link>
-					</div>
-					<div className={styles.panelBody}>
-						{roomUtilization.length === 0 ? (
-							<div className={styles.emptyState}>
-								<div className={styles.emptyIcon}>🏠</div>
-								No rooms registered yet.
-							</div>
-						) : (
-							<div className={styles.roomGrid}>
-								{roomUtilization.map((r) => (
-									<div key={r.id} className={styles.roomTile}>
-										<span className={styles.roomName} title={r.name}>
-											{r.name}
-										</span>
-										<span
-											className={`${styles.roomSessions} ${r.sessions === 0 ? styles.roomIdle : ""}`}>
-											{r.sessions > 0 ? `${r.sessions} slots` : "Idle"}
-										</span>
-									</div>
-								))}
-							</div>
-						)}
-					</div>
-				</div>
-
 				{/* Scheduling Progress */}
 				<div className={styles.panel}>
 					<div className={styles.panelHeader}>
@@ -506,7 +392,7 @@ export default function DashboardPage() {
 								</span>
 							</div>
 
-							<div
+							{/* <div
 								style={{
 									display: "flex",
 									justifyContent: "center",
@@ -556,14 +442,176 @@ export default function DashboardPage() {
 										Total
 									</div>
 								</div>
-							</div>
+							</div> */}
 						</div>
+						{/* Per-timetable breakdown: scheduled / unscheduled / total */}
+						<div className={styles.breakdown}>
+							{[
+								{
+									key: "exams",
+									label: "Exam timetable",
+									color: RING_EXAM_COLOR,
+									scheduled: courseBreakdown.examCount,
+									unscheduled: courseBreakdown.examUnscheduled,
+								},
+								{
+									key: "lectures",
+									label: "Lecture timetable",
+									color: RING_LECTURE_COLOR,
+									scheduled: courseBreakdown.lectureCount,
+									unscheduled: courseBreakdown.lectureUnscheduled,
+								}
+							].map((row) => (
+								<div key={row.key} className={styles.breakdownRow}>
+									<span className={styles.breakdownLabel}>
+										<span
+											className={styles.breakdownDot}
+											style={{ background: row.color }}
+										/>
+										{row.label}
+									</span>
+									<span className={styles.breakdownStat}>
+										<span className={`${styles.breakdownValue} ${styles.breakdownScheduled}`}>
+											{row.scheduled}
+										</span>
+										<span className={styles.breakdownCaption}>Scheduled</span>
+									</span>
+									<span className={styles.breakdownStat}>
+										<span className={`${styles.breakdownValue} ${styles.breakdownUnscheduled}`}>
+											{row.unscheduled}
+										</span>
+										<span className={styles.breakdownCaption}>Unscheduled</span>
+									</span>
+									<span className={styles.breakdownStat}>
+										<span className={`${styles.breakdownValue} ${styles.breakdownTotal}`}>
+											{courseBreakdown.total}
+										</span>
+										<span className={styles.breakdownCaption}>Total</span>
+									</span>
+								</div>
+							))}
+						</div>
+					</div>
+				</div>
+
+				{/* Room Utilization */}
+				<div className={styles.panel}>
+					<div className={styles.panelHeader}>
+						<span className={styles.panelTitle}>
+							<svg
+								width="16"
+								height="16"
+								viewBox="0 0 24 24"
+								fill="none"
+								stroke="currentColor"
+								strokeWidth="2"
+								strokeLinecap="round"
+								strokeLinejoin="round">
+								<path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+								<polyline points="9 22 9 12 15 12 15 22" />
+							</svg>
+							Room Utilization
+						</span>
+						<Link href="/rooms" className={styles.panelLink}>
+							All Rooms →
+						</Link>
+					</div>
+					<div className={styles.panelBody}>
+						{roomUtilization.length === 0 ? (
+							<div className={styles.emptyState}>
+								<div className={styles.emptyIcon}>🏠</div>
+								No rooms registered yet.
+							</div>
+						) : (
+							<div className={styles.roomGrid}>
+								{roomUtilization.map((r) => (
+									<div key={r.id} className={styles.roomTile}>
+										<span className={styles.roomName} title={r.name}>
+											{r.name}
+										</span>
+										<span
+											className={`${styles.roomSessions} ${r.sessions === 0 ? styles.roomIdle : ""}`}>
+											{r.sessions > 0 ? `${r.sessions} slots` : "Idle"}
+										</span>
+									</div>
+								))}
+							</div>
+						)}
 					</div>
 				</div>
 			</div>
 
-			{/* Rooms by faculty — full width now that the duplicate Room Utilization is gone */}
-			<div className={`${styles.contentGrid} ${styles.contentGridFull}`}>
+			{/* Bottom: Faculty Overview + Rooms by faculty */}
+			<div className={styles.contentGrid}>
+				{/* Faculty Distribution */}
+				<div className={styles.panel}>
+					<div className={styles.panelHeader}>
+							<span className={styles.panelTitle}>
+								<svg
+								width="24"
+								height="24"
+								viewBox="0 0 24 24"
+								fill="none"
+								stroke="currentColor"
+								strokeWidth="2"
+								strokeLinecap="round"
+								strokeLinejoin="round">
+								<path d="M3 11L12 4l9 7" />
+								<path d="M4 12v7a2 2 0 0 0 2 2h4v-6h4v6h4a2 2 0 0 0 2-2v-7" />
+							</svg>
+								Overview
+							</span>
+						<div className={styles.panelHeaderActions}>
+							<button
+								type="button"
+								className={`${styles.panelHeaderButton} ${
+									facultyOverviewType === 'exams' ? styles.activePanelButton : ''
+								}`}
+								onClick={() => setFacultyOverviewType('exams')}>
+								Exams
+							</button>
+							<button
+								type="button"
+								className={`${styles.panelHeaderButton} ${
+									facultyOverviewType === 'lectures' ? styles.activePanelButton : ''
+								}`}
+								onClick={() => setFacultyOverviewType('lectures')}>
+								Lectures
+							</button>
+						</div>
+						<Link href="/faculties" className={styles.panelLink}>
+							Manage →
+						</Link>
+					</div>
+					<div className={styles.panelBody}>
+						{state.faculties.length === 0 ? (
+							<div className={styles.emptyState}>
+								<div className={styles.emptyIcon}>🏛️</div>
+								No faculties registered yet.
+							</div>
+						) : (
+							<div className={styles.facultyList}>
+								{facultyOverviewDistribution.map((f, i) => (
+									<div key={f.id} className={styles.facultyRow}>
+										<span className={styles.facultyName} title={f.name}>
+											{f.name}
+										</span>
+										<div className={styles.facultyBarTrack}>
+											<div
+												className={styles.facultyBarFill}
+												style={{
+													width: `${(f[facultyOverviewType] / maxFacultySchedules) * 100}%`,
+													background: BAR_COLORS[i % BAR_COLORS.length],
+												}}
+											/>
+										</div>
+										<span className={styles.facultyCount}>{f[facultyOverviewType]}</span>
+									</div>
+								))}
+							</div>
+						)}
+					</div>
+				</div>
 				{/* Rooms by faculty */}
 				<div className={styles.panel}>
 					<div className={styles.panelHeader}>
