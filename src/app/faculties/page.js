@@ -236,6 +236,9 @@ export default function FacultiesPage() {
                                                 )}
                                             </button>
                                             <span>{fac.name}</span>
+                                            {isSpecialFac(fac) && (
+                                                <span className={styles.specialTag} title="Exempt from timetable conflict detection">Special</span>
+                                            )}
                                         </td>
                                         <td>
                                             <span className="badge badge-primary">{deptCount(fac.id)} dept{deptCount(fac.id) !== 1 ? 's' : ''}</span>

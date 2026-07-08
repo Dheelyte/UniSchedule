@@ -82,7 +82,7 @@
 .specialTag {
     display: inline-flex;
     align-items: center;
-    margin-left: 8px;
+    flex-shrink: 0;
     padding: 2px 9px;
     border-radius: 50px;
     font-size: 0.66rem;
