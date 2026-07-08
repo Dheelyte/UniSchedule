@@ -426,11 +426,16 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
         // Hide interfaculty courses originating from another faculty unless this faculty has enrolled in them.
         // Global-scope users (SUPER_ADMIN / SUPER_VIEWER) see everything.
         if (!hasGlobalScope(user?.role) && user?.faculty_id) {
+            const facultyOfDept = new Map(departments.map((d) => [d.id, d.facultyId]));
+            // Enrolled = some department in this faculty takes the course (course_enrollments).
+            const isEnrolledByOwnFaculty = (courseId) =>
+                (enrollmentsByCourse?.get(courseId) || []).some(
+                    (e) => facultyOfDept.get(e.department_id) === user.faculty_id
+                );
             filteredCourses = filteredCourses.filter((c) => {
                 if (c.scope !== 'INTERFACULTY') return true;
-                const dept = departments.find((d) => d.id === c.departmentId);
-                const isOwnFaculty = dept?.facultyId === user.faculty_id;
-                return isOwnFaculty;
+                const isOwnFaculty = facultyOfDept.get(c.departmentId) === user.faculty_id;
+                return isOwnFaculty || isEnrolledByOwnFaculty(c.id);
             });
         }
 
@@ -442,7 +447,7 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
         // A course may be scheduled multiple times (e.g. several exam sittings)
         // within a faculty, so already-scheduled courses stay selectable.
         return filteredCourses;
-    }, [courses, departments, filterFaculty, filterDept, mode, editing, user?.role, user?.faculty_id, semesterName]);
+    }, [courses, departments, enrollmentsByCourse, cbtOnly, filterFaculty, filterDept, mode, editing, user?.role, user?.faculty_id, semesterName]);
 
     const handleCellClick = (roomId, hour) => {
         if (readOnly) return;
