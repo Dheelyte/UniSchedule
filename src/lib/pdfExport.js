@@ -795,7 +795,7 @@ export function exportTimetablePDF({
 
 			// Render Grid Rows
 			let rowY = tableStartY + 14;
-
+			const pageBlockedCols = new Map();
 
 			rowChunk.forEach((room) => {
 				const rowH = getA3RoomRowHeight(room, facWeekSchedules);
@@ -870,7 +870,7 @@ export function exportTimetablePDF({
 						pdfA3.setDrawColor(71, 85, 105);
 						pdfA3.setLineWidth(0.2);
 
-						// Render blocked slots inside each room row timeslot cell
+						// Render blocked slots inside each room row timeslot cell (add to page-wide overlays)
 						const cellBlockedSlots = getBlockedSlotsForSlot(dayVal, sIdx);
 						if (cellBlockedSlots.length > 0) {
 							cellBlockedSlots.forEach(b => {
@@ -890,33 +890,15 @@ export function exportTimetablePDF({
 
 								const itemX = cellX + relStart * slotWidth;
 								const itemW = (relEnd - relStart) * slotWidth;
-								const cardY = rowY + 0.6;
-								const cardH = rowH - 1.2;
 
-								// Draw card background (light red fill)
-								pdfA3.setFillColor(254, 242, 242);
-								pdfA3.roundedRect(itemX + 0.6, cardY, itemW - 1.2, cardH, 0.6, 0.6, "F");
-
-								// Draw card outline (light red border)
-								pdfA3.setDrawColor(252, 165, 165);
-								pdfA3.setLineWidth(0.12);
-								pdfA3.roundedRect(itemX + 0.6, cardY, itemW - 1.2, cardH, 0.6, 0.6, "D");
-
-								// Write event name vertically centered inside the card
-								let fs = 6.5;
-								pdfA3.setFont("helvetica", "bold");
-								pdfA3.setFontSize(fs);
-								const nameUpper = b.name.toUpperCase();
-								while (pdfA3.getTextWidth(nameUpper) > cardH - 1.5 && fs > 4.5) {
-									fs -= 0.5;
-									pdfA3.setFontSize(fs);
+								const colKey = `${dIdx}-${sIdx}-${b.id}`;
+								if (!pageBlockedCols.has(colKey)) {
+									pageBlockedCols.set(colKey, {
+										x: itemX,
+										width: itemW,
+										name: b.name
+									});
 								}
-								pdfA3.setTextColor(220, 38, 38);
-								pdfA3.text(nameUpper, itemX + itemW / 2, cardY + cardH / 2, {
-									align: "center",
-									baseline: "middle",
-									angle: -90
-								});
 							});
 							return;
 						}
@@ -1031,7 +1013,42 @@ export function exportTimetablePDF({
 				rowY += rowH;
 			});
 
+			// Render Blocked Column Overlays (General Events)
+			const totalGridHeight = rowChunk.reduce((sum, r) => sum + getA3RoomRowHeight(r, facWeekSchedules), 0);
+			pageBlockedCols.forEach((colInfo) => {
+				const { x, width, name } = colInfo;
+				const gridStartY = tableStartY + 14;
 
+				pdfA3.setFillColor(254, 242, 242); // very light red/rose
+				pdfA3.rect(x, gridStartY, width, totalGridHeight, "F");
+
+				pdfA3.setDrawColor(252, 165, 165); // light red border color
+				pdfA3.setLineWidth(0.25);
+				pdfA3.rect(x, gridStartY, width, totalGridHeight, "D");
+
+				let fs = 7.5;
+				pdfA3.setFont("helvetica", "bold");
+				pdfA3.setFontSize(fs);
+				const nameUpper = name.toUpperCase();
+				let textWidth = pdfA3.getTextWidth(nameUpper);
+				while (textWidth > totalGridHeight - 8 && fs > 5) {
+					fs -= 0.5;
+					pdfA3.setFontSize(fs);
+					textWidth = pdfA3.getTextWidth(nameUpper);
+				}
+				pdfA3.setTextColor(220, 38, 38); // red text color
+
+				const charHeight = fs * 0.3528 * 0.7;
+				const xCenter = x + width / 2;
+				const yCenter = gridStartY + totalGridHeight / 2;
+				const lineX = xCenter - charHeight / 2;
+				const lineY = yCenter + textWidth / 2;
+
+				pdfA3.text(nameUpper, lineX, lineY, {
+					align: "left",
+					angle: 90
+				});
+			});
 
 			// Render Footer
 			pdfA3.setFont("helvetica", "normal");
