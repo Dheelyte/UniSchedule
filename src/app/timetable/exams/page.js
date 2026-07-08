@@ -25,7 +25,7 @@ import styles from "./exams.module.css";
 const SHOW_CONFLICTS_BEFORE_EXPORT = false;
 
 export default function ExamTimetablePage() {
-	const { getSchedulesWithDetails, state, dispatch } = useApp();
+	const { getSchedulesWithDetails, state, dispatch, isInitialized } = useApp();
 	const { user } = useAuth();
 	const { addToast } = useToast();
 	const confirm = useConfirm();
@@ -127,77 +127,113 @@ export default function ExamTimetablePage() {
 		async (semId) => {
 			if (semId === null) return;
 			try {
-				const [
-					faculties,
-					departments,
-					rooms,
-					courses,
-					scheduleItems,
-					blockedSlotsData,
-					locks,
-					enrollments,
-				] = await Promise.all([
-					apiClient.get("/timetable/faculties?all=true").catch(() => []),
-					apiClient.get("/timetable/departments?all=true").catch(() => []),
-					apiClient.get("/timetable/rooms?all=true").catch(() => []),
-					apiClient.get("/timetable/courses").catch(() => []),
-					apiClient
-						.get(`/timetable/schedule-items?semester_id=${semId}`)
-						.catch(() => []),
-					apiClient
-						.get(`/timetable/blocked-slots?semester_id=${semId}`)
-						.catch(() => []),
-					apiClient
-						.get(`/timetable/locks?semester_id=${semId}`)
-						.catch(() => []),
-					apiClient.get("/timetable/enrollments").catch(() => []),
-				]);
-				const normalizedRooms = (rooms || []).map((room) => ({
-					...room,
-					isActive: room.is_active !== false,
-				}));
-				const examLock = (locks || []).find((l) => l.timetable_type === "exam");
-				setIsLocked(!!examLock?.is_locked);
-				dispatch({
-					type: ACTION_TYPES.INIT_STATE,
-					payload: {
-						faculties: faculties || [],
-						departments: (departments || []).map((d) => ({
-							...d,
-							facultyId: d.faculty_id,
-						})),
-						rooms: normalizedRooms,
-						courses: (courses || []).map((c) => ({
-							...c,
-							creditLoad: c.credit_load,
-							departmentId: c.department_id,
-							isCbtExam: c.is_cbt_exam || false,
-						})),
-						scheduleItems: (scheduleItems || []).map((s) => ({
-							...s,
-							courseId: s.course_id,
-							roomIds: s.room_ids,
-							facultyId: s.faculty_id,
-							day: s.day_of_week,
-							examDate: s.exam_date,
-							startTime: s.start_time,
-							endTime: s.end_time,
-						})),
-					},
-				});
-				setBlockedSlots(blockedSlotsData || []);
-				const map = new Map();
-				(enrollments || []).forEach((e) => {
-					if (!map.has(e.course_id)) map.set(e.course_id, []);
-					map.get(e.course_id).push(e);
-				});
-				setEnrollmentsByCourse(map);
+				if (isInitialized) {
+					const [
+						scheduleItems,
+						blockedSlotsData,
+						locks
+					] = await Promise.all([
+						apiClient.get(`/timetable/schedule-items?semester_id=${semId}`).catch(() => []),
+						apiClient.get(`/timetable/blocked-slots?semester_id=${semId}`).catch(() => []),
+						apiClient.get(`/timetable/locks?semester_id=${semId}`).catch(() => []),
+					]);
+					const examLock = (locks || []).find((l) => l.timetable_type === "exam");
+					setIsLocked(!!examLock?.is_locked);
+					dispatch({
+						type: ACTION_TYPES.INIT_STATE,
+						payload: {
+							scheduleItems: (scheduleItems || []).map((s) => ({
+								...s,
+								courseId: s.course_id,
+								roomIds: s.room_ids,
+								facultyId: s.faculty_id,
+								day: s.day_of_week,
+								examDate: s.exam_date,
+								startTime: s.start_time,
+								endTime: s.end_time,
+							})),
+						},
+					});
+					setBlockedSlots(blockedSlotsData || []);
+				} else {
+					const [
+						faculties,
+						departments,
+						rooms,
+						courses,
+						scheduleItems,
+						blockedSlotsData,
+						locks,
+						enrollments,
+					] = await Promise.all([
+						apiClient.get("/timetable/faculties?all=true").catch(() => []),
+						apiClient.get("/timetable/departments?all=true").catch(() => []),
+						apiClient.get("/timetable/rooms?all=true").catch(() => []),
+						apiClient.get("/timetable/courses").catch(() => []),
+						apiClient
+							.get(`/timetable/schedule-items?semester_id=${semId}`)
+							.catch(() => []),
+						apiClient
+							.get(`/timetable/blocked-slots?semester_id=${semId}`)
+							.catch(() => []),
+						apiClient
+							.get(`/timetable/locks?semester_id=${semId}`)
+							.catch(() => []),
+						apiClient.get("/timetable/enrollments").catch(() => []),
+					]);
+					const examLock = (locks || []).find((l) => l.timetable_type === "exam");
+					setIsLocked(!!examLock?.is_locked);
+					dispatch({
+						type: ACTION_TYPES.INIT_STATE,
+						payload: {
+							faculties: faculties || [],
+							departments: (departments || []).map((d) => ({
+								...d,
+								facultyId: d.faculty_id,
+							})),
+							rooms: (rooms || []).map((r) => ({
+								...r,
+								facultyId: r.faculty_id ?? r.facultyId ?? null,
+								isLab: r.is_lab ?? r.isLab ?? false,
+							})),
+							courses: (courses || []).map((c) => ({
+								...c,
+								creditLoad: c.credit_load,
+								departmentId: c.department_id,
+								isCbtExam: c.is_cbt_exam || false,
+							})),
+							scheduleItems: (scheduleItems || []).map((s) => ({
+								...s,
+								courseId: s.course_id,
+								roomIds: s.room_ids,
+								facultyId: s.faculty_id,
+								day: s.day_of_week,
+								examDate: s.exam_date,
+								startTime: s.start_time,
+								endTime: s.end_time,
+							})),
+							enrollments: enrollments || [],
+						},
+					});
+					setBlockedSlots(blockedSlotsData || []);
+				}
 			} catch (e) {
 				console.error(e);
 			}
 		},
-		[dispatch],
+		[dispatch, isInitialized],
 	);
+
+	useEffect(() => {
+		if (isInitialized && state.enrollments) {
+			const map = new Map();
+			state.enrollments.forEach((e) => {
+				if (!map.has(e.course_id)) map.set(e.course_id, []);
+				map.get(e.course_id).push(e);
+			});
+			setEnrollmentsByCourse(map);
+		}
+	}, [isInitialized, state.enrollments]);
 
 	useEffect(() => {
 		if (selectedSemesterId !== null) loadSchedules(selectedSemesterId);
@@ -293,6 +329,7 @@ export default function ExamTimetablePage() {
 		format = "pdf",
 		monochrome = false,
 		paperSize = "a4",
+		cbtOnly = false,
 	}) => {
 		setIsExportModalOpen(false);
 		const deptIdNum =
@@ -318,6 +355,11 @@ export default function ExamTimetablePage() {
 				return false;
 			}
 			if (deptIdNum !== null && s.departmentId !== deptIdNum) return false;
+			if (cbtOnly) {
+				const course = state.courses.find((c) => c.id === s.courseId);
+				const isCbt = course?.isCbtExam || course?.is_cbt_exam || false;
+				if (!isCbt) return false;
+			}
 			return true;
 		});
 		// Attribute GST/ENT courses to the General Studies faculty in the export.
@@ -377,9 +419,11 @@ export default function ExamTimetablePage() {
 			exportTimetablePDF({
 				schedules: exportableSchedules,
 				blockedSlots,
-				rooms: state.rooms,
+				rooms: cbtOnly ? state.rooms.filter(r => r.name?.toUpperCase().includes("CBT")) : state.rooms,
 				faculties: state.faculties,
-				title: "Examination Timetable",
+				departments: state.departments,
+				enrollments: state.enrollments,
+				title: cbtOnly ? "CBT Examination Timetable" : "Examination Timetable",
 				session,
 				semester,
 				faculty: facultyInfo,
@@ -409,9 +453,11 @@ export default function ExamTimetablePage() {
 		exportTimetablePDF({
 				schedules: exportableSchedules,
 			blockedSlots,
-				rooms: state.rooms,
+			rooms: cbtOnly ? state.rooms.filter(r => r.name?.toUpperCase().includes("CBT")) : state.rooms,
 			faculties: state.faculties,
-			title: "Examination Timetable",
+			departments: state.departments,
+			enrollments: state.enrollments,
+			title: cbtOnly ? "CBT Examination Timetable" : "Examination Timetable",
 			session,
 			semester,
 			faculty: facultyInfo,
@@ -524,6 +570,7 @@ export default function ExamTimetablePage() {
 				onExport={handleExportConfirm}
 				mode="exam"
 				sessions={sessions}
+				semesters={semesters}
 			/>
 			{isRequestModalOpen && (
 				<RequestEditModal

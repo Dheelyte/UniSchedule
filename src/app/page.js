@@ -32,7 +32,7 @@ function getGreeting() {
 }
 
 export default function DashboardPage() {
-	const { state, stats, dispatch } = useApp();
+	const { state, stats, dispatch, isInitialized } = useApp();
 	const { user } = useAuth();
 	const [currentTerm, setCurrentTerm] = useState(null);
 	const [currentSession, setCurrentSession] = useState(null);
@@ -42,61 +42,90 @@ export default function DashboardPage() {
 		let mounted = true;
 		async function loadDashboard() {
 			try {
-				const [
-					faculties,
-					departments,
-					rooms,
-					courses,
-					scheduleItems,
-					semester,
-					sessions,
-				] = await Promise.all([
-					apiClient.get("/timetable/faculties").catch(() => []),
-					apiClient.get("/timetable/departments").catch(() => []),
-					apiClient.get("/timetable/rooms").catch(() => []),
-					apiClient.get("/timetable/courses").catch(() => []),
-					apiClient.get("/timetable/schedule-items").catch(() => []),
-					apiClient.get("/calendar/semesters/current").catch(() => null),
-					apiClient.get("/calendar/sessions").catch(() => []),
-				]);
-				const normalizedRooms = (rooms || []).map((room) => ({
-					...room,
-					isActive: room.is_active !== false,
-				}));
-				if (mounted) {
-					dispatch({
-						type: ACTION_TYPES.INIT_STATE,
-						payload: {
-							faculties: faculties || [],
-							departments: (departments || []).map((d) => ({
-								...d,
-								facultyId: d.faculty_id,
-							})),
-							rooms: normalizedRooms.map((r) => ({
-								...r,
-								facultyId: r.faculty_id ?? r.facultyId ?? null,
-							})),
-							courses: (courses || []).map((c) => ({
-								...c,
-								creditLoad: c.credit_load,
-								departmentId: c.department_id,
-								isCbtExam: c.is_cbt_exam || false,
-							})),
-							scheduleItems: (scheduleItems || []).map((s) => ({
-								...s,
-								courseId: s.course_id,
-								roomIds: s.room_ids,
-								facultyId: s.faculty_id,
-								day: s.day_of_week,
-								startTime: s.start_time,
-								endTime: s.end_time,
-							})),
-						},
-					});
-					setCurrentTerm(semester);
-					const active = (sessions || []).find((s) => s.is_current);
-					setCurrentSession(active || null);
-					setLoaded(true);
+				// {new changes...}
+				if (isInitialized) {
+					const [
+						scheduleItems,
+						semester,
+						sessions,
+					] = await Promise.all([
+						apiClient.get("/timetable/schedule-items").catch(() => []),
+						apiClient.get("/calendar/semesters/current").catch(() => null),
+						apiClient.get("/calendar/sessions").catch(() => []),
+					]);
+					if (mounted) {
+						dispatch({
+							type: ACTION_TYPES.INIT_STATE,
+							payload: {
+								scheduleItems: (scheduleItems || []).map((s) => ({
+									...s,
+									courseId: s.course_id,
+									roomIds: s.room_ids,
+									facultyId: s.faculty_id,
+									day: s.day_of_week,
+									startTime: s.start_time,
+									endTime: s.end_time,
+								})),
+							},
+						});
+						setCurrentTerm(semester);
+						const active = (sessions || []).find((s) => s.is_current);
+						setCurrentSession(active || null);
+						setLoaded(true);
+					}
+				} else {
+					const [
+						faculties,
+						departments,
+						rooms,
+						courses,
+						scheduleItems,
+						semester,
+						sessions,
+					] = await Promise.all([
+						apiClient.get("/timetable/faculties").catch(() => []),
+						apiClient.get("/timetable/departments").catch(() => []),
+						apiClient.get("/timetable/rooms").catch(() => []),
+						apiClient.get("/timetable/courses").catch(() => []),
+						apiClient.get("/timetable/schedule-items").catch(() => []),
+						apiClient.get("/calendar/semesters/current").catch(() => null),
+						apiClient.get("/calendar/sessions").catch(() => []),
+					]);
+					if (mounted) {
+						dispatch({
+							type: ACTION_TYPES.INIT_STATE,
+							payload: {
+								faculties: faculties || [],
+								departments: (departments || []).map((d) => ({
+									...d,
+									facultyId: d.faculty_id,
+								})),
+								rooms: (rooms || []).map((r) => ({
+									...r,
+									facultyId: r.faculty_id ?? r.facultyId ?? null,
+								})),
+								courses: (courses || []).map((c) => ({
+									...c,
+									creditLoad: c.credit_load,
+									departmentId: c.department_id,
+									isCbtExam: c.is_cbt_exam || false,
+								})),
+								scheduleItems: (scheduleItems || []).map((s) => ({
+									...s,
+									courseId: s.course_id,
+									roomIds: s.room_ids,
+									facultyId: s.faculty_id,
+									day: s.day_of_week,
+									startTime: s.start_time,
+									endTime: s.end_time,
+								})),
+							},
+						});
+						setCurrentTerm(semester);
+						const active = (sessions || []).find((s) => s.is_current);
+						setCurrentSession(active || null);
+						setLoaded(true);
+					}
 				}
 			} catch (e) {
 				console.error("Dashboard sync error", e);

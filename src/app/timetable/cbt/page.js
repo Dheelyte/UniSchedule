@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import { useApp, ACTION_TYPES } from "@/context/AppContext";
 import { useAuth } from "@/context/AuthContext";
 import { apiClient } from "@/lib/apiClient";
@@ -22,10 +23,29 @@ import styles from "../exams/exams.module.css";
 const SHOW_CONFLICTS_BEFORE_EXPORT = false;
 
 export default function CBTTimetablePage() {
-	const { getSchedulesWithDetails, state, dispatch } = useApp();
-	const { user } = useAuth();
+	const { getSchedulesWithDetails, state, dispatch, isInitialized } = useApp();
+	const { user, loading: authLoading } = useAuth();
 	const { addToast } = useToast();
 	const confirm = useConfirm();
+	const router = useRouter();
+
+	useEffect(() => {
+		if (!authLoading) {
+			if (!user) {
+				router.push("/login");
+				return;
+			}
+			if (user.role !== "CITS_ADMIN") {
+				router.push("/");
+				addToast({
+					type: "error",
+					title: "Unauthorized",
+					message: "Only CITS Administrators can access the CBT Timetable.",
+				});
+				return;
+			}
+		}
+	}, [user, authLoading, router, addToast]);
 
 	const [sessions, setSessions] = useState([]);
 	const [semesters, setSemesters] = useState([]);
@@ -44,6 +64,7 @@ export default function CBTTimetablePage() {
 	const [isManageModalOpen, setIsManageModalOpen] = useState(false);
 	const [courseSearch, setCourseSearch] = useState("");
 	const [togglingCourseId, setTogglingCourseId] = useState(null);
+	const [manageCbtTab, setManageCbtTab] = useState("assigned"); // "assigned" | "unassigned"
 
 	const handleChangeRequestSubmit = async (payload) => {
 		if (selectedSemesterId === null || changeBusy) return;
@@ -129,73 +150,113 @@ export default function CBTTimetablePage() {
 		async (semId) => {
 			if (semId === null) return;
 			try {
-				const [
-					faculties,
-					departments,
-					rooms,
-					courses,
-					scheduleItems,
-					blockedSlotsData,
-					locks,
-					enrollments,
-				] = await Promise.all([
-					apiClient.get("/timetable/faculties?all=true").catch(() => []),
-					apiClient.get("/timetable/departments?all=true").catch(() => []),
-					apiClient.get("/timetable/rooms?all=true").catch(() => []),
-					apiClient.get("/timetable/courses").catch(() => []),
-					apiClient
-						.get(`/timetable/schedule-items?semester_id=${semId}`)
-						.catch(() => []),
-					apiClient
-						.get(`/timetable/blocked-slots?semester_id=${semId}`)
-						.catch(() => []),
-					apiClient
-						.get(`/timetable/locks?semester_id=${semId}`)
-						.catch(() => []),
-					apiClient.get("/timetable/enrollments").catch(() => []),
-				]);
-				const examLock = (locks || []).find((l) => l.timetable_type === "exam");
-				setIsLocked(!!examLock?.is_locked);
-				dispatch({
-					type: ACTION_TYPES.INIT_STATE,
-					payload: {
-						faculties: faculties || [],
-						departments: (departments || []).map((d) => ({
-							...d,
-							facultyId: d.faculty_id,
-						})),
-						rooms: rooms || [],
-						courses: (courses || []).map((c) => ({
-							...c,
-							creditLoad: c.credit_load,
-							departmentId: c.department_id,
-							isCbtExam: c.is_cbt_exam || false,
-						})),
-						scheduleItems: (scheduleItems || []).map((s) => ({
-							...s,
-							courseId: s.course_id,
-							roomIds: s.room_ids,
-							facultyId: s.faculty_id,
-							day: s.day_of_week,
-							examDate: s.exam_date,
-							startTime: s.start_time,
-							endTime: s.end_time,
-						})),
-					},
-				});
-				setBlockedSlots(blockedSlotsData || []);
-				const map = new Map();
-				(enrollments || []).forEach((e) => {
-					if (!map.has(e.course_id)) map.set(e.course_id, []);
-					map.get(e.course_id).push(e);
-				});
-				setEnrollmentsByCourse(map);
+				if (isInitialized) {
+					const [
+						scheduleItems,
+						blockedSlotsData,
+						locks
+					] = await Promise.all([
+						apiClient.get(`/timetable/schedule-items?semester_id=${semId}`).catch(() => []),
+						apiClient.get(`/timetable/blocked-slots?semester_id=${semId}`).catch(() => []),
+						apiClient.get(`/timetable/locks?semester_id=${semId}`).catch(() => []),
+					]);
+					const examLock = (locks || []).find((l) => l.timetable_type === "exam");
+					setIsLocked(!!examLock?.is_locked);
+					dispatch({
+						type: ACTION_TYPES.INIT_STATE,
+						payload: {
+							scheduleItems: (scheduleItems || []).map((s) => ({
+								...s,
+								courseId: s.course_id,
+								roomIds: s.room_ids,
+								facultyId: s.faculty_id,
+								day: s.day_of_week,
+								examDate: s.exam_date,
+								startTime: s.start_time,
+								endTime: s.end_time,
+							})),
+						},
+					});
+					setBlockedSlots(blockedSlotsData || []);
+				} else {
+					const [
+						faculties,
+						departments,
+						rooms,
+						courses,
+						scheduleItems,
+						blockedSlotsData,
+						locks,
+						enrollments,
+					] = await Promise.all([
+						apiClient.get("/timetable/faculties?all=true").catch(() => []),
+						apiClient.get("/timetable/departments?all=true").catch(() => []),
+						apiClient.get("/timetable/rooms?all=true").catch(() => []),
+						apiClient.get("/timetable/courses").catch(() => []),
+						apiClient
+							.get(`/timetable/schedule-items?semester_id=${semId}`)
+							.catch(() => []),
+						apiClient
+							.get(`/timetable/blocked-slots?semester_id=${semId}`)
+							.catch(() => []),
+						apiClient
+							.get(`/timetable/locks?semester_id=${semId}`)
+							.catch(() => []),
+						apiClient.get("/timetable/enrollments").catch(() => []),
+					]);
+					const examLock = (locks || []).find((l) => l.timetable_type === "exam");
+					setIsLocked(!!examLock?.is_locked);
+					dispatch({
+						type: ACTION_TYPES.INIT_STATE,
+						payload: {
+							faculties: faculties || [],
+							departments: (departments || []).map((d) => ({
+								...d,
+								facultyId: d.faculty_id,
+							})),
+							rooms: (rooms || []).map((r) => ({
+								...r,
+								facultyId: r.faculty_id ?? r.facultyId ?? null,
+								isLab: r.is_lab ?? r.isLab ?? false,
+							})),
+							courses: (courses || []).map((c) => ({
+								...c,
+								creditLoad: c.credit_load,
+								departmentId: c.department_id,
+								isCbtExam: c.is_cbt_exam || false,
+							})),
+							scheduleItems: (scheduleItems || []).map((s) => ({
+								...s,
+								courseId: s.course_id,
+								roomIds: s.room_ids,
+								facultyId: s.faculty_id,
+								day: s.day_of_week,
+								examDate: s.exam_date,
+								startTime: s.start_time,
+								endTime: s.end_time,
+							})),
+							enrollments: enrollments || [],
+						},
+					});
+					setBlockedSlots(blockedSlotsData || []);
+				}
 			} catch (e) {
 				console.error(e);
 			}
 		},
-		[dispatch],
+		[dispatch, isInitialized],
 	);
+
+	useEffect(() => {
+		if (isInitialized && state.enrollments) {
+			const map = new Map();
+			state.enrollments.forEach((e) => {
+				if (!map.has(e.course_id)) map.set(e.course_id, []);
+				map.get(e.course_id).push(e);
+			});
+			setEnrollmentsByCourse(map);
+		}
+	}, [isInitialized, state.enrollments]);
 
 	useEffect(() => {
 		if (selectedSemesterId !== null) loadSchedules(selectedSemesterId);
@@ -381,6 +442,8 @@ export default function CBTTimetablePage() {
 				blockedSlots,
 				rooms: state.rooms.filter(r => r.name?.toUpperCase().includes("CBT")),
 				faculties: state.faculties,
+				departments: state.departments,
+				enrollments: state.enrollments,
 				title: "CBT Examination Timetable",
 				session,
 				semester,
@@ -408,6 +471,8 @@ export default function CBTTimetablePage() {
 			blockedSlots,
 			rooms: state.rooms.filter(r => r.name?.toUpperCase().includes("CBT")),
 			faculties: state.faculties,
+			departments: state.departments,
+			enrollments: state.enrollments,
 			title: "CBT Examination Timetable",
 			session,
 			semester,
@@ -456,7 +521,7 @@ export default function CBTTimetablePage() {
 		)
 	);
 
-	const canManageCourses = user?.role === "SUPER_ADMIN" || user?.role === "GS_ADMIN" || user?.role === "FACULTY_EDITOR";
+	const canManageCourses = user?.role === "CITS_ADMIN";
 
 	return (
 		<div className={styles.page}>
@@ -546,6 +611,7 @@ export default function CBTTimetablePage() {
 				onExport={handleExportConfirm}
 				mode="exam"
 				sessions={sessions}
+				semesters={semesters}
 			/>
 			{isRequestModalOpen && (
 				<RequestEditModal
@@ -581,10 +647,70 @@ export default function CBTTimetablePage() {
 							<p style={{ color: "var(--color-text-secondary)", marginBottom: "16px", fontSize: "0.88rem", lineHeight: 1.4 }}>
 								Select which courses require Computer-Based Testing (CBT). Courses selected here will be eligible to be scheduled on the CBT Timetable grid.
 							</p>
+							<div style={{ display: "flex", borderBottom: "1px solid var(--color-border)", marginBottom: "16px", gap: "16px" }}>
+								<button
+									onClick={() => setManageCbtTab("assigned")}
+									style={{
+										background: "none",
+										border: "none",
+										borderBottom: manageCbtTab === "assigned" ? "2px solid var(--color-primary, #3b82f6)" : "2px solid transparent",
+										color: manageCbtTab === "assigned" ? "var(--color-primary, #3b82f6)" : "var(--color-text-secondary)",
+										fontWeight: 600,
+										padding: "8px 12px 12px",
+										cursor: "pointer",
+										display: "flex",
+										alignItems: "center",
+										gap: "6px",
+										fontSize: "0.9rem",
+										transition: "all 0.2s ease"
+									}}
+								>
+									Assigned CBT
+									<span style={{
+										background: manageCbtTab === "assigned" ? "rgba(59, 130, 246, 0.15)" : "rgba(255, 255, 255, 0.05)",
+										color: manageCbtTab === "assigned" ? "var(--color-primary, #3b82f6)" : "var(--color-text-secondary)",
+										padding: "2px 6px",
+										borderRadius: "12px",
+										fontSize: "0.75rem",
+										fontWeight: 600
+									}}>
+										{state.courses.filter(c => c.isCbtExam || c.is_cbt_exam).length}
+									</span>
+								</button>
+								<button
+									onClick={() => setManageCbtTab("unassigned")}
+									style={{
+										background: "none",
+										border: "none",
+										borderBottom: manageCbtTab === "unassigned" ? "2px solid var(--color-primary, #3b82f6)" : "2px solid transparent",
+										color: manageCbtTab === "unassigned" ? "var(--color-primary, #3b82f6)" : "var(--color-text-secondary)",
+										fontWeight: 600,
+										padding: "8px 12px 12px",
+										cursor: "pointer",
+										display: "flex",
+										alignItems: "center",
+										gap: "6px",
+										fontSize: "0.9rem",
+										transition: "all 0.2s ease"
+									}}
+								>
+									Unassigned
+									<span style={{
+										background: manageCbtTab === "unassigned" ? "rgba(59, 130, 246, 0.15)" : "rgba(255, 255, 255, 0.05)",
+										color: manageCbtTab === "unassigned" ? "var(--color-primary, #3b82f6)" : "var(--color-text-secondary)",
+										padding: "2px 6px",
+										borderRadius: "12px",
+										fontSize: "0.75rem",
+										fontWeight: 600
+									}}>
+										{state.courses.filter(c => !(c.isCbtExam || c.is_cbt_exam)).length}
+									</span>
+								</button>
+							</div>
 							<div className="form-group" style={{ marginBottom: "16px" }}>
 								<input
 									className="form-input"
-									placeholder="Search courses by code or title..."
+									placeholder="Search courses in this tab by code or title..."
 									value={courseSearch}
 									onChange={(e) => setCourseSearch(e.target.value)}
 									style={{ width: "100%" }}
@@ -593,10 +719,15 @@ export default function CBTTimetablePage() {
 							<div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
 								{state.courses
 									.filter(c => {
+										const isCbt = c.isCbtExam || c.is_cbt_exam || false;
+										if (manageCbtTab === "assigned" && !isCbt) return false;
+										if (manageCbtTab === "unassigned" && isCbt) return false;
+
 										if (!courseSearch) return true;
 										const q = courseSearch.toLowerCase();
 										return c.code.toLowerCase().includes(q) || (c.title && c.title.toLowerCase().includes(q));
 									})
+									.sort((a, b) => a.code.localeCompare(b.code))
 									.map(course => {
 										const isToggling = togglingCourseId === course.id;
 										return (

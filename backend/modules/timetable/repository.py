@@ -120,6 +120,19 @@ class TimetableRepository:
         await self.db.delete(course)
         await self.db.flush()
 
+    async def is_course_referenced_by_schedule(self, course_id: int) -> bool:
+        from modules.timetable.models import ScheduleItem
+        query = select(ScheduleItem.id).where(ScheduleItem.course_id == course_id).limit(1)
+        result = await self.db.execute(query)
+        return result.scalar() is not None
+
+    async def is_room_referenced_by_schedule(self, room_id: int) -> bool:
+        from modules.timetable.models import ScheduleItem
+        from sqlalchemy import func
+        query = select(ScheduleItem.id).where(room_id == func.any(ScheduleItem.room_ids)).limit(1)
+        result = await self.db.execute(query)
+        return result.scalar() is not None
+
     async def create_schedule_item(self, item: ScheduleItem) -> ScheduleItem:
         self.db.add(item)
         await self.db.flush()

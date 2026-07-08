@@ -2,7 +2,7 @@ export const VIEWER_ROLES = ['FACULTY_VIEWER', 'SUPER_VIEWER'];
 
 export const isViewerRole = (role) => VIEWER_ROLES.includes(role);
 
-export const hasGlobalScope = (role) => role === 'SUPER_ADMIN' || role === 'SUPER_VIEWER' || role === 'GS_ADMIN';
+export const hasGlobalScope = (role) => role === 'SUPER_ADMIN' || role === 'SUPER_VIEWER' || role === 'GS_ADMIN' || role === 'CITS_ADMIN';
 
 export const isGsAdmin = (role) => role === 'GS_ADMIN';
 
@@ -21,10 +21,11 @@ export const ROLE_LABELS = {
 	FACULTY_EDITOR: 'Faculty Editor',
 	FACULTY_VIEWER: 'Faculty Viewer',
 	GS_ADMIN: 'GS Admin',
+	CITS_ADMIN: 'Super Administrator (CITS)',
 };
 
 // Roles a super admin may assume (everything except SUPER_ADMIN itself).
-export const IMPERSONABLE_ROLES = ['FACULTY_EDITOR', 'FACULTY_VIEWER', 'GS_ADMIN', 'SUPER_VIEWER'];
+export const IMPERSONABLE_ROLES = ['FACULTY_EDITOR', 'FACULTY_VIEWER', 'GS_ADMIN', 'SUPER_VIEWER', 'CITS_ADMIN'];
 
 // Assumed roles that must be scoped to a specific faculty.
 export const FACULTY_SCOPED_ROLES = ['FACULTY_EDITOR', 'FACULTY_VIEWER'];
