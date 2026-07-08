@@ -70,136 +70,19 @@
   }
 }
 
-/* ---------- Stats Grid ---------- */
-.statsGrid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 16px;
-  margin-bottom: 28px;
-}
-
-.statCard {
-  background: var(--color-bg-card);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
-  padding: 22px 20px;
-  position: relative;
-  overflow: hidden;
-  transition: all var(--transition-base);
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-}
-
 /* Course scheduling ring — occupies the first two card slots */
 .ringCard {
   grid-column: span 2;
   justify-content: flex-start;
 }
 
-/* Rooms-by-faculty bar chart — occupies the remaining two card slots */
-.roomBarCard {
-  grid-column: span 2;
-  justify-content: flex-start;
-  gap: 16px;
-}
-
-.ringCardTitle {
-  font-size: 0.78rem;
-  color: var(--color-text-muted);
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  margin-bottom: 4px;
-}
-
-.statCard:hover {
-  border-color: var(--color-border-strong);
-  transform: translateY(-2px);
-  box-shadow: var(--shadow-md);
-}
-
-.statCard::after {
-  content: '';
-  position: absolute;
-  top: -30px;
-  right: -30px;
-  width: 100px;
-  height: 100px;
-  border-radius: 50%;
-  opacity: 0.04;
-}
-
-.statCardPurple::after {
-  background: #6366f1;
-}
-
-.statCardCyan::after {
-  background: #0891b2;
-}
-
-.statCardGreen::after {
-  background: #059669;
-}
-
-.statCardOrange::after {
-  background: #d97706;
-}
-
 .statCardPink::after {
   background: #db2777;
-}
-
-.statIcon {
-  width: 42px;
-  height: 42px;
-  border-radius: var(--radius-md);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin-bottom: 14px;
-}
-
-.statIconPurple {
-  background: rgba(99, 102, 241, 0.08);
-  color: #6366f1;
-}
-
-.statIconCyan {
-  background: rgba(8, 145, 178, 0.08);
-  color: #0891b2;
-}
-
-.statIconGreen {
-  background: rgba(5, 150, 105, 0.08);
-  color: #059669;
-}
-
-.statIconOrange {
-  background: rgba(217, 119, 6, 0.08);
-  color: #d97706;
 }
 
 .statIconPink {
   background: rgba(219, 39, 119, 0.08);
   color: #db2777;
-}
-
-.statValue {
-  font-size: 1.9rem;
-  font-weight: 800;
-  line-height: 1;
-  margin-bottom: 4px;
-  color: var(--color-text);
-  letter-spacing: -0.02em;
-}
-
-.statLabel {
-  font-size: 0.78rem;
-  color: var(--color-text-muted);
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
 }
 
 /* ---------- Content Grid (2 cols) ---------- */
@@ -208,6 +91,11 @@
   grid-template-columns: 1fr 1fr;
   gap: 24px;
   margin-bottom: 28px;
+}
+
+/* Single-column variant for a grid holding one panel. */
+.contentGridFull {
+  grid-template-columns: 1fr;
 }
 
 /* ---------- Panel ---------- */
@@ -251,59 +139,6 @@
 
 .panelLink:hover {
   color: #4f46e5;
-}
-
-/* ---------- Today's Schedule Timeline ---------- */
-.timelineList {
-  display: flex;
-  flex-direction: column;
-  gap: 0;
-}
-
-.timelineItem {
-  display: flex;
-  gap: 14px;
-  padding: 14px 0;
-  position: relative;
-}
-
-.timelineItem:not(:last-child) {
-  border-bottom: 1px solid var(--color-border);
-}
-
-.timelineTime {
-  font-size: 0.78rem;
-  font-weight: 600;
-  color: var(--color-text-muted);
-  min-width: 72px;
-  padding-top: 2px;
-}
-
-.timelineDot {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  flex-shrink: 0;
-  margin-top: 5px;
-}
-
-.timelineContent {
-  flex: 1;
-}
-
-.timelineCourse {
-  font-weight: 600;
-  font-size: 0.88rem;
-  color: var(--color-text);
-  margin-bottom: 3px;
-}
-
-.timelineDetail {
-  font-size: 0.78rem;
-  color: var(--color-text-muted);
-  display: flex;
-  align-items: center;
-  gap: 6px;
 }
 
 .emptyState {
@@ -410,55 +245,6 @@
   }
 }
 
-/* ---------- Quick Actions Grid ---------- */
-.quickActionsGrid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 16px;
-  margin-bottom: 28px;
-}
-
-.quickAction {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 18px 20px;
-  background: var(--color-bg-card);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
-  text-decoration: none;
-  transition: all var(--transition-base);
-  cursor: pointer;
-}
-
-.quickAction:hover {
-  border-color: var(--color-border-strong);
-  transform: translateY(-2px);
-  box-shadow: var(--shadow-md);
-}
-
-.quickActionIcon {
-  width: 44px;
-  height: 44px;
-  border-radius: var(--radius-md);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-
-.quickActionText h4 {
-  font-size: 0.88rem;
-  font-weight: 600;
-  color: var(--color-text);
-  margin-bottom: 2px;
-}
-
-.quickActionText p {
-  font-size: 0.75rem;
-  color: var(--color-text-muted);
-}
-
 /* ---------- Room Utilization ---------- */
 .roomGrid {
   display: grid;
@@ -503,25 +289,11 @@
   color: var(--color-text-muted);
   background: var(--color-bg);
 }
-
 /* ---------- Responsive ---------- */
-@media (max-width: 1200px) {
-  .statsGrid {
-    grid-template-columns: repeat(3, 1fr);
-  }
-
-  .quickActionsGrid {
-    grid-template-columns: repeat(2, 1fr);
-  }
-}
 
 @media (max-width: 1024px) {
   .contentGrid {
     grid-template-columns: 1fr;
-  }
-
-  .statsGrid {
-    grid-template-columns: repeat(3, 1fr);
   }
 }
 
@@ -535,23 +307,11 @@
     align-items: stretch;
     gap: 12px;
   }
-
-  .statsGrid {
-    grid-template-columns: repeat(2, 1fr);
-  }
-
-  .quickActionsGrid {
-    grid-template-columns: 1fr;
-  }
 }
 
 @media (max-width: 480px) {
-  .statsGrid {
-    grid-template-columns: 1fr;
-  }
 
-  .ringCard,
-  .roomBarCard {
+.ringCard {
     grid-column: span 1;
   }
 }
