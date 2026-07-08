@@ -428,6 +428,37 @@ export function exportTimetablePDF({
 			return Math.max(12, labelH, eventsH);
 		};
 
+		// Helper: Find enrolling faculties for a course
+		const getEnrolledFaculties = (courseId, ownerFacultyId) => {
+			const enrollingFacs = new Set();
+			
+			// Find all enrollments for this course
+			const courseEnrs = enrollments.filter(e => String(e.course_id) === String(courseId));
+			courseEnrs.forEach(e => {
+				const dept = departments.find(d => String(d.id) === String(e.department_id));
+				if (dept && dept.facultyId) {
+					const fac = faculties.find(f => String(f.id) === String(dept.facultyId));
+					if (fac) enrollingFacs.add(fac.name);
+				}
+			});
+
+			// If no enrollments are found, fall back to the owner faculty of the course
+			if (enrollingFacs.size === 0) {
+				if (ownerFacultyId) {
+					const fac = faculties.find(f => String(f.id) === String(ownerFacultyId));
+					if (fac) enrollingFacs.add(fac.name);
+				}
+			}
+
+			// Edge case: if it is a general studies course and we still have no enrolling faculties,
+			// map it to GENERAL_STUDIES_FACULTY
+			if (enrollingFacs.size === 0) {
+				enrollingFacs.add(GENERAL_STUDIES_FACULTY);
+			}
+
+			return Array.from(enrollingFacs);
+		};
+
 		// 3. Dynamic row slicing per week and faculty grouping
 		const daysPerPage = 6;
 		const dayChunks = [];
@@ -437,6 +468,9 @@ export function exportTimetablePDF({
 
 		// Build all pages to print in order: GST section first, then normal section
 		const pagesToRender = [];
+
+		const isAllFaculty = !faculty || faculty.toLowerCase() === "all faculties" || faculty.toLowerCase() === "all";
+		const cleanSelectedFaculty = faculty ? faculty.trim().toLowerCase() : "";
 
 		// Determine which weeks contain General Studies exams
 		const gstWeekIndexes = [];
@@ -458,20 +492,22 @@ export function exportTimetablePDF({
 				return inWeek && isGeneralStudiesCourse(si.courseCode);
 			});
 
-			// Group GST schedules by faculty name
+			// Group GST schedules by enrolling faculty name
 			const gstFacultySchedules = {};
 			weekGstSchedules.forEach(si => {
-				let facName = "SHARED";
-				if (si.facultyId) {
-					const fac = faculties.find(f => String(f.id) === String(si.facultyId));
-					if (fac) facName = fac.name;
-				} else if (si.facultyName && si.facultyName !== "NIL") {
-					facName = si.facultyName;
-				}
-				if (!gstFacultySchedules[facName]) {
-					gstFacultySchedules[facName] = [];
-				}
-				gstFacultySchedules[facName].push(si);
+				const allFacs = getEnrolledFaculties(si.courseId, si.facultyId);
+				const targetFacs = allFacs.filter(f => {
+					if (isAllFaculty) return true;
+					return f.toLowerCase().trim() === cleanSelectedFaculty;
+				});
+				targetFacs.forEach(facName => {
+					if (!gstFacultySchedules[facName]) {
+						gstFacultySchedules[facName] = [];
+					}
+					if (!gstFacultySchedules[facName].some(x => x.id === si.id)) {
+						gstFacultySchedules[facName].push(si);
+					}
+				});
 			});
 
 			// Sort faculties alphabetically, with SHARED last
@@ -534,20 +570,22 @@ export function exportTimetablePDF({
 
 			if (weekNormalSchedules.length === 0) return;
 
-			// Group normal schedules by faculty name
+			// Group normal schedules by enrolling faculty name (prioritize faculty of concern)
 			const normalFacultySchedules = {};
 			weekNormalSchedules.forEach(si => {
-				let facName = "SHARED";
-				if (si.facultyId) {
-					const fac = faculties.find(f => String(f.id) === String(si.facultyId));
-					if (fac) facName = fac.name;
-				} else if (si.facultyName && si.facultyName !== "NIL") {
-					facName = si.facultyName;
-				}
-				if (!normalFacultySchedules[facName]) {
-					normalFacultySchedules[facName] = [];
-				}
-				normalFacultySchedules[facName].push(si);
+				const allFacs = getEnrolledFaculties(si.courseId, si.facultyId);
+				const targetFacs = allFacs.filter(f => {
+					if (isAllFaculty) return true;
+					return f.toLowerCase().trim() === cleanSelectedFaculty;
+				});
+				targetFacs.forEach(facName => {
+					if (!normalFacultySchedules[facName]) {
+						normalFacultySchedules[facName] = [];
+					}
+					if (!normalFacultySchedules[facName].some(x => x.id === si.id)) {
+						normalFacultySchedules[facName].push(si);
+					}
+				});
 			});
 
 			// Sort faculties alphabetically, with SHARED last
