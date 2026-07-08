@@ -86,6 +86,31 @@
   position: relative;
   overflow: hidden;
   transition: all var(--transition-base);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+/* Course scheduling ring — occupies the first two card slots */
+.ringCard {
+  grid-column: span 2;
+  justify-content: flex-start;
+}
+
+/* Rooms-by-faculty bar chart — occupies the remaining two card slots */
+.roomBarCard {
+  grid-column: span 2;
+  justify-content: flex-start;
+  gap: 16px;
+}
+
+.ringCardTitle {
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 4px;
 }
 
 .statCard:hover {
@@ -523,5 +548,10 @@
 @media (max-width: 480px) {
   .statsGrid {
     grid-template-columns: 1fr;
+  }
+
+  .ringCard,
+  .roomBarCard {
+    grid-column: span 1;
   }
 }

@@ -16,7 +16,7 @@ from sqlalchemy.exc import IntegrityError
 
 
 def _has_global_scope(user: dict) -> bool:
-    return user.get("role") in (RoleEnum.SUPER_ADMIN.value, RoleEnum.SUPER_VIEWER.value, RoleEnum.GS_ADMIN.value)
+    return user.get("role") in (RoleEnum.SUPER_ADMIN.value, RoleEnum.SUPER_VIEWER.value, RoleEnum.GS_ADMIN.value, RoleEnum.CITS_ADMIN.value)
 
 
 def _has_global_read_scope(user: dict) -> bool:
@@ -26,6 +26,7 @@ def _has_global_read_scope(user: dict) -> bool:
         RoleEnum.GS_ADMIN.value,
         RoleEnum.FACULTY_EDITOR.value,
         RoleEnum.FACULTY_VIEWER.value,
+        RoleEnum.CITS_ADMIN.value,
     )
 
 
@@ -77,7 +78,7 @@ class TimetableService:
         self.audit_service = audit_service
         
     async def create_faculty(self, data: FacultyCreate, current_user: dict | None = None) -> Faculty:
-        faculty = Faculty(id=data.id, name=data.name)
+        faculty = Faculty(id=data.id, name=data.name, is_special=data.is_special)
         created = await self.repo.create_faculty(faculty)
         await self.audit_service.log(
             current_user=current_user,
@@ -101,6 +102,7 @@ class TimetableService:
         faculty = await self.repo.get_faculty(id)
         if not faculty: raise HTTPException(status_code=404, detail="Faculty not found")
         if data.name is not None: faculty.name = data.name
+        if data.is_special is not None: faculty.is_special = data.is_special
         updated = await self.repo.update_faculty(faculty)
         await self.audit_service.log(
             current_user=current_user,
@@ -198,7 +200,13 @@ class TimetableService:
         if _is_gs_admin(current_user):
             if data.faculty_id is not None:
                 raise HTTPException(status_code=403, detail="General Studies admins can only create rooms not bound to a faculty")
-        room = Room(name=data.name, capacity=data.capacity, faculty_id=data.faculty_id)
+        room = Room(
+            name=data.name,
+            capacity=data.capacity,
+            faculty_id=data.faculty_id,
+            is_lab=data.is_lab,
+            is_active=data.is_active,
+        )
         try:
             created = await self.repo.create_room(room)
         except IntegrityError:
@@ -209,7 +217,7 @@ class TimetableService:
             entity_type="room",
             entity_id=created.id,
             description=f"Created room '{created.name}' (capacity {created.capacity})",
-            extra={"name": created.name, "capacity": created.capacity, "faculty_id": created.faculty_id},
+            extra={"name": created.name, "capacity": created.capacity, "faculty_id": created.faculty_id, "is_active": created.is_active},
         )
         return created
 
@@ -232,10 +240,15 @@ class TimetableService:
                 raise HTTPException(status_code=403, detail="General Studies admins cannot bind rooms to a faculty")
         if data.name is not None: room.name = data.name
         if data.capacity is not None: room.capacity = data.capacity
+        if data.is_lab is not None: room.is_lab = data.is_lab
         if data.faculty_id is not None:
             if current_user.get("role") == RoleEnum.FACULTY_EDITOR.value and current_user.get("faculty_id") != data.faculty_id:
                 raise HTTPException(status_code=403, detail="Not authorized")
             room.faculty_id = data.faculty_id
+        if data.is_active is not None:
+            if current_user.get("role") != RoleEnum.SUPER_ADMIN.value:
+                raise HTTPException(status_code=403, detail="Only super admins can activate or deactivate a room")
+            room.is_active = data.is_active
         try:
             updated = await self.repo.update_room(room)
         except IntegrityError:
@@ -258,10 +271,15 @@ class TimetableService:
                 raise HTTPException(status_code=403, detail="Not authorized")
         if _is_gs_admin(current_user) and room.faculty_id is not None:
             raise HTTPException(status_code=403, detail="General Studies admins cannot delete rooms bound to a faculty")
+
+        is_referenced = await self.repo.is_room_referenced_by_schedule(id)
+        if is_referenced:
+            raise HTTPException(status_code=400, detail="Cannot delete room because it is currently assigned to scheduled items. Please remove it from all timetables first.")
+
         try:
             await self.repo.delete_room(room)
         except IntegrityError:
-            raise HTTPException(status_code=400, detail="Cannot delete room because it is currently referenced by other records (such as schedule items). Please remove them first.")
+            raise HTTPException(status_code=400, detail="Cannot delete room because it is currently referenced by other records. Please remove them first.")
         await self.audit_service.log(
             current_user=current_user,
             action="room.delete",
@@ -315,6 +333,7 @@ class TimetableService:
             scope=data.scope,
             level=data.level,
             semester=data.semester,
+            is_cbt_exam=data.is_cbt_exam,
         )
         try:
             created = await self.repo.create_course(course)
@@ -344,6 +363,16 @@ class TimetableService:
     async def update_course(self, id: int, data: CourseUpdate, current_user: dict) -> Course:
         course = await self.repo.get_course(id)
         if not course: raise HTTPException(status_code=404, detail="Not found")
+        
+        # If user is CITS admin, they can ONLY update the `is_cbt_exam` field
+        if current_user.get("role") == RoleEnum.CITS_ADMIN.value:
+            non_cbt_fields = [f for f in data.model_fields_set if f != "is_cbt_exam"]
+            if non_cbt_fields:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Super Administrator (CITS) is only authorized to update the CBT status (is_cbt_exam) of courses"
+                )
+        
         # GS admins may only edit existing UW courses, and may not change scope away from UW
         if _is_gs_admin(current_user):
             if course.scope != CourseScope.UNIVERSITY_WIDE:
@@ -379,6 +408,7 @@ class TimetableService:
         if data.level is not None: course.level = data.level
         # `semester` is nullable — accept None to clear, distinguish from "not provided" via model_fields_set
         if 'semester' in data.model_fields_set: course.semester = data.semester
+        if data.is_cbt_exam is not None: course.is_cbt_exam = data.is_cbt_exam
         try:
             updated = await self.repo.update_course(course)
         except IntegrityError:
@@ -398,10 +428,15 @@ class TimetableService:
         if course:
             if _is_gs_admin(current_user) and course.scope != CourseScope.UNIVERSITY_WIDE:
                 raise HTTPException(status_code=403, detail="General Studies admins can only delete university-wide courses")
+            
+            is_referenced = await self.repo.is_course_referenced_by_schedule(id)
+            if is_referenced:
+                raise HTTPException(status_code=400, detail="Cannot delete course because it is currently scheduled. Please unschedule it from all timetables first.")
+
             try:
                 await self.repo.delete_course(course)
             except IntegrityError:
-                raise HTTPException(status_code=400, detail="Cannot delete course because it is currently referenced by schedule items. Please remove them first.")
+                raise HTTPException(status_code=400, detail="Cannot delete course because it is currently referenced by other records. Please remove them first.")
             await self.audit_service.log(
                 current_user=current_user,
                 action="course.delete",
@@ -561,6 +596,16 @@ class TimetableService:
         if lock and lock.is_locked:
             raise HTTPException(status_code=423, detail=f"This {item_type} timetable is locked.")
 
+    async def _assert_rooms_active(self, room_ids: list[int] | None, already_assigned_ids: list[int] | None = None) -> None:
+        already_assigned_ids = already_assigned_ids or []
+        new_ids = [rid for rid in (room_ids or []) if rid not in already_assigned_ids]
+        if not new_ids:
+            return
+        rooms = await self.repo.get_rooms_by_ids(new_ids)
+        inactive = [r.name for r in rooms if r.is_active is False]
+        if inactive:
+            raise HTTPException(status_code=400, detail=f"Cannot schedule into inactive room(s): {', '.join(inactive)}")
+
     async def create_schedule_item(self, data: ScheduleItemCreate, current_user: dict) -> ScheduleItem:
         if current_user.get("role") == RoleEnum.FACULTY_EDITOR.value:
             if current_user.get("faculty_id") != data.faculty_id:
@@ -582,7 +627,8 @@ class TimetableService:
         await self._assert_not_locked(sem_id, data.type)
         exam_date_val = getattr(data, 'exam_date', None)
         await self._check_blocked_slots(data.type, data.day_of_week, exam_date_val, data.start_time, data.end_time, sem_id)
-        
+        await self._assert_rooms_active(data.room_ids)
+
         item = ScheduleItem(
             course_id=data.course_id,
             room_ids=data.room_ids,
@@ -642,7 +688,9 @@ class TimetableService:
         new_end = data.end_time or item.end_time
         if item.semester_id:
             await self._check_blocked_slots(item.type, new_day, new_exam_date, new_start, new_end, item.semester_id)
-        if data.room_ids is not None: item.room_ids = data.room_ids
+        if data.room_ids is not None:
+            await self._assert_rooms_active(data.room_ids, already_assigned_ids=item.room_ids or [])
+            item.room_ids = data.room_ids
         if data.day_of_week is not None: item.day_of_week = data.day_of_week
         if data.exam_date is not None: item.exam_date = data.exam_date
         if data.start_time is not None: item.start_time = data.start_time

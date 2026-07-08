@@ -6,12 +6,14 @@ from modules.timetable.models import CourseScope
 class FacultyCreate(BaseModel):
     id: str
     name: str
+    is_special: bool = False
 
 class FacultyResponse(FacultyCreate):
     model_config = ConfigDict(from_attributes=True)
 
 class FacultyUpdate(BaseModel):
     name: str | None = None
+    is_special: bool | None = None
 
 
 class DepartmentCreate(BaseModel):
@@ -32,9 +34,12 @@ class RoomCreate(BaseModel):
     capacity: int
     faculty_id: str | None = None
     display_order: int = 0
+    is_lab: bool = False
+    is_active: bool = True
 
 class RoomResponse(RoomCreate):
     id: int
+    is_active: bool | None = None
     model_config = ConfigDict(from_attributes=True)
 
 class RoomUpdate(BaseModel):
@@ -42,6 +47,8 @@ class RoomUpdate(BaseModel):
     capacity: int | None = None
     faculty_id: str | None = None
     display_order: int | None = None
+    is_lab: bool | None = None
+    is_active: bool | None = None
 
 class RoomReorderItem(BaseModel):
     id: int
@@ -63,6 +70,7 @@ class CourseCreate(BaseModel):
     scope: str = CourseScope.DEPARTMENTAL.value
     level: int | None = None
     semester: str | None = None
+    is_cbt_exam: bool = False
 
     @field_validator('semester')
     @classmethod
@@ -103,6 +111,7 @@ class CourseResponse(BaseModel):
     scope: str | None = None
     level: int | None = None
     semester: str | None = None
+    is_cbt_exam: bool | None = None
     model_config = ConfigDict(from_attributes=True)
 
 class CourseUpdate(BaseModel):
@@ -114,6 +123,7 @@ class CourseUpdate(BaseModel):
     scope: str | None = None
     level: int | None = None
     semester: str | None = None
+    is_cbt_exam: bool | None = None
 
     @field_validator('code')
     @classmethod

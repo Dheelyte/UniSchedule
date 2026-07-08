@@ -99,7 +99,7 @@ export default function ActivityLogsPage() {
     if (!allowed) return null;
 
     return (
-        <div style={{ padding: '0 4px' }}>
+        <div style={{ padding: '20px 40px' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, gap: 12, flexWrap: 'wrap' }}>
                 <div>
                     <h2 style={{ margin: 0 }}>Activity Logs</h2>

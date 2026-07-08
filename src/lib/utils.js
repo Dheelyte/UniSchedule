@@ -57,3 +57,8 @@ export function isOutsideOperatingHours(startTime, endTime) {
     const opEnd = timeToMinutes(OPERATING_HOURS.end);
     return start < opStart || end > opEnd;
 }
+
+/** Whether a room is active; missing/null values are treated as active. */
+export function isRoomActive(room) {
+    return room?.is_active !== false && room?.isActive !== false;
+}

@@ -11,6 +11,7 @@ class RoleEnum(str, enum.Enum):
     FACULTY_EDITOR = "FACULTY_EDITOR"
     FACULTY_VIEWER = "FACULTY_VIEWER"
     GS_ADMIN = "GS_ADMIN"
+    CITS_ADMIN = "CITS_ADMIN"
 
 
 class User(Base):

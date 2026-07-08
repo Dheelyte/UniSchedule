@@ -14,6 +14,8 @@ class Faculty(Base):
     __tablename__ = "faculties"
     id: Mapped[str] = mapped_column(String, primary_key=True) # e.g. "ENG"
     name: Mapped[str] = mapped_column(String, unique=True)
+    # Special faculties are exempt from timetable conflict detection.
+    is_special: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
 
 class Department(Base):
     __tablename__ = "departments"
@@ -29,6 +31,8 @@ class Room(Base):
     capacity: Mapped[int] = mapped_column(Integer)
     faculty_id: Mapped[str | None] = mapped_column(ForeignKey("faculties.id"), nullable=True)
     display_order: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    is_lab: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    is_active: Mapped[bool | None] = mapped_column(Boolean, nullable=True, default=True)
 
 class Course(Base):
     __tablename__ = "courses"
@@ -41,6 +45,7 @@ class Course(Base):
     scope: Mapped[CourseScope] = mapped_column(Enum(CourseScope), default=CourseScope.DEPARTMENTAL)
     level: Mapped[int | None] = mapped_column(Integer, nullable=True)
     semester: Mapped[str | None] = mapped_column(String, nullable=True)  # "First Semester" | "Second Semester"
+    is_cbt_exam: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
 
 class ScheduleItem(Base):
     __tablename__ = "schedule_items"

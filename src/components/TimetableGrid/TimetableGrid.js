@@ -3,12 +3,13 @@
 import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { useApp, ACTION_TYPES } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
-import { DAYS, EXAM_DAYS, timeToMinutes } from '@/lib/utils';
+import { DAYS, EXAM_DAYS, timeToMinutes, isRoomActive } from '@/lib/utils';
 import { apiClient } from '@/lib/apiClient';
-import { detectConflicts, detectAllConflicts } from '@/lib/conflicts';
+import { detectConflicts, detectAllConflicts, dismissalSignatureSet } from '@/lib/conflicts';
 import { useToast } from '@/components/Toast/Toast';
 import { useConfirm } from '@/components/ConfirmModal/ConfirmContext';
 import SearchableSelect from '@/components/SearchableSelect/SearchableSelect';
+import ConflictManager from '@/components/ConflictManager/ConflictManager';
 import { hasGlobalScope, isGsAdmin, isViewerRole } from '@/lib/roles';
 import styles from './TimetableGrid.module.css';
 
@@ -123,7 +124,7 @@ function computeVerticalOverlapLayout(events) {
     return assignments;
 }
 
-export default function TimetableGrid({ mode = 'lecture', semesterId = null, semesterName = null, readOnly = false, readOnlyReasons = [], blockedSlots = [], enrollmentsByCourse = null }) {
+export default function TimetableGrid({ mode = 'lecture', semesterId = null, semesterName = null, readOnly = false, readOnlyReasons = [], blockedSlots = [], enrollmentsByCourse = null, cbtOnly = false }) {
     const { state, dispatch, getSchedulesWithDetails } = useApp();
     const { faculties, departments, courses, rooms } = state;
     const { addToast } = useToast();
@@ -227,8 +228,15 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
 
     // ALL schedules of this mode (for conflicts across days/weeks)
     const allModeSchedules = useMemo(() => {
-        return getSchedulesWithDetails.filter((s) => s.type === mode);
-    }, [getSchedulesWithDetails, mode]);
+        let list = getSchedulesWithDetails.filter((s) => s.type === mode);
+        if (cbtOnly) {
+            list = list.filter((s) => {
+                const course = courses.find((c) => c.id === s.courseId);
+                return course?.isCbtExam || course?.is_cbt_exam;
+            });
+        }
+        return list;
+    }, [getSchedulesWithDetails, mode, cbtOnly, courses]);
 
     const departmentsById = useMemo(() => {
         const m = new Map();
@@ -236,9 +244,26 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
         return m;
     }, [departments]);
 
+    // Persisted conflict dismissals (manually acknowledged conflicts).
+    const [dismissals, setDismissals] = useState([]);
+    const [showConflictManager, setShowConflictManager] = useState(false);
+    const refreshDismissals = useCallback(() => {
+        return apiClient
+            .get('/timetable/conflict-dismissals')
+            .then((res) => setDismissals(res || []))
+            .catch(() => setDismissals([]));
+    }, []);
+    useEffect(() => {
+        refreshDismissals();
+    }, [refreshDismissals]);
+
+    const dismissedSignatures = useMemo(() => dismissalSignatureSet(dismissals), [dismissals]);
+
+    const canManageConflicts = !readOnly && !isViewerRole(user?.role);
+
     const conflictMap = useMemo(() => {
-        return detectAllConflicts(allModeSchedules, enrollmentsByCourse, departmentsById);
-    }, [allModeSchedules, enrollmentsByCourse, departmentsById]);
+        return detectAllConflicts(allModeSchedules, enrollmentsByCourse, departmentsById, dismissedSignatures);
+    }, [allModeSchedules, enrollmentsByCourse, departmentsById, dismissedSignatures]);
 
     // First schedule item (in render order) that has at least one error-severity conflict.
     const firstConflictItem = useMemo(() => {
@@ -289,11 +314,15 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
     // Rooms to render: own-faculty rooms + any room referenced by a visible schedule item.
     // Global-scope users see everything; this trims the grid for FACULTY editors/viewers.
     const displayedRooms = useMemo(() => {
-        if (hasGlobalScope(user?.role) || !user?.faculty_id) return rooms;
+        const activeRooms = rooms.filter(isRoomActive);
+        if (cbtOnly) {
+            return activeRooms.filter((r) => r.name && r.name.toUpperCase().includes('CBT'));
+        }
+        if (hasGlobalScope(user?.role) || !user?.faculty_id) return activeRooms;
         const referenced = new Set();
         allModeSchedules.forEach((s) => (s.roomIds || []).forEach((rid) => referenced.add(rid)));
-        return rooms.filter((r) => r.faculty_id === user.faculty_id || r.faculty_id === null || referenced.has(r.id));
-    }, [rooms, allModeSchedules, user?.role, user?.faculty_id]);
+        return activeRooms.filter((r) => r.faculty_id === user.faculty_id || r.faculty_id === null || referenced.has(r.id));
+    }, [rooms, allModeSchedules, user?.role, user?.faculty_id, cbtOnly]);
 
     // Filtered mode schedules (respecting faculty, dept, week) but independent of day
     const filteredModeSchedules = useMemo(() => {
@@ -378,6 +407,9 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
 
     const modalCourses = useMemo(() => {
         let filteredCourses = courses;
+        if (cbtOnly) {
+            filteredCourses = filteredCourses.filter((c) => c.isCbtExam || c.is_cbt_exam);
+        }
         // Restrict to courses offered in the current semester. Legacy courses with
         // no semester set are still shown so older data remains schedulable.
         if (semesterName) {
@@ -394,11 +426,16 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
         // Hide interfaculty courses originating from another faculty unless this faculty has enrolled in them.
         // Global-scope users (SUPER_ADMIN / SUPER_VIEWER) see everything.
         if (!hasGlobalScope(user?.role) && user?.faculty_id) {
+            const facultyOfDept = new Map(departments.map((d) => [d.id, d.facultyId]));
+            // Enrolled = some department in this faculty takes the course (course_enrollments).
+            const isEnrolledByOwnFaculty = (courseId) =>
+                (enrollmentsByCourse?.get(courseId) || []).some(
+                    (e) => facultyOfDept.get(e.department_id) === user.faculty_id
+                );
             filteredCourses = filteredCourses.filter((c) => {
                 if (c.scope !== 'INTERFACULTY') return true;
-                const dept = departments.find((d) => d.id === c.departmentId);
-                const isOwnFaculty = dept?.facultyId === user.faculty_id;
-                return isOwnFaculty;
+                const isOwnFaculty = facultyOfDept.get(c.departmentId) === user.faculty_id;
+                return isOwnFaculty || isEnrolledByOwnFaculty(c.id);
             });
         }
 
@@ -407,15 +444,10 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
             filteredCourses = filteredCourses.filter((c) => c.scope === 'UNIVERSITY_WIDE');
         }
 
-        if (mode === 'exam') {
-            const scheduledCourseIds = new Set(allModeSchedules.map(s => s.courseId));
-            if (editing) {
-                scheduledCourseIds.delete(editing.courseId);
-            }
-            return filteredCourses.filter(c => !scheduledCourseIds.has(c.id));
-        }
+        // A course may be scheduled multiple times (e.g. several exam sittings)
+        // within a faculty, so already-scheduled courses stay selectable.
         return filteredCourses;
-    }, [courses, departments, filterFaculty, filterDept, mode, allModeSchedules, editing, user?.role, user?.faculty_id, semesterName]);
+    }, [courses, departments, enrollmentsByCourse, cbtOnly, filterFaculty, filterDept, mode, editing, user?.role, user?.faculty_id, semesterName]);
 
     const handleCellClick = (roomId, hour) => {
         if (readOnly) return;
@@ -458,6 +490,7 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
     const enrichCandidate = (formData) => {
         const c = courses.find((cc) => cc.id === formData.courseId);
         const dept = c ? departments.find((d) => d.id === c.departmentId) : null;
+        const fac = dept ? faculties.find((f) => f.id === dept.facultyId) : null;
         return {
             ...formData,
             type: mode,
@@ -466,6 +499,7 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
             courseLevel: c?.level ?? null,
             courseScope: c?.scope ?? null,
             facultyId: dept?.facultyId ?? null,
+            isSpecialFaculty: !!(fac?.is_special ?? fac?.isSpecial),
         };
     };
 
@@ -517,45 +551,52 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
             departmentsById,
         );
 
+        const candidateCourse = courses.find((c) => c.id === modalForm.courseId);
+        // Conflicts the user chose to ignore — recorded as dismissals after saving.
+        let ignoredConflicts = [];
         if (result.hasConflict) {
-            result.conflicts.filter((c) => c.severity === 'error').forEach((c) => {
-                addToast({
-                    type: 'error',
-                    title: 'Conflict Detected',
-                    message: c.message,
-                    duration: 8000,
-                });
-            });
-            return;
-        }
-
-        const overrides = result.conflicts.filter((c) => c.priorityOverride);
-        if (overrides.length > 0) {
-            const candidateCourse = courses.find((c) => c.id === modalForm.courseId);
+            const errorConflicts = result.conflicts.filter((c) => c.severity === 'error');
             const ok = await confirm({
-                title: 'Higher-priority schedule will override',
+                title: 'Schedule despite conflicts?',
                 message:
-                    `Saving "${candidateCourse?.code || 'this course'}" will create the following conflict(s) with lower-priority courses. ` +
-                    `It will still be scheduled, but the affected faculty editors will be notified by email to reschedule. Continue?`,
-                details: overrides.map((c) => c.message),
-                confirmLabel: 'Schedule anyway',
+                    `Scheduling "${candidateCourse?.code || 'this course'}" clashes with the following. ` +
+                    `You can ignore the conflict(s) and schedule anyway — they'll be recorded as ignored and can be reviewed or restored under "Manage conflicts".`,
+                details: errorConflicts.map((c) => c.message),
+                confirmLabel: 'Ignore & schedule',
                 cancelLabel: 'Cancel',
                 tone: 'primary',
             });
             if (!ok) return;
-        } else if (result.hasWarning) {
-            result.conflicts.filter((c) => c.severity === 'warning').forEach((c) => {
-                addToast({
-                    type: 'warning',
-                    title: 'Schedule Warning',
-                    message: c.message,
-                    duration: 6000,
+            ignoredConflicts = errorConflicts;
+        } else {
+            const overrides = result.conflicts.filter((c) => c.priorityOverride);
+            if (overrides.length > 0) {
+                const ok = await confirm({
+                    title: 'Higher-priority schedule will override',
+                    message:
+                        `Saving "${candidateCourse?.code || 'this course'}" will create the following conflict(s) with lower-priority courses. ` +
+                        `It will still be scheduled, but the affected faculty editors will be notified by email to reschedule. Continue?`,
+                    details: overrides.map((c) => c.message),
+                    confirmLabel: 'Schedule anyway',
+                    cancelLabel: 'Cancel',
+                    tone: 'primary',
                 });
-            });
+                if (!ok) return;
+            } else if (result.hasWarning) {
+                result.conflicts.filter((c) => c.severity === 'warning').forEach((c) => {
+                    addToast({
+                        type: 'warning',
+                        title: 'Schedule Warning',
+                        message: c.message,
+                        duration: 6000,
+                    });
+                });
+            }
         }
 
         const payload = { ...formWithCleanRooms, type: mode };
 
+        let savedItemId = null;
         setIsSaving(true);
         try {
             if (editing) {
@@ -568,6 +609,7 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
                 };
                 await apiClient.put(`/timetable/schedule-items/${editing.id}`, apiPayload);
                 dispatch({ type: ACTION_TYPES.UPDATE_SCHEDULE, payload: { id: editing.id, ...payload, examDate: payload.examDate } });
+                savedItemId = editing.id;
                 addToast({ type: 'success', title: 'Schedule Updated', message: `${courses.find(c => c.id === modalForm.courseId)?.code || 'Course'} updated successfully.` });
             } else {
                 const course = courses.find(c => c.id === modalForm.courseId);
@@ -597,6 +639,7 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
                         semester_id: semesterId,
                     }
                 });
+                savedItemId = res.id;
                 addToast({ type: 'success', title: 'Course Scheduled', message: `${courses.find(c => c.id === modalForm.courseId)?.code || 'Course'} added to timetable.` });
             }
         } catch (e) {
@@ -604,6 +647,25 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
             addToast({ type: 'error', title: 'Scheduling Error', message: e.message || 'Failed to synchronize with server.', duration: 8000 });
         } finally {
             setIsSaving(false);
+        }
+
+        // Record any conflicts the user chose to ignore so they stay suppressed.
+        if (savedItemId && ignoredConflicts.length > 0) {
+            const reason = `Ignored while scheduling ${candidateCourse?.code || 'course'}`;
+            try {
+                await Promise.all(ignoredConflicts.map((c) =>
+                    apiClient.post('/timetable/conflict-dismissals', {
+                        conflict_type: c.type,
+                        item_a_id: savedItemId,
+                        item_b_id: c.relatedId ?? null,
+                        reason,
+                    })
+                ));
+                await refreshDismissals();
+            } catch (e) {
+                console.error('Failed to record ignored conflicts', e);
+                addToast({ type: 'error', title: 'Conflicts not recorded', message: 'The schedule was saved, but the ignored conflict(s) could not be recorded. They may reappear as unresolved.' });
+            }
         }
         setShowModal(false);
     };
@@ -685,6 +747,8 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
             courseDepartmentId: dragItem.courseDepartmentId ?? null,
             courseLevel: dragItem.courseLevel ?? null,
             courseScope: dragItem.courseScope ?? null,
+            facultyId: dragItem.facultyId ?? null,
+            isSpecialFaculty: dragItem.isSpecialFaculty ?? false,
         };
 
         const result = detectConflicts(candidate, allModeSchedules, dragItem.id, enrollmentsByCourse, departmentsById);
@@ -757,11 +821,15 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
 
     const getAvailableRooms = (currentIndex) => {
         const selectedIds = modalForm.roomIds.filter((_, i) => i !== currentIndex);
+        const currentId = modalForm.roomIds[currentIndex];
         let pool = rooms;
-        // Faculty editors can only schedule into their own faculty's rooms (and shared/unassigned ones).
-        if (!hasGlobalScope(user?.role) && user?.faculty_id) {
+        if (cbtOnly) {
+            pool = pool.filter((r) => r.name && r.name.toUpperCase().includes('CBT'));
+        } else if (!hasGlobalScope(user?.role) && user?.faculty_id) {
             pool = pool.filter((r) => r.faculty_id === user.faculty_id || r.faculty_id === null);
         }
+        // Inactive rooms can't be picked for a new slot, but stay visible if they're already assigned here.
+        pool = pool.filter((r) => isRoomActive(r) || r.id === currentId);
         return pool.filter((r) => !selectedIds.includes(r.id));
     };
 
@@ -829,6 +897,17 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
                                 title={`Jump to ${firstConflictItem.courseCode}`}
                             >
                                 Go to conflict → {firstConflictItem.courseCode}
+                            </button>
+                        )}
+                        {canManageConflicts && (totalConflictCount > 0 || dismissals.length > 0) && (
+                            <button
+                                type="button"
+                                className="btn btn-secondary"
+                                style={{ marginLeft: 8, padding: '2px 10px', fontSize: '0.78rem' }}
+                                onClick={() => setShowConflictManager(true)}
+                                title="Dismiss or restore conflicts"
+                            >
+                                Manage conflicts
                             </button>
                         )}
                     </span>
@@ -1243,6 +1322,18 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
                         </div>
                     </div>
                 </div>
+            )}
+
+            {showConflictManager && (
+                <ConflictManager
+                    mode={mode}
+                    conflictMap={conflictMap}
+                    schedules={allModeSchedules}
+                    departments={departments}
+                    dismissals={dismissals}
+                    onClose={() => setShowConflictManager(false)}
+                    onChanged={refreshDismissals}
+                />
             )}
         </div>
     );

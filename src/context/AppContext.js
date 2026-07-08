@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useContext, useReducer, useMemo } from 'react';
+import { createContext, useContext, useReducer, useMemo, useState, useCallback, useEffect } from 'react';
 import { generateId } from '@/lib/utils';
 
 // ---- INITIAL STATE ----
@@ -10,6 +10,7 @@ const initialState = {
     courses: [],
     rooms: [],
     scheduleItems: [],
+    enrollments: [],
 };
 
 // ---- ACTION TYPES ----
@@ -185,13 +186,55 @@ function appReducer(state, action) {
 // ---- CONTEXT ----
 const AppContext = createContext(null);
 
-import { useEffect } from 'react';
 import { apiClient } from '@/lib/apiClient';
 
 export function AppProvider({ children }) {
     const [state, dispatch] = useReducer(appReducer, initialState);
+    const [isInitialized, setIsInitialized] = useState(false);
+    const [metadataLoading, setMetadataLoading] = useState(false);
 
-    // Global API fetch removed - Individual pages now perform Just-in-Time component fetching
+    const refreshMetadata = useCallback(async (force = false) => {
+        if ((isInitialized || metadataLoading) && !force) return;
+        setMetadataLoading(true);
+        try {
+            const [courses, faculties, departments, rooms, enrollments] = await Promise.all([
+                apiClient.get('/timetable/courses').catch(() => []),
+                apiClient.get('/timetable/faculties?all=true').catch(() => []),
+                apiClient.get('/timetable/departments?all=true').catch(() => []),
+                apiClient.get('/timetable/rooms?all=true').catch(() => []),
+                apiClient.get('/timetable/enrollments').catch(() => []),
+            ]);
+            dispatch({
+                type: ACTION_TYPES.INIT_STATE,
+                payload: {
+                    courses: (courses || []).map(c => ({
+                        ...c,
+                        creditLoad: c.credit_load,
+                        departmentId: c.department_id,
+                        scope: c.scope || 'DEPARTMENTAL',
+                        isCbtExam: c.is_cbt_exam || false,
+                    })),
+                    faculties: faculties || [],
+                    departments: (departments || []).map(d => ({ ...d, facultyId: d.faculty_id })),
+                    rooms: (rooms || []).map((r) => ({
+                        ...r,
+                        facultyId: r.faculty_id ?? r.facultyId ?? null,
+                        isLab: r.is_lab ?? r.isLab ?? false,
+                    })),
+                    enrollments: enrollments || [],
+                }
+            });
+            setIsInitialized(true);
+        } catch (err) {
+            console.error('Failed to initialize global metadata', err);
+        } finally {
+            setMetadataLoading(false);
+        }
+    }, [isInitialized, metadataLoading]);
+
+    useEffect(() => {
+        refreshMetadata();
+    }, []);
 
     // Memoised derived data for the dashboard
     const stats = useMemo(() => {
@@ -239,6 +282,8 @@ export function AppProvider({ children }) {
             const resolvedRooms = ids.map((rid) => state.rooms.find((r) => r.id === rid)).filter(Boolean);
             const dept = course ? state.departments.find((d) => d.id === course.departmentId) : null;
             const faculty = dept ? state.faculties.find((f) => f.id === dept.facultyId) : null;
+            const effFacId = item.facultyId || faculty?.id || null;
+            const effFaculty = state.faculties.find((f) => f.id === effFacId) || null;
             return {
                 ...item,
                 roomIds: ids,
@@ -254,8 +299,10 @@ export function AppProvider({ children }) {
                 roomCapacity: resolvedRooms.reduce((sum, r) => sum + (r.capacity || 0), 0),
                 departmentId: dept?.id || null,
                 departmentName: dept?.name || 'NIL',
-                facultyId: item.facultyId || faculty?.id || null,
-                facultyName: state.faculties.find((f) => f.id === (item.facultyId || faculty?.id))?.name || 'NIL',
+                facultyId: effFacId,
+                facultyName: effFaculty?.name || 'NIL',
+                // Special faculties are exempt from conflict detection.
+                isSpecialFaculty: !!(effFaculty?.is_special ?? effFaculty?.isSpecial),
             };
         });
     }, [state]);
@@ -267,6 +314,9 @@ export function AppProvider({ children }) {
         getDepartmentsWithFaculty,
         getCoursesWithDetails,
         getSchedulesWithDetails,
+        isInitialized,
+        metadataLoading,
+        refreshMetadata,
     };
 
     return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

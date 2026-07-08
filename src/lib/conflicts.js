@@ -100,15 +100,24 @@ export function detectConflicts(candidate, allSchedules, excludeId = null, enrol
     };
     const conflicts = [];
 
-    // For exam mode: check for duplicate course across ALL weeks/days
+    // Courses in special faculties are exempt from conflict detection.
+    if (candidate.isSpecialFaculty) {
+        return { hasConflict: false, hasWarning: false, conflicts };
+    }
+
+    // For exam mode: check for duplicate course across ALL weeks/days.
+    // Multiple sittings of the same course are allowed within a faculty, so only
+    // a duplicate owned by a *different* faculty is flagged.
     if (candidate.type === 'exam') {
         const duplicateCourse = allSchedules.find(
-            (s) => s.id !== excludeId && s.type === 'exam' && s.courseId === candidate.courseId
+            (s) => s.id !== excludeId && !s.isSpecialFaculty && s.type === 'exam' && s.courseId === candidate.courseId
+                && s.facultyId !== candidate.facultyId
         );
         if (duplicateCourse) {
             conflicts.push({
                 type: 'duplicate',
                 severity: 'error',
+                relatedId: duplicateCourse.id,
                 message: `Duplicate exam: "${duplicateCourse.courseCode || 'Course'}" already has an exam scheduled on ${duplicateCourse.day}${duplicateCourse.week ? ` (Week ${duplicateCourse.week})` : ''} ${duplicateCourse.startTime}–${duplicateCourse.endTime}.`,
             });
         }
@@ -120,6 +129,7 @@ export function detectConflicts(candidate, allSchedules, excludeId = null, enrol
     // In exam mode, also scope to same week.
     const relevantSchedules = allSchedules.filter((s) => {
         if (s.id === excludeId) return false;
+        if (s.isSpecialFaculty) return false;
         if (s.type !== candidate.type) return false;
         if (candidate.type === 'exam') {
             if (candidate.examDate && s.examDate) {
@@ -156,6 +166,7 @@ export function detectConflicts(candidate, allSchedules, excludeId = null, enrol
         conflicts.push({
             type: 'room',
             severity: 'error',
+            relatedId: s.id,
             otherScope: s.courseScope || null,
             message: candidate.type === 'exam'
                 ? `Room conflict: "${getRoomLabel(s)}" is already booked for ${s.courseCode || 'a course'} (${s.facultyName || s.facultyId}) on ${s.day} ${s.startTime}–${s.endTime}. Exams may only share a venue within the same faculty.`
@@ -167,9 +178,12 @@ export function detectConflicts(candidate, allSchedules, excludeId = null, enrol
     // In lecture mode, this is allowed (courses can repeat)
     // In exam mode, duplicate is already caught above
     if (candidate.type === 'lecture') {
+        // Same course at overlapping times is allowed within a faculty (e.g.
+        // parallel sections); only flag a same-course overlap across faculties.
         const courseConflicts = relevantSchedules.filter(
             (s) =>
                 s.courseId === candidate.courseId &&
+                s.facultyId !== candidate.facultyId &&
                 timesOverlap(
                     { startTime: candidate.startTime, endTime: candidate.endTime },
                     { startTime: s.startTime, endTime: s.endTime }
@@ -180,14 +194,18 @@ export function detectConflicts(candidate, allSchedules, excludeId = null, enrol
             conflicts.push({
                 type: 'course',
                 severity: 'error',
+                relatedId: s.id,
                 otherScope: s.courseScope || null,
                 message: `Course conflict: "${s.courseCode || 'Course'}" is already scheduled on ${s.day} ${s.startTime}–${s.endTime}.`,
             });
         });
     }
 
-    // 3. Audience Conflict (same department × level scheduled at the same time = student double-booking)
+    // 3. Audience Conflict (same department × level scheduled at the same time = student double-booking).
+    // Different courses only — two sittings of the SAME course share an audience by
+    // definition and are allowed within a faculty (mirrors detectAllConflicts).
     relevantSchedules.forEach((s) => {
+        if (s.courseId === candidate.courseId) return;
         const overlap = timesOverlap(
             { startTime: candidate.startTime, endTime: candidate.endTime },
             { startTime: s.startTime, endTime: s.endTime },
@@ -204,6 +222,7 @@ export function detectConflicts(candidate, allSchedules, excludeId = null, enrol
             conflicts.push({
                 type: 'audience',
                 severity: 'error',
+                relatedId: s.id,
                 otherScope: s.courseScope || null,
                 message: `Audience clash: ${s.courseCode || 'a course'} also targets ${audienceLabel} on ${s.day || s.examDate} ${s.startTime}–${s.endTime}.`,
             });
@@ -243,12 +262,37 @@ export function detectConflicts(candidate, allSchedules, excludeId = null, enrol
 }
 
 /**
+ * Build a stable signature for a conflict so it can be matched against a
+ * persisted dismissal. Pairwise conflicts order the two item ids; single-item
+ * conflicts (e.g. time warnings) leave the second id empty. Must mirror the
+ * backend normalization in `ConflictDismissal`.
+ */
+export function conflictSignature(type, itemAId, itemBId = null) {
+    if (itemBId === null || itemBId === undefined) return `${type}:${Number(itemAId)}:`;
+    const a = Number(itemAId);
+    const b = Number(itemBId);
+    return `${type}:${Math.min(a, b)}:${Math.max(a, b)}`;
+}
+
+/**
+ * Turn a list of dismissal records from the API into a Set of signatures.
+ */
+export function dismissalSignatureSet(dismissals) {
+    const set = new Set();
+    (dismissals || []).forEach((d) => {
+        set.add(conflictSignature(d.conflict_type, d.item_a_id, d.item_b_id ?? null));
+    });
+    return set;
+}
+
+/**
  * Detect ALL conflicts across the entire schedule.
  * Returns a Map of scheduleId → array of conflict objects.
  * @param {Array} allSchedules - All schedule items with details
+ * @param {Set<string>|null} dismissedSignatures - signatures to suppress
  * @returns {Map<string, Array>}
  */
-export function detectAllConflicts(allSchedules, enrollmentsByCourse = null, departmentsById = null) {
+export function detectAllConflicts(allSchedules, enrollmentsByCourse = null, departmentsById = null, dismissedSignatures = null) {
     const deptName = (id) => {
         if (id === UW_DEPT) return null;
         if (!departmentsById) return null;
@@ -260,6 +304,8 @@ export function detectAllConflicts(allSchedules, enrollmentsByCourse = null, dep
 
     for (let i = 0; i < allSchedules.length; i++) {
         const a = allSchedules[i];
+        // Courses in special faculties are exempt from conflict detection.
+        if (a.isSpecialFaculty) continue;
         const itemConflicts = [];
 
         // Exam mode: check for duplicate course across all weeks/days
@@ -267,8 +313,11 @@ export function detectAllConflicts(allSchedules, enrollmentsByCourse = null, dep
             for (let j = 0; j < allSchedules.length; j++) {
                 if (i === j) continue;
                 const b = allSchedules[j];
+                if (b.isSpecialFaculty) continue;
                 if (b.type !== 'exam') continue;
-                if (a.courseId === b.courseId) {
+                // Multiple sittings of the same course are allowed within a
+                // faculty; only a duplicate across faculties is flagged.
+                if (a.courseId === b.courseId && a.facultyId !== b.facultyId) {
                     itemConflicts.push({
                         type: 'duplicate',
                         severity: 'error',
@@ -282,6 +331,7 @@ export function detectAllConflicts(allSchedules, enrollmentsByCourse = null, dep
         for (let j = 0; j < allSchedules.length; j++) {
             if (i === j) continue;
             const b = allSchedules[j];
+            if (b.isSpecialFaculty) continue;
 
             if (a.type !== b.type) continue;
             if (a.type === 'exam') {
@@ -325,8 +375,10 @@ export function detectAllConflicts(allSchedules, enrollmentsByCourse = null, dep
                 }
             }
 
-            // Course conflict (only for lectures - exam duplicates already handled above)
-            if (a.type === 'lecture' && a.courseId === b.courseId) {
+            // Course conflict (only for lectures - exam duplicates already handled above).
+            // Same course overlapping within a faculty is allowed (parallel
+            // sections); only flag a same-course overlap across faculties.
+            if (a.type === 'lecture' && a.courseId === b.courseId && a.facultyId !== b.facultyId) {
                 itemConflicts.push({
                     type: 'course',
                     severity: 'error',
@@ -363,8 +415,14 @@ export function detectAllConflicts(allSchedules, enrollmentsByCourse = null, dep
             });
         }
 
-        if (itemConflicts.length > 0) {
-            conflictMap.set(a.id, itemConflicts);
+        const kept = dismissedSignatures
+            ? itemConflicts.filter(
+                  (c) => !dismissedSignatures.has(conflictSignature(c.type, a.id, c.relatedId ?? null)),
+              )
+            : itemConflicts;
+
+        if (kept.length > 0) {
+            conflictMap.set(a.id, kept);
         }
     }
 
