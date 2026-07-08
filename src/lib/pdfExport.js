@@ -428,6 +428,37 @@ export function exportTimetablePDF({
 			return Math.max(12, labelH, eventsH);
 		};
 
+		// Helper: Find enrolling faculties for a course
+		const getEnrolledFaculties = (courseId, ownerFacultyId) => {
+			const enrollingFacs = new Set();
+			
+			// Find all enrollments for this course
+			const courseEnrs = enrollments.filter(e => String(e.course_id) === String(courseId));
+			courseEnrs.forEach(e => {
+				const dept = departments.find(d => String(d.id) === String(e.department_id));
+				if (dept && dept.facultyId) {
+					const fac = faculties.find(f => String(f.id) === String(dept.facultyId));
+					if (fac) enrollingFacs.add(fac.name);
+				}
+			});
+
+			// If no enrollments are found, fall back to the owner faculty of the course
+			if (enrollingFacs.size === 0) {
+				if (ownerFacultyId) {
+					const fac = faculties.find(f => String(f.id) === String(ownerFacultyId));
+					if (fac) enrollingFacs.add(fac.name);
+				}
+			}
+
+			// Edge case: if it is a general studies course and we still have no enrolling faculties,
+			// map it to GENERAL_STUDIES_FACULTY
+			if (enrollingFacs.size === 0) {
+				enrollingFacs.add(GENERAL_STUDIES_FACULTY);
+			}
+
+			return Array.from(enrollingFacs);
+		};
+
 		// 3. Dynamic row slicing per week and faculty grouping
 		const daysPerPage = 6;
 		const dayChunks = [];
@@ -437,6 +468,9 @@ export function exportTimetablePDF({
 
 		// Build all pages to print in order: GST section first, then normal section
 		const pagesToRender = [];
+
+		const isAllFaculty = !faculty || faculty.toLowerCase() === "all faculties" || faculty.toLowerCase() === "all";
+		const cleanSelectedFaculty = faculty ? faculty.trim().toLowerCase() : "";
 
 		// Determine which weeks contain General Studies exams
 		const gstWeekIndexes = [];
@@ -458,20 +492,22 @@ export function exportTimetablePDF({
 				return inWeek && isGeneralStudiesCourse(si.courseCode);
 			});
 
-			// Group GST schedules by faculty name
+			// Group GST schedules by enrolling faculty name
 			const gstFacultySchedules = {};
 			weekGstSchedules.forEach(si => {
-				let facName = "SHARED";
-				if (si.facultyId) {
-					const fac = faculties.find(f => String(f.id) === String(si.facultyId));
-					if (fac) facName = fac.name;
-				} else if (si.facultyName && si.facultyName !== "NIL") {
-					facName = si.facultyName;
-				}
-				if (!gstFacultySchedules[facName]) {
-					gstFacultySchedules[facName] = [];
-				}
-				gstFacultySchedules[facName].push(si);
+				const allFacs = getEnrolledFaculties(si.courseId, si.facultyId);
+				const targetFacs = allFacs.filter(f => {
+					if (isAllFaculty) return true;
+					return f.toLowerCase().trim() === cleanSelectedFaculty;
+				});
+				targetFacs.forEach(facName => {
+					if (!gstFacultySchedules[facName]) {
+						gstFacultySchedules[facName] = [];
+					}
+					if (!gstFacultySchedules[facName].some(x => x.id === si.id)) {
+						gstFacultySchedules[facName].push(si);
+					}
+				});
 			});
 
 			// Sort faculties alphabetically, with SHARED last
@@ -534,20 +570,22 @@ export function exportTimetablePDF({
 
 			if (weekNormalSchedules.length === 0) return;
 
-			// Group normal schedules by faculty name
+			// Group normal schedules by enrolling faculty name (prioritize faculty of concern)
 			const normalFacultySchedules = {};
 			weekNormalSchedules.forEach(si => {
-				let facName = "SHARED";
-				if (si.facultyId) {
-					const fac = faculties.find(f => String(f.id) === String(si.facultyId));
-					if (fac) facName = fac.name;
-				} else if (si.facultyName && si.facultyName !== "NIL") {
-					facName = si.facultyName;
-				}
-				if (!normalFacultySchedules[facName]) {
-					normalFacultySchedules[facName] = [];
-				}
-				normalFacultySchedules[facName].push(si);
+				const allFacs = getEnrolledFaculties(si.courseId, si.facultyId);
+				const targetFacs = allFacs.filter(f => {
+					if (isAllFaculty) return true;
+					return f.toLowerCase().trim() === cleanSelectedFaculty;
+				});
+				targetFacs.forEach(facName => {
+					if (!normalFacultySchedules[facName]) {
+						normalFacultySchedules[facName] = [];
+					}
+					if (!normalFacultySchedules[facName].some(x => x.id === si.id)) {
+						normalFacultySchedules[facName].push(si);
+					}
+				});
 			});
 
 			// Sort faculties alphabetically, with SHARED last
@@ -757,7 +795,7 @@ export function exportTimetablePDF({
 
 			// Render Grid Rows
 			let rowY = tableStartY + 14;
-
+			const pageBlockedCols = new Map();
 
 			rowChunk.forEach((room) => {
 				const rowH = getA3RoomRowHeight(room, facWeekSchedules);
@@ -832,7 +870,7 @@ export function exportTimetablePDF({
 						pdfA3.setDrawColor(71, 85, 105);
 						pdfA3.setLineWidth(0.2);
 
-						// Render blocked slots inside each room row timeslot cell
+						// Render blocked slots inside each room row timeslot cell (add to page-wide overlays)
 						const cellBlockedSlots = getBlockedSlotsForSlot(dayVal, sIdx);
 						if (cellBlockedSlots.length > 0) {
 							cellBlockedSlots.forEach(b => {
@@ -852,33 +890,15 @@ export function exportTimetablePDF({
 
 								const itemX = cellX + relStart * slotWidth;
 								const itemW = (relEnd - relStart) * slotWidth;
-								const cardY = rowY + 0.6;
-								const cardH = rowH - 1.2;
 
-								// Draw card background (light red fill)
-								pdfA3.setFillColor(254, 242, 242);
-								pdfA3.roundedRect(itemX + 0.6, cardY, itemW - 1.2, cardH, 0.6, 0.6, "F");
-
-								// Draw card outline (light red border)
-								pdfA3.setDrawColor(252, 165, 165);
-								pdfA3.setLineWidth(0.12);
-								pdfA3.roundedRect(itemX + 0.6, cardY, itemW - 1.2, cardH, 0.6, 0.6, "D");
-
-								// Write event name vertically centered inside the card
-								let fs = 6.5;
-								pdfA3.setFont("helvetica", "bold");
-								pdfA3.setFontSize(fs);
-								const nameUpper = b.name.toUpperCase();
-								while (pdfA3.getTextWidth(nameUpper) > cardH - 1.5 && fs > 4.5) {
-									fs -= 0.5;
-									pdfA3.setFontSize(fs);
+								const colKey = `${dIdx}-${sIdx}-${b.id}`;
+								if (!pageBlockedCols.has(colKey)) {
+									pageBlockedCols.set(colKey, {
+										x: itemX,
+										width: itemW,
+										name: b.name
+									});
 								}
-								pdfA3.setTextColor(220, 38, 38);
-								pdfA3.text(nameUpper, itemX + itemW / 2, cardY + cardH / 2, {
-									align: "center",
-									baseline: "middle",
-									angle: -90
-								});
 							});
 							return;
 						}
@@ -993,7 +1013,42 @@ export function exportTimetablePDF({
 				rowY += rowH;
 			});
 
+			// Render Blocked Column Overlays (General Events)
+			const totalGridHeight = rowChunk.reduce((sum, r) => sum + getA3RoomRowHeight(r, facWeekSchedules), 0);
+			pageBlockedCols.forEach((colInfo) => {
+				const { x, width, name } = colInfo;
+				const gridStartY = tableStartY + 14;
 
+				pdfA3.setFillColor(254, 242, 242); // very light red/rose
+				pdfA3.rect(x, gridStartY, width, totalGridHeight, "F");
+
+				pdfA3.setDrawColor(252, 165, 165); // light red border color
+				pdfA3.setLineWidth(0.25);
+				pdfA3.rect(x, gridStartY, width, totalGridHeight, "D");
+
+				let fs = 7.5;
+				pdfA3.setFont("helvetica", "bold");
+				pdfA3.setFontSize(fs);
+				const nameUpper = name.toUpperCase();
+				let textWidth = pdfA3.getTextWidth(nameUpper);
+				while (textWidth > totalGridHeight - 8 && fs > 5) {
+					fs -= 0.5;
+					pdfA3.setFontSize(fs);
+					textWidth = pdfA3.getTextWidth(nameUpper);
+				}
+				pdfA3.setTextColor(220, 38, 38); // red text color
+
+				const charHeight = fs * 0.3528 * 0.7;
+				const xCenter = x + width / 2;
+				const yCenter = gridStartY + totalGridHeight / 2;
+				const lineX = xCenter - charHeight / 2;
+				const lineY = yCenter + textWidth / 2;
+
+				pdfA3.text(nameUpper, lineX, lineY, {
+					align: "left",
+					angle: 90
+				});
+			});
 
 			// Render Footer
 			pdfA3.setFont("helvetica", "normal");
