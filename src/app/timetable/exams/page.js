@@ -330,6 +330,7 @@ export default function ExamTimetablePage() {
 		monochrome = false,
 		paperSize = "a4",
 		cbtOnly = false,
+		gstOnly = false,
 	}) => {
 		setIsExportModalOpen(false);
 		const deptIdNum =
@@ -348,7 +349,9 @@ export default function ExamTimetablePage() {
 		const enrolledInFaculty = (courseId, fId) =>
 			(enrollmentsByCourse.get(courseId) || []).some((e) => deptFacultyId.get(e.department_id) === fId);
 		const filtered = allExams.filter((s) => {
-			if (isGeneralStudies) {
+			if (gstOnly) {
+				if (!isGeneralStudiesCourse(s.courseCode)) return false;
+			} else if (isGeneralStudies) {
 				// General Studies courses are university-wide; match by course code prefix.
 				if (!isGeneralStudiesCourse(s.courseCode)) return false;
 			} else if (facultyId !== "ALL" && s.facultyId !== facultyId && !enrolledInFaculty(s.courseId, facultyId)) {
@@ -423,7 +426,7 @@ export default function ExamTimetablePage() {
 				faculties: state.faculties,
 				departments: state.departments,
 				enrollments: state.enrollments,
-				title: cbtOnly ? "CBT Examination Timetable" : "Examination Timetable",
+				title: gstOnly ? "General Studies Examination Timetable" : (cbtOnly ? "CBT Examination Timetable" : "Examination Timetable"),
 				session,
 				semester,
 				faculty: facultyInfo,
@@ -434,6 +437,7 @@ export default function ExamTimetablePage() {
 				groupByFaculty,
 				paperSize: "a3",
 				structured: true,
+				gstOnly,
 				isLocked,
 			});
 
@@ -451,13 +455,13 @@ export default function ExamTimetablePage() {
 			.catch(() => []);
 
 		exportTimetablePDF({
-				schedules: exportableSchedules,
+			schedules: exportableSchedules,
 			blockedSlots,
 			rooms: cbtOnly ? state.rooms.filter(r => r.name?.toUpperCase().includes("CBT")) : state.rooms,
 			faculties: state.faculties,
 			departments: state.departments,
 			enrollments: state.enrollments,
-			title: cbtOnly ? "CBT Examination Timetable" : "Examination Timetable",
+			title: gstOnly ? "General Studies Examination Timetable" : (cbtOnly ? "CBT Examination Timetable" : "Examination Timetable"),
 			session,
 			semester,
 			faculty: facultyInfo,
@@ -466,6 +470,7 @@ export default function ExamTimetablePage() {
 			mode: "exam",
 			monochrome,
 			groupByFaculty,
+			gstOnly,
 			isLocked,
 		});
 		addToast({

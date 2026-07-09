@@ -20,6 +20,7 @@ export default function ExportModal({
 	const [paperSize, setPaperSize] = useState("a3");
 	const [monochrome, setMonochrome] = useState(true);
 	const [cbtOnly, setCbtOnly] = useState(false);
+	const [gstOnly, setGstOnly] = useState(false);
 
 	useEffect(() => {
 		if (isOpen) {
@@ -37,6 +38,7 @@ export default function ExportModal({
 			setPaperSize("a3");
 			setMonochrome(true);
 			setCbtOnly(false);
+			setGstOnly(false);
 			/* eslint-enable react-hooks/set-state-in-effect */
 		}
 	}, [isOpen, sessions, semesters]);
@@ -58,6 +60,7 @@ export default function ExportModal({
 			monochrome,
 			paperSize,
 			cbtOnly,
+			gstOnly,
 		});
 	};
 
@@ -190,16 +193,28 @@ export default function ExportModal({
 					</div>
 
 					{mode === "exam" && (
-						<div className={styles.formGroup}>
-							<label className={styles.checkboxLabel}>
-								<input
-									type="checkbox"
-									checked={cbtOnly}
-									onChange={(e) => setCbtOnly(e.target.checked)}
-								/>
-								CBT exams only
-							</label>
-						</div>
+						<>
+							<div className={styles.formGroup}>
+								<label className={styles.checkboxLabel}>
+									<input
+										type="checkbox"
+										checked={cbtOnly}
+										onChange={(e) => setCbtOnly(e.target.checked)}
+									/>
+									CBT exams only
+								</label>
+							</div>
+							<div className={styles.formGroup}>
+								<label className={styles.checkboxLabel}>
+									<input
+										type="checkbox"
+										checked={gstOnly}
+										onChange={(e) => setGstOnly(e.target.checked)}
+									/>
+									General Studies (GST) exams only
+								</label>
+							</div>
+						</>
 					)}
 
 					<div className={styles.footer}>
