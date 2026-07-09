@@ -20,6 +20,7 @@ export function exportTimetablePDF({
 	groupByFaculty = false,
 	paperSize = "a4",
 	structured = false,
+	gstOnly = false,
 	isLocked = false,
 }) {
 	if (!schedules || schedules.length === 0) return;
@@ -562,7 +563,8 @@ export function exportTimetablePDF({
 		});
 
 		// Phase 2: Departmental / Normal Examination Timetable pages (Remaining courses)
-		dayChunks.forEach((dayChunk, weekIdx) => {
+		if (!gstOnly) {
+			dayChunks.forEach((dayChunk, weekIdx) => {
 			const weekNormalSchedules = schedules.filter(si => {
 				const inWeek = mode === "exam" ? dayChunk.includes(si.examDate) : dayChunk.includes(si.day);
 				return inWeek && !isGeneralStudiesCourse(si.courseCode);
@@ -638,6 +640,7 @@ export function exportTimetablePDF({
 				});
 			});
 		});
+		}
 
 		// ---------- Front cover page (light mode) ----------
 		const drawCoverPage = () => {
