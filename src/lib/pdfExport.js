@@ -639,14 +639,101 @@ export function exportTimetablePDF({
 			});
 		});
 
-		// Now render all built pages
+		// ---------- Front cover page (light mode) ----------
+		const drawCoverPage = () => {
+			const cx = a3W / 2;
+
+			// Accent bands top & bottom + a subtle inner frame
+			pdfA3.setFillColor(99, 102, 241);
+			pdfA3.rect(0, 0, a3W, 5, "F");
+			pdfA3.rect(0, a3H - 5, a3W, 5, "F");
+			pdfA3.setDrawColor(226, 232, 240);
+			pdfA3.setLineWidth(0.4);
+			pdfA3.rect(m, 14, a3W - 2 * m, a3H - 28, "D");
+
+			// University logo (centered)
+			const logoSize = 46;
+			try {
+				pdfA3.addImage(unilagLogoBase64, "PNG", cx - logoSize / 2, 58, logoSize, logoSize);
+			} catch (e) {}
+
+			// University name
+			pdfA3.setFont("helvetica", "bold");
+			pdfA3.setFontSize(30);
+			pdfA3.setTextColor(15, 23, 42);
+			pdfA3.text((schoolName || "University of Lagos").toUpperCase(), cx, 120, { align: "center" });
+
+			// Accent divider
+			pdfA3.setDrawColor(99, 102, 241);
+			pdfA3.setLineWidth(0.8);
+			pdfA3.line(cx - 38, 130, cx + 38, 130);
+
+			// Timetable type
+			const coverType = mode === "exam" ? "EXAMINATION TIMETABLE" : "LECTURE TIMETABLE";
+			pdfA3.setFont("helvetica", "bold");
+			pdfA3.setFontSize(44);
+			pdfA3.setTextColor(99, 102, 241);
+			pdfA3.text(coverType, cx, 156, { align: "center" });
+
+			// Session · Semester
+			pdfA3.setFont("helvetica", "normal");
+			pdfA3.setFontSize(15);
+			pdfA3.setTextColor(71, 85, 105);
+			pdfA3.text(`${session} Session   ·   ${semester}`, cx, 170, { align: "center" });
+
+			// Details panel
+			const rows = [["Faculty", faculty || "All Faculties"]];
+			if (department) rows.push(["Department", department]);
+			rows.push(["Status", isLocked ? "Final Timetable" : "Draft Timetable"]);
+			rows.push(["Generated", generatedDate]);
+
+			const panelW = 210;
+			const rowH = 13;
+			const panelPadY = 8;
+			const panelH = rows.length * rowH + panelPadY;
+			const panelX = cx - panelW / 2;
+			const panelY = 190;
+			pdfA3.setFillColor(248, 250, 252);
+			pdfA3.setDrawColor(226, 232, 240);
+			pdfA3.setLineWidth(0.3);
+			pdfA3.roundedRect(panelX, panelY, panelW, panelH, 3, 3, "FD");
+
+			rows.forEach((r, i) => {
+				const ry = panelY + panelPadY + rowH * i + 3;
+				pdfA3.setFont("helvetica", "bold");
+				pdfA3.setFontSize(9.5);
+				pdfA3.setTextColor(100, 116, 139);
+				pdfA3.text(r[0].toUpperCase(), panelX + 12, ry);
+				pdfA3.setFont("helvetica", "bold");
+				pdfA3.setFontSize(12);
+				if (r[0] === "Status") {
+					pdfA3.setTextColor(...(isLocked ? [16, 185, 129] : [245, 158, 11]));
+				} else {
+					pdfA3.setTextColor(15, 23, 42);
+				}
+				pdfA3.text(String(r[1]), panelX + panelW - 12, ry, { align: "right" });
+				if (i < rows.length - 1) {
+					const dividerY = panelY + panelPadY + rowH * (i + 1) - 2;
+					pdfA3.setDrawColor(226, 232, 240);
+					pdfA3.setLineWidth(0.2);
+					pdfA3.line(panelX + 10, dividerY, panelX + panelW - 10, dividerY);
+				}
+			});
+
+			// Footnote
+			pdfA3.setFont("helvetica", "italic");
+			pdfA3.setFontSize(10);
+			pdfA3.setTextColor(148, 163, 184);
+			pdfA3.text("Generated using University of Lagos Timetable Software", cx, a3H - 12, { align: "center" });
+		};
+		drawCoverPage();
+
+		// Now render all built pages (cover occupies the first page)
 		let pageIdx = 0;
 		pagesToRender.forEach(pageSpec => {
 			const { weekIdx, dayChunk, facultyName: facName, rowChunk, facWeekSchedules, isGSTSection } = pageSpec;
 
-			if (pageIdx > 0) {
-				pdfA3.addPage();
-			}
+			pdfA3.addPage();
 
 			// Render Header
 			let y = 12;
