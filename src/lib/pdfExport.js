@@ -1145,7 +1145,13 @@ export function exportTimetablePDF({
 			pdfA3.setFontSize(7);
 			pdfA3.setTextColor(148, 163, 184);
 			pdfA3.text("University of Lagos Timetable Manager", m, a3H - 6);
+			pdfA3.setFont("helvetica", "bold");
+			pdfA3.setFontSize(9);
+			pdfA3.setTextColor(15, 23, 42);
 			pdfA3.text(`Generated: ${generatedDate}`, a3W / 2, a3H - 6, { align: "center" });
+			pdfA3.setFont("helvetica", "normal");
+			pdfA3.setFontSize(7);
+			pdfA3.setTextColor(148, 163, 184);
 			pdfA3.text(`Page ${pageIdx + 1}`, a3W - m, a3H - 6, { align: "right" });
 
 			pageIdx++;
@@ -1751,9 +1757,15 @@ export function exportTimetablePDF({
 		pdf.setFontSize(5.5);
 		pdf.setTextColor(...textFaint);
 		pdf.text("University of Lagos Timetable Manager", margin, pageH - 3);
+		pdf.setFont("helvetica", "bold");
+		pdf.setFontSize(7.5);
+		pdf.setTextColor(...textDark);
 		pdf.text(`Generated: ${generatedDate}`, pageW / 2, pageH - 3, {
 			align: "center",
 		});
+		pdf.setFont("helvetica", "normal");
+		pdf.setFontSize(5.5);
+		pdf.setTextColor(...textFaint);
 		pdf.text(`Page ${pi + 1} of ${pages.length}`, pageW - margin, pageH - 3, {
 			align: "right",
 		});

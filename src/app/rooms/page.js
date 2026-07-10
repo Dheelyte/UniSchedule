@@ -278,7 +278,13 @@ export default function RoomsPage() {
                                             <div className={styles.capacityCell}>
                                                 <span className={styles.capacityNum}>{room.capacity}</span>
                                                 <div className={styles.capacityBar}>
-                                                    <div className={styles.capacityFill} style={{ width: `${Math.min(100, (room.capacity / 600) * 100)}%` }} />
+                                                    <div
+                                                        className={styles.capacityFill}
+                                                        style={{
+                                                            width: `${Math.min(100, (room.capacity / 600) * 100)}%`,
+                                                            filter: isActive ? 'none' : 'grayscale(1)',
+                                                        }}
+                                                    />
                                                 </div>
                                             </div>
                                         )}
