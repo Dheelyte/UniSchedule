@@ -23,6 +23,8 @@ const BAR_COLORS = [
 const RING_CIRCUMFERENCE = 364.4;
 const RING_LECTURE_COLOR = "#6366f1";
 const RING_EXAM_COLOR = "#d97706";
+const RING_ACTIVE_COLOR = "#059669";
+const RING_INACTIVE_COLOR = "#d97706";
 
 function getGreeting() {
 	const h = new Date().getHours();
@@ -37,6 +39,7 @@ export default function DashboardPage() {
 	const [currentTerm, setCurrentTerm] = useState(null);
 	const [currentSession, setCurrentSession] = useState(null);
 	const [facultyOverviewType, setFacultyOverviewType] = useState('exams');
+	const [roomCapacityFacultyId, setRoomCapacityFacultyId] = useState("all");
 	const [loaded, setLoaded] = useState(false);
 
 	useEffect(() => {
@@ -183,20 +186,22 @@ export default function DashboardPage() {
 		...roomsByFaculty.map((f) => f.rooms),
 	);
 
-	// Room utilization (top 8)
-	const roomUtilization = useMemo(() => {
-		const roomCountMap = {};
-		state.scheduleItems.forEach((s) => {
-			(s.roomIds || []).forEach((rid) => {
-				roomCountMap[rid] = (roomCountMap[rid] || 0) + 1;
-			});
-		});
-		return state.rooms
-			.filter(isRoomActive)
-			.map((r) => ({ ...r, sessions: roomCountMap[r.id] || 0 }))
-			.sort((a, b) => b.sessions - a.sessions)
-			.slice(0, 12);
-	}, [state]);
+	// Room capacity: active vs inactive venues, optionally scoped to one faculty
+	const roomCapacity = useMemo(() => {
+		const rooms =
+			roomCapacityFacultyId === "all"
+				? state.rooms
+				: state.rooms.filter((r) => r.facultyId === roomCapacityFacultyId);
+		const active = rooms.filter(isRoomActive).length;
+		const total = rooms.length;
+		const inactive = Math.max(0, total - active);
+		return {
+			active,
+			inactive,
+			total,
+			pct: total > 0 ? Math.round((active / total) * 100) : 0,
+		};
+	}, [state.rooms, roomCapacityFacultyId]);
 
 	// Distinct-course scheduling breakdown (by lecture vs exam)
 	const courseBreakdown = useMemo(() => {
@@ -494,7 +499,7 @@ export default function DashboardPage() {
 					</div>
 				</div>
 
-				{/* Room Utilization */}
+				{/* Room Capacity */}
 				<div className={styles.panel}>
 					<div className={styles.panelHeader}>
 						<span className={styles.panelTitle}>
@@ -510,32 +515,156 @@ export default function DashboardPage() {
 								<path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
 								<polyline points="9 22 9 12 15 12 15 22" />
 							</svg>
-							Room Utilization
+							Room Capacity
 						</span>
+						<div className={styles.panelHeaderActions}>
+							<select
+								className={styles.panelHeaderSelect}
+								value={roomCapacityFacultyId}
+								onChange={(e) => setRoomCapacityFacultyId(e.target.value)}>
+								<option value="all">All Faculties</option>
+								{state.faculties.map((f) => (
+									<option key={f.id} value={f.id}>
+										{f.name}
+									</option>
+								))}
+							</select>
+						</div>
 						<Link href="/rooms" className={styles.panelLink}>
 							All Rooms →
 						</Link>
 					</div>
 					<div className={styles.panelBody}>
-						{roomUtilization.length === 0 ? (
+						{roomCapacity.total === 0 ? (
 							<div className={styles.emptyState}>
 								<div className={styles.emptyIcon}>🏠</div>
 								No rooms registered yet.
 							</div>
 						) : (
-							<div className={styles.roomGrid}>
-								{roomUtilization.map((r) => (
-									<div key={r.id} className={styles.roomTile}>
-										<span className={styles.roomName} title={r.name}>
-											{r.name}
+							<>
+								<div style={{ textAlign: "center", padding: "8px 0 20px" }}>
+									<div
+										style={{
+											position: "relative",
+											width: "140px",
+											height: "140px",
+											margin: "0 auto 16px",
+										}}>
+										<svg viewBox="0 0 140 140" width="140" height="140">
+											<circle
+												cx="70"
+												cy="70"
+												r="58"
+												fill="none"
+												stroke="var(--color-border)"
+												strokeWidth="10"
+											/>
+											<circle
+												cx="70"
+												cy="70"
+												r="58"
+												fill="none"
+												stroke={RING_ACTIVE_COLOR}
+												strokeWidth="10"
+												strokeDasharray={`${
+													(roomCapacity.active / Math.max(1, roomCapacity.total)) *
+													RING_CIRCUMFERENCE
+												} ${RING_CIRCUMFERENCE}`}
+												transform="rotate(-90 70 70)"
+												style={{ transition: "stroke-dasharray 1s ease" }}
+											/>
+										</svg>
+										<div
+											style={{
+												position: "absolute",
+												inset: 0,
+												display: "flex",
+												flexDirection: "column",
+												alignItems: "center",
+												justifyContent: "center",
+											}}>
+											<span
+												style={{
+													fontSize: "1.8rem",
+													fontWeight: 800,
+													color: "var(--color-text)",
+													lineHeight: 1,
+												}}>
+												{roomCapacity.pct}%
+											</span>
+											<span
+												style={{
+													fontSize: "0.72rem",
+													color: "var(--color-text-muted)",
+													fontWeight: 500,
+												}}>
+												Active
+											</span>
+										</div>
+									</div>
+
+									<div
+										style={{
+											display: "flex",
+											justifyContent: "center",
+											gap: "20px",
+											fontSize: "0.75rem",
+											color: "var(--color-text-muted)",
+										}}>
+										<span style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
+											<span
+												style={{
+													width: "9px",
+													height: "9px",
+													borderRadius: "50%",
+													background: RING_ACTIVE_COLOR,
+												}}
+											/>
+											Active {roomCapacity.active}
 										</span>
-										<span
-											className={`${styles.roomSessions} ${r.sessions === 0 ? styles.roomIdle : ""}`}>
-											{r.sessions > 0 ? `${r.sessions} slots` : "Idle"}
+										<span style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
+											<span
+												style={{
+													width: "9px",
+													height: "9px",
+													borderRadius: "50%",
+													background: RING_INACTIVE_COLOR,
+												}}
+											/>
+											Inactive {roomCapacity.inactive}
 										</span>
 									</div>
-								))}
-							</div>
+								</div>
+								<div className={styles.breakdown}>
+									<div className={styles.breakdownRow}>
+										<span className={styles.breakdownLabel}>
+											<span
+												className={styles.breakdownDot}
+												style={{ background: RING_ACTIVE_COLOR }}
+											/>
+											Rooms
+										</span>
+										<span className={styles.breakdownStat}>
+											<span className={`${styles.breakdownValue} ${styles.breakdownScheduled}`}>
+												{roomCapacity.active}
+											</span>
+											<span className={styles.breakdownCaption}>Active</span>
+										</span>
+										<span className={styles.breakdownStat}>
+											<span className={`${styles.breakdownValue} ${styles.breakdownUnscheduled}`}>
+												{roomCapacity.inactive}
+											</span>
+											<span className={styles.breakdownCaption}>Inactive</span>
+										</span>
+										<span className={styles.breakdownStat}>
+											<span className={`${styles.breakdownValue} ${styles.breakdownTotal}`}>
+												{roomCapacity.total}
+											</span>
+											<span className={styles.breakdownCaption}>Total</span>
+										</span>
+									</div>
+								</div>
+							</>
 						)}
 					</div>
 				</div>

@@ -194,7 +194,7 @@ export default function FacultiesPage() {
                     </div>
                     <div className={styles.stat}>
                         <span className={styles.statValue}>{specialCount}</span>
-                        <span className={styles.statLabel}>Special Faculties</span>
+                        <span className={styles.statLabel}>Special Groupings</span>
                     </div>
                     <div className={styles.stat}>
                         <span className={styles.statValue}>{getDepartmentsWithFaculty.length}</span>
@@ -325,7 +325,7 @@ export default function FacultiesPage() {
                             <div className="form-group">
                                 <label className={styles.toggleRow}>
                                     <span className={styles.toggleText}>
-                                        <span className="form-label" style={{ marginBottom: 2 }}>Special faculty</span>
+                                        <span className="form-label" style={{ marginBottom: 2 }}>Special grouping</span>
                                         <span className={styles.toggleHint}>Courses in this faculty are exempt from timetable conflict detection</span>
                                     </span>
                                     <input
