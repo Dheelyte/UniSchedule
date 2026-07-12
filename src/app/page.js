@@ -106,6 +106,9 @@ export default function DashboardPage() {
 								rooms: (rooms || []).map((r) => ({
 									...r,
 									facultyId: r.faculty_id ?? r.facultyId ?? null,
+									isActive: r.is_active !== false,
+									activeSeats: r.active_seats ?? r.activeSeats ?? 0,
+									inactiveSeats: r.inactive_seats ?? r.inactiveSeats ?? 0,
 								})),
 								courses: (courses || []).map((c) => ({
 									...c,
