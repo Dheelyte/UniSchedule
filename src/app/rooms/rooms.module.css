@@ -389,3 +389,96 @@
 @media (max-width: 480px) {
     .statsRow { grid-template-columns: 1fr; }
 }
+/* ---------- Seat breakdown (active / inactive) ---------- */
+.seatInputs {
+    display: flex;
+    gap: 12px;
+}
+
+.seatInput {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.seatInputLabel {
+    font-size: 0.72rem;
+    font-weight: 500;
+    color: var(--color-text-muted);
+}
+
+.seatTotalHint {
+    display: block;
+    margin-top: 8px;
+    font-size: 0.8rem;
+    color: var(--color-text-muted);
+}
+
+.seatCell {
+    min-width: 120px;
+}
+
+.seatCellTop {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.seatBar {
+    display: flex;
+    height: 8px;
+    border-radius: 50px;
+    overflow: hidden;
+    background: var(--color-bg);
+    margin: 5px 0;
+}
+
+.seatBarActive {
+    background: #16a34a;
+}
+
+.seatBarInactive {
+    background: #dc2626;
+}
+
+.seatLegend {
+    display: flex;
+    gap: 12px;
+    font-size: 0.72rem;
+}
+
+.seatActiveText {
+    color: #16a34a;
+    font-weight: 600;
+}
+
+.seatInactiveText {
+    color: #dc2626;
+    font-weight: 600;
+}
+
+.seatSummary {
+    display: inline-flex;
+    align-items: center;
+    font-size: 0.75rem;
+    color: var(--color-text-muted);
+    font-weight: 500;
+}
+
+.seatDotActive,
+.seatDotInactive {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    display: inline-block;
+    margin: 0 5px 0 12px;
+}
+
+.seatDotActive {
+    background: #16a34a;
+}
+
+.seatDotInactive {
+    background: #dc2626;
+}

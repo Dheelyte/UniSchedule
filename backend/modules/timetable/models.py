@@ -33,6 +33,9 @@ class Room(Base):
     display_order: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     is_lab: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     is_active: Mapped[bool | None] = mapped_column(Boolean, nullable=True, default=True)
+    # Seat breakdown; total capacity is kept in sync as active + inactive.
+    active_seats: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    inactive_seats: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
 
 class Course(Base):
     __tablename__ = "courses"
