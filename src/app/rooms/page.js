@@ -41,7 +41,7 @@ export default function RoomsPage() {
     const [deleteConfirm, setDeleteConfirm] = useState(null);
 
     // Form state
-    const [form, setForm] = useState({ name: '', capacity: 100, facultyId: '', isLab: false, isActive: true });
+    const [form, setForm] = useState({ name: '', activeSeats: 100, inactiveSeats: 0, facultyId: '', isLab: false, isActive: true });
     const [loading, setLoading] = useState(true);
 
     const normalizeRoom = (r) => ({
@@ -49,6 +49,8 @@ export default function RoomsPage() {
         facultyId: r.faculty_id ?? r.facultyId ?? null,
         isLab: r.is_lab ?? r.isLab ?? false,
         isActive: r.is_active !== false,
+        activeSeats: r.active_seats ?? r.activeSeats ?? 0,
+        inactiveSeats: r.inactive_seats ?? r.inactiveSeats ?? 0,
     });
 
     useEffect(() => {
@@ -174,25 +176,28 @@ export default function RoomsPage() {
 
     const openAdd = () => {
         setEditing(null);
-        setForm({ name: '', capacity: 100, facultyId: isGsAdmin(role) ? '' : (faculties[0]?.id || ''), isLab: false, isActive: true });
+        setForm({ name: '', activeSeats: 100, inactiveSeats: 0, facultyId: isGsAdmin(role) ? '' : (faculties[0]?.id || ''), isLab: false, isActive: true });
         setShowModal(true);
     };
 
     const openEdit = (room) => {
         setEditing(room);
-        setForm({ name: room.name, capacity: room.capacity, facultyId: room.facultyId || '', isLab: !!room.isLab, isActive: room.isActive !== false });
+        setForm({ name: room.name, activeSeats: room.activeSeats ?? room.capacity ?? 0, inactiveSeats: room.inactiveSeats ?? 0, facultyId: room.facultyId || '', isLab: !!room.isLab, isActive: room.isActive !== false });
         setShowModal(true);
     };
 
     const handleSave = async () => {
-        if (!form.name.trim() || !form.capacity) return;
+        const activeSeats = parseInt(form.activeSeats) || 0;
+        const inactiveSeats = parseInt(form.inactiveSeats) || 0;
+        const capacity = activeSeats + inactiveSeats;
+        if (!form.name.trim() || capacity <= 0) return;
         if (!form.facultyId && !isGsAdmin(role)) return;
         try {
-            const payload = { name: form.name.trim(), capacity: parseInt(form.capacity) || 100, faculty_id: form.facultyId || null, is_lab: !!form.isLab };
+            const payload = { name: form.name.trim(), active_seats: activeSeats, inactive_seats: inactiveSeats, capacity, faculty_id: form.facultyId || null, is_lab: !!form.isLab };
             if (isSuperAdmin(role)) payload.is_active = form.isActive;
             if (editing) {
                 await apiClient.put(`/timetable/rooms/${editing.id}`, payload);
-                const updatePayload = { id: editing.id, name: payload.name, capacity: payload.capacity, facultyId: payload.faculty_id, isLab: payload.is_lab };
+                const updatePayload = { id: editing.id, name: payload.name, capacity, activeSeats, inactiveSeats, facultyId: payload.faculty_id, isLab: payload.is_lab };
                 if (payload.is_active !== undefined) updatePayload.isActive = payload.is_active;
                 dispatch({ type: ACTION_TYPES.UPDATE_ROOM, payload: updatePayload });
             } else {
@@ -272,22 +277,27 @@ export default function RoomsPage() {
                                         </span>
                                     </td>
                                     <td>
-                                        {room.isLab ? (
-                                            <span className={styles.labTag}>Lab</span>
-                                        ) : (
-                                            <div className={styles.capacityCell}>
-                                                <span className={styles.capacityNum}>{room.capacity}</span>
-                                                <div className={styles.capacityBar}>
-                                                    <div
-                                                        className={styles.capacityFill}
-                                                        style={{
-                                                            width: `${Math.min(100, (room.capacity / 600) * 100)}%`,
-                                                            filter: isActive ? 'none' : 'grayscale(1)',
-                                                        }}
-                                                    />
+                                        {(() => {
+                                            const active = room.activeSeats ?? 0;
+                                            const inactive = room.inactiveSeats ?? 0;
+                                            const total = active + inactive || room.capacity || 0;
+                                            return (
+                                                <div className={styles.seatCell} style={{ filter: isActive ? 'none' : 'grayscale(1)' }}>
+                                                    <div className={styles.seatCellTop}>
+                                                        <span className={styles.capacityNum}>{total}</span>
+                                                        {room.isLab && <span className={styles.labTag}>Lab</span>}
+                                                    </div>
+                                                    <div className={styles.seatBar} title={`${active} active · ${inactive} inactive`}>
+                                                        <div className={styles.seatBarActive} style={{ width: `${total ? (active / total) * 100 : 0}%` }} />
+                                                        <div className={styles.seatBarInactive} style={{ width: `${total ? (inactive / total) * 100 : 0}%` }} />
+                                                    </div>
+                                                    <div className={styles.seatLegend}>
+                                                        <span className={styles.seatActiveText}>{active} active</span>
+                                                        <span className={styles.seatInactiveText}>{inactive} inactive</span>
+                                                    </div>
                                                 </div>
-                                            </div>
-                                        )}
+                                            );
+                                        })()}
                                     </td>
                                     <td><span className={`${styles.tier} ${tier.cls}`}>{tier.label}</span></td>
                                     <td>
@@ -413,12 +423,18 @@ export default function RoomsPage() {
                 {activeFaculties.map((fac) => {
                     const roomsInFac = filteredRooms.filter(r => r.facultyId === fac.id);
                     const isOpen = !collapsedFaculties.has(fac.id);
+                    const facActive = roomsInFac.reduce((a, r) => a + (r.activeSeats ?? 0), 0);
+                    const facInactive = roomsInFac.reduce((a, r) => a + (r.inactiveSeats ?? 0), 0);
                     return (
                         <div key={fac.id} className={styles.accordionItem}>
                             <button className={styles.accordionHeader} onClick={() => toggleFaculty(fac.id)}>
                                 <div className={styles.accordionHeaderLeft}>
                                     <span className={styles.accordionTitle}>{fac.name}</span>
                                     <span className={styles.accordionCount}>{roomsInFac.length} venue{roomsInFac.length !== 1 ? 's' : ''}</span>
+                                    <span className={styles.seatSummary}>
+                                        <span className={styles.seatDotActive} />{facActive} active
+                                        <span className={styles.seatDotInactive} />{facInactive} inactive
+                                    </span>
                                 </div>
                                 <svg
                                     className={`${styles.accordionIcon} ${isOpen ? styles.accordionIconOpen : ''}`}
@@ -491,7 +507,19 @@ export default function RoomsPage() {
                             )}
                             <div className="form-group">
                                 <label className="form-label">Seating Capacity</label>
-                                <input className="form-input" type="number" min="1" value={form.capacity} onChange={(e) => setForm({ ...form, capacity: e.target.value })} placeholder="e.g. 300" />
+                                <div className={styles.seatInputs}>
+                                    <div className={styles.seatInput}>
+                                        <span className={styles.seatInputLabel}>Active (good) seats</span>
+                                        <input className="form-input" type="number" min="0" value={form.activeSeats} onChange={(e) => setForm({ ...form, activeSeats: e.target.value })} placeholder="e.g. 280" />
+                                    </div>
+                                    <div className={styles.seatInput}>
+                                        <span className={styles.seatInputLabel}>Inactive (bad) seats</span>
+                                        <input className="form-input" type="number" min="0" value={form.inactiveSeats} onChange={(e) => setForm({ ...form, inactiveSeats: e.target.value })} placeholder="e.g. 20" />
+                                    </div>
+                                </div>
+                                <span className={styles.seatTotalHint}>
+                                    Total capacity: <strong>{(parseInt(form.activeSeats) || 0) + (parseInt(form.inactiveSeats) || 0)}</strong> seats
+                                </span>
                             </div>
                             <div className="form-group">
                                 <label className={styles.toggleRow}>

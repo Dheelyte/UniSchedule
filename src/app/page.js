@@ -7,7 +7,6 @@ import { useApp, ACTION_TYPES } from "@/context/AppContext";
 import { useAuth } from "@/context/AuthContext";
 import { apiClient } from "@/lib/apiClient";
 import { DashboardSkeleton } from "@/components/Skeleton/Skeleton";
-import { isRoomActive } from "@/lib/utils";
 
 const BAR_COLORS = [
 	"#6366f1",
@@ -186,19 +185,30 @@ export default function DashboardPage() {
 		...roomsByFaculty.map((f) => f.rooms),
 	);
 
-	// Room capacity: active vs inactive venues, optionally scoped to one faculty
+	// Room capacity by seats: for a specific faculty, the totals of active/inactive
+	// seats; for "all", the average active/inactive seats per faculty.
 	const roomCapacity = useMemo(() => {
-		const rooms =
-			roomCapacityFacultyId === "all"
-				? state.rooms
-				: state.rooms.filter((r) => r.facultyId === roomCapacityFacultyId);
-		const active = rooms.filter(isRoomActive).length;
-		const total = rooms.length;
-		const inactive = Math.max(0, total - active);
+		const isAll = roomCapacityFacultyId === "all";
+		const rooms = isAll
+			? state.rooms.filter((r) => r.facultyId)
+			: state.rooms.filter((r) => r.facultyId === roomCapacityFacultyId);
+		let totalActive = 0;
+		let totalInactive = 0;
+		const facultySet = new Set();
+		rooms.forEach((r) => {
+			totalActive += r.active_seats ?? r.activeSeats ?? 0;
+			totalInactive += r.inactive_seats ?? r.inactiveSeats ?? 0;
+			if (r.facultyId) facultySet.add(r.facultyId);
+		});
+		const facCount = Math.max(1, facultySet.size);
+		const active = isAll ? Math.round(totalActive / facCount) : totalActive;
+		const inactive = isAll ? Math.round(totalInactive / facCount) : totalInactive;
+		const total = active + inactive;
 		return {
 			active,
 			inactive,
 			total,
+			isAverage: isAll,
 			pct: total > 0 ? Math.round((active / total) * 100) : 0,
 		};
 	}, [state.rooms, roomCapacityFacultyId]);
@@ -515,7 +525,7 @@ export default function DashboardPage() {
 								<path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
 								<polyline points="9 22 9 12 15 12 15 22" />
 							</svg>
-							Room Capacity
+							Seat Capacity
 						</span>
 						<div className={styles.panelHeaderActions}>
 							<select
@@ -642,7 +652,7 @@ export default function DashboardPage() {
 												className={styles.breakdownDot}
 												style={{ background: RING_ACTIVE_COLOR }}
 											/>
-											Rooms
+											{roomCapacity.isAverage ? "Avg / faculty" : "Faculty total"}
 										</span>
 										<span className={styles.breakdownStat}>
 											<span className={`${styles.breakdownValue} ${styles.breakdownScheduled}`}>

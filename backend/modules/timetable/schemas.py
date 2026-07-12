@@ -31,7 +31,10 @@ class DepartmentUpdate(BaseModel):
 
 class RoomCreate(BaseModel):
     name: str
-    capacity: int
+    # capacity is derived (active_seats + inactive_seats); accepted for compatibility.
+    capacity: int = 0
+    active_seats: int = 0
+    inactive_seats: int = 0
     faculty_id: str | None = None
     display_order: int = 0
     is_lab: bool = False
@@ -45,6 +48,8 @@ class RoomResponse(RoomCreate):
 class RoomUpdate(BaseModel):
     name: str | None = None
     capacity: int | None = None
+    active_seats: int | None = None
+    inactive_seats: int | None = None
     faculty_id: str | None = None
     display_order: int | None = None
     is_lab: bool | None = None
