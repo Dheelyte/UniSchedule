@@ -195,6 +195,9 @@ export default function ExamTimetablePage() {
 								...r,
 								facultyId: r.faculty_id ?? r.facultyId ?? null,
 								isLab: r.is_lab ?? r.isLab ?? false,
+								isActive: r.is_active !== false,
+								activeSeats: r.active_seats ?? r.activeSeats ?? 0,
+								inactiveSeats: r.inactive_seats ?? r.inactiveSeats ?? 0,
 							})),
 							courses: (courses || []).map((c) => ({
 								...c,
