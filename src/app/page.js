@@ -652,7 +652,7 @@ export default function DashboardPage() {
 												className={styles.breakdownDot}
 												style={{ background: RING_ACTIVE_COLOR }}
 											/>
-											{roomCapacity.isAverage ? "Avg / faculty" : "Faculty total"}
+											{roomCapacity.isAverage ? "Average / faculty" : "Faculty total"}
 										</span>
 										<span className={styles.breakdownStat}>
 											<span className={`${styles.breakdownValue} ${styles.breakdownScheduled}`}>
