@@ -188,31 +188,26 @@ export default function DashboardPage() {
 		...roomsByFaculty.map((f) => f.rooms),
 	);
 
-	// Room capacity by seats: for a specific faculty, the totals of active/inactive
-	// seats; for "all", the average active/inactive seats per faculty.
+	// Room capacity by seats: total active/inactive seats, either across all
+	// faculties or scoped to one selected faculty.
 	const roomCapacity = useMemo(() => {
 		const isAll = roomCapacityFacultyId === "all";
 		const rooms = isAll
 			? state.rooms.filter((r) => r.facultyId)
 			: state.rooms.filter((r) => r.facultyId === roomCapacityFacultyId);
-		let totalActive = 0;
-		let totalInactive = 0;
-		const facultySet = new Set();
+		let active = 0;
+		let inactive = 0;
 		rooms.forEach((r) => {
-			totalActive += r.active_seats ?? r.activeSeats ?? 0;
-			totalInactive += r.inactive_seats ?? r.inactiveSeats ?? 0;
-			if (r.facultyId) facultySet.add(r.facultyId);
+			active += r.active_seats ?? r.activeSeats ?? 0;
+			inactive += r.inactive_seats ?? r.inactiveSeats ?? 0;
 		});
-		const facCount = Math.max(1, facultySet.size);
-		const active = isAll ? Math.round(totalActive / facCount) : totalActive;
-		const inactive = isAll ? Math.round(totalInactive / facCount) : totalInactive;
 		const total = active + inactive;
 		return {
 			active,
 			inactive,
 			total,
-			isAverage: isAll,
-			pct: total > 0 ? Math.round((active / total) * 100) : 0,
+			isAll,
+			pct: total > 0 ? ((active / total) * 100).toFixed(1) : "0.0",
 		};
 	}, [state.rooms, roomCapacityFacultyId]);
 
@@ -655,7 +650,7 @@ export default function DashboardPage() {
 												className={styles.breakdownDot}
 												style={{ background: RING_ACTIVE_COLOR }}
 											/>
-											{roomCapacity.isAverage ? "Average / faculty" : "Faculty total"}
+											{roomCapacity.isAll ? "All faculties" : "Faculty total"}
 										</span>
 										<span className={styles.breakdownStat}>
 											<span className={`${styles.breakdownValue} ${styles.breakdownScheduled}`}>
