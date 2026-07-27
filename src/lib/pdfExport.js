@@ -456,10 +456,12 @@ export function exportTimetablePDF({
 		}
 
 		// Lecture-only: fixed per-day column boundaries (8-10, 10-12, 12-2,
-		// 2-4, 4-6), with a Friday exception - 12-3pm is reserved for Jumat
-		// prayers, so Friday's last two columns become 12-3pm and 3-6pm
-		// instead of two even 2-hour blocks. These are static regardless of
-		// what's actually scheduled, so every export shows the same columns.
+		// 2-4, 4-6), same every day. Blocked slots (e.g. a Jum'at Prayer entry)
+		// are NOT baked into these boundaries - same as exam mode, they're
+		// overlaid on top of the untouched grid via
+		// getBlockedSlotsForRange/segXForMinute below, so the layout adapts to
+		// whatever blocked slots are configured instead of assuming a fixed
+		// day/time.
 		function computeDaySegments(forDayChunk, forFacWeekSchedules, forDayWidth) {
 			const result = new Map();
 			if (mode === "exam") return result;
@@ -469,11 +471,9 @@ export function exportTimetablePDF({
 			const totalMin = GRID_END_MIN - GRID_START_MIN;
 
 			const WEEKDAY_BOUNDARIES = [480, 600, 720, 840, 960, 1080]; // 8-10-12-2-4-6
-			const FRIDAY_BOUNDARIES = [480, 600, 720, 900, 1080]; // 8-10-12-3-6 (Jumat 12-3)
 
 			forDayChunk.forEach((dayVal) => {
-				const targetDay = dayVal.replace("legacy:", "");
-				const boundaries = targetDay === "Friday" ? FRIDAY_BOUNDARIES : WEEKDAY_BOUNDARIES;
+				const boundaries = WEEKDAY_BOUNDARIES;
 
 				const segs = [];
 				let cumX = 0;
