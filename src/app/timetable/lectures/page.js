@@ -275,9 +275,10 @@ export default function LectureTimetablePage() {
         setIsExportModalOpen(true);
     };
 
-    const handleExportConfirm = async ({ session, semester, facultyId, departmentId, format = 'pdf', monochrome = false, paperSize = 'a4' }) => {
+    const handleExportConfirm = async ({ session, semester, facultyId, departmentId, level, format = 'pdf', monochrome = false, paperSize = 'a4' }) => {
         setIsExportModalOpen(false);
         const deptIdNum = departmentId && departmentId !== 'ALL' ? Number(departmentId) : null;
+        const levelNum = level && level !== 'ALL' ? Number(level) : null;
         const allLectures = getSchedulesWithDetails.filter((s) => s.type === 'lecture');
         const selectedFaculty = facultyId === 'ALL' ? null : state.faculties.find(f => f.id === facultyId);
         const isGeneralStudies = selectedFaculty?.name?.trim().toLowerCase() === 'general studies';
@@ -295,6 +296,7 @@ export default function LectureTimetablePage() {
                 return false;
             }
             if (deptIdNum !== null && s.departmentId !== deptIdNum) return false;
+            if (levelNum !== null && s.courseLevel !== levelNum) return false;
             return true;
         });
         // Attribute GST/ENT courses to the General Studies faculty in the export.
@@ -316,6 +318,7 @@ export default function LectureTimetablePage() {
         const departmentInfo = deptIdNum === null
             ? null
             : state.departments.find(d => d.id === deptIdNum)?.name || 'Unknown Department';
+        const levelInfo = levelNum === null ? null : `Level ${levelNum}`;
 
         if (format === 'csv') {
             exportTimetableCSV({
@@ -344,6 +347,7 @@ export default function LectureTimetablePage() {
             semester,
             faculty: facultyInfo,
             department: departmentInfo,
+            level: levelInfo,
             schoolName: 'University of Lagos',
             mode: 'lecture',
             monochrome,

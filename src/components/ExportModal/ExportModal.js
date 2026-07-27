@@ -17,6 +17,7 @@ export default function ExportModal({
 	const [semester, setSemester] = useState("1st Semester");
 	const [facultyId, setFacultyId] = useState("ALL");
 	const [departmentId, setDepartmentId] = useState("ALL");
+	const [level, setLevel] = useState("ALL");
 	const [paperSize, setPaperSize] = useState("a3");
 	const [monochrome, setMonochrome] = useState(true);
 	const [cbtOnly, setCbtOnly] = useState(false);
@@ -35,6 +36,7 @@ export default function ExportModal({
 			
 			setFacultyId("ALL");
 			setDepartmentId("ALL");
+			setLevel("ALL");
 			setPaperSize("a3");
 			setMonochrome(true);
 			setCbtOnly(false);
@@ -56,6 +58,7 @@ export default function ExportModal({
 			semester,
 			facultyId,
 			departmentId,
+			level,
 			format,
 			monochrome,
 			paperSize,
@@ -165,6 +168,21 @@ export default function ExportModal({
 							{availableDepartments.map((d) => (
 								<option key={d.id} value={d.id}>
 									{d.name}
+								</option>
+							))}
+						</select>
+					</div>
+
+					<div className={styles.formGroup}>
+						<label className={styles.label}>Level Filter</label>
+						<select
+							className={styles.input}
+							value={level}
+							onChange={(e) => setLevel(e.target.value)}>
+							<option value="ALL">All Levels</option>
+							{[100, 200, 300, 400, 500].map((lvl) => (
+								<option key={lvl} value={lvl}>
+									Level {lvl}
 								</option>
 							))}
 						</select>
