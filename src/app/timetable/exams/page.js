@@ -329,6 +329,7 @@ export default function ExamTimetablePage() {
 		semester,
 		facultyId,
 		departmentId,
+		level,
 		format = "pdf",
 		monochrome = false,
 		paperSize = "a4",
@@ -338,6 +339,7 @@ export default function ExamTimetablePage() {
 		setIsExportModalOpen(false);
 		const deptIdNum =
 			departmentId && departmentId !== "ALL" ? Number(departmentId) : null;
+		const levelNum = level && level !== "ALL" ? Number(level) : null;
 		const allExams = getSchedulesWithDetails.filter((s) => s.type === "exam");
 		const selectedFaculty =
 			facultyId === "ALL"
@@ -361,6 +363,7 @@ export default function ExamTimetablePage() {
 				return false;
 			}
 			if (deptIdNum !== null && s.departmentId !== deptIdNum) return false;
+			if (levelNum !== null && s.courseLevel !== levelNum) return false;
 			if (cbtOnly) {
 				const course = state.courses.find((c) => c.id === s.courseId);
 				const isCbt = course?.isCbtExam || course?.is_cbt_exam || false;
@@ -397,6 +400,7 @@ export default function ExamTimetablePage() {
 				? null
 				: state.departments.find((d) => d.id === deptIdNum)?.name ||
 					"Unknown Department";
+		const levelInfo = levelNum === null ? null : `Level ${levelNum}`;
 
 		if (format === "csv") {
 			exportTimetableCSV({
@@ -434,6 +438,7 @@ export default function ExamTimetablePage() {
 				semester,
 				faculty: facultyInfo,
 				department: departmentInfo,
+				level: levelInfo,
 				schoolName: "University of Lagos",
 				mode: "exam",
 				monochrome,
@@ -469,6 +474,7 @@ export default function ExamTimetablePage() {
 			semester,
 			faculty: facultyInfo,
 			department: departmentInfo,
+			level: levelInfo,
 			schoolName: "University of Lagos",
 			mode: "exam",
 			monochrome,
