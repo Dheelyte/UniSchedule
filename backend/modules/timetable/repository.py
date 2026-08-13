@@ -1,6 +1,6 @@
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, or_
+from sqlalchemy import select, or_, any_
 from datetime import date, datetime, timezone
 from core.database import get_db
 from modules.timetable.models import Faculty, Room, Course, ScheduleItem, Department, TimetableLock, CourseEnrollment, ChangeRequest, ConflictDismissal
@@ -129,7 +129,7 @@ class TimetableRepository:
     async def is_room_referenced_by_schedule(self, room_id: int) -> bool:
         from modules.timetable.models import ScheduleItem
         from sqlalchemy import func
-        query = select(ScheduleItem.id).where(room_id == func.any(ScheduleItem.room_ids)).limit(1)
+        query = select(ScheduleItem.id).where(room_id == any_(ScheduleItem.room_ids)).limit(1)
         result = await self.db.execute(query)
         return result.scalar() is not None
 
