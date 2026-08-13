@@ -902,7 +902,13 @@ class TimetableService:
             raise HTTPException(status_code=403, detail="Your account has no assigned faculty")
         if target is not None and target.faculty_id == faculty_id:
             return
-        # Otherwise the course must be enrolled to a department in the user's faculty
+        # A course whose home department belongs to the user's faculty is in scope.
+        course = await self.repo.get_course(course_id) if course_id is not None else None
+        if course is not None and course.department_id is not None:
+            dept = await self.repo.get_department(course.department_id)
+            if dept is not None and dept.faculty_id == faculty_id:
+                return
+        # Otherwise the course must be enrolled to a department in the user's faculty (cross-listed).
         enrollments = await self.repo.list_enrollments(faculty_id=faculty_id, course_id=course_id)
         if not enrollments:
             raise HTTPException(status_code=403, detail="You can only request changes for courses in your faculty")
