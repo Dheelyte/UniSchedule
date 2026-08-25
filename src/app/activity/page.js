@@ -12,7 +12,9 @@ const PAGE_SIZE = 50;
 const ACTION_GROUPS = [
     { value: '', label: 'All actions' },
     { value: 'course.', label: 'Courses' },
-    { value: 'schedule_item.', label: 'Schedule items' },
+    { value: 'schedule_item.', label: 'Schedule items (all)' },
+    { value: 'schedule_item.lecture.', label: 'Lecture timetable' },
+    { value: 'schedule_item.exam.', label: 'Exam timetable' },
     { value: 'timetable.', label: 'Timetable locks / requests' },
     { value: 'change_request.', label: 'Change requests' },
     { value: 'blocked_slot.', label: 'Blocked slots' },

@@ -8,6 +8,7 @@ import { useAuth } from '@/context/AuthContext';
 import { TablePageSkeleton } from '@/components/Skeleton/Skeleton';
 import { isViewerRole, isGsAdmin } from '@/lib/roles';
 import CourseEnrollmentModal from '@/components/CourseEnrollmentModal/CourseEnrollmentModal';
+import { useDebounce } from '@/hooks/useDebounce';
 import styles from './courses.module.css';
 
 const LEVELS = [100, 200, 300, 400, 500, 600, 700];
@@ -31,6 +32,7 @@ export default function CoursesPage() {
     const [filterDept, setFilterDept] = useState('');
     const [filterScope, setFilterScope] = useState('');
     const [search, setSearch] = useState('');
+    const debouncedSearch = useDebounce(search, 250);
 
     // Modal state
     const [showModal, setShowModal] = useState(false);
@@ -48,6 +50,10 @@ export default function CoursesPage() {
     // Virtualisation & Infinite Scroll
     const containerRef = useRef(null);
     const observerRef = useRef(null);
+    const [scrollTop, setScrollTop] = useState(0);
+    const [containerHeight, setContainerHeight] = useState(600);
+    const [limit, setLimit] = useState(100);
+
     const sentinelRef = useCallback((node) => {
         if (observerRef.current) {
             observerRef.current.disconnect();
@@ -64,10 +70,6 @@ export default function CoursesPage() {
         }
     }, []);
 
-    const [scrollTop, setScrollTop] = useState(0);
-    const [containerHeight, setContainerHeight] = useState(600);
-    const [limit, setLimit] = useState(100);
-
     const rowHeight = 62; // average row height
 
     const handleScroll = (e) => {
@@ -76,17 +78,20 @@ export default function CoursesPage() {
 
     useEffect(() => {
         if (containerRef.current) {
+            /* eslint-disable-next-line react-hooks/set-state-in-effect */
             setContainerHeight(containerRef.current.clientHeight || 600);
         }
     }, [loading]);
 
     useEffect(() => {
+        /* eslint-disable react-hooks/set-state-in-effect */
         setLimit(100);
         if (containerRef.current) {
             containerRef.current.scrollTop = 0;
             setScrollTop(0);
         }
-    }, [filterFaculty, filterDept, filterScope, search]);
+        /* eslint-enable react-hooks/set-state-in-effect */
+    }, [filterFaculty, filterDept, filterScope, debouncedSearch]);
 
     const handleFacultyChange = (e) => {
         const newFacId = e.target.value;
@@ -101,8 +106,10 @@ export default function CoursesPage() {
                 if (!map.has(e.course_id)) map.set(e.course_id, []);
                 map.get(e.course_id).push(e);
             });
+            /* eslint-disable react-hooks/set-state-in-effect */
             setEnrollmentsByCourse(map);
             setLoading(false);
+            /* eslint-enable react-hooks/set-state-in-effect */
         }
     }, [isInitialized, state.enrollments]);
 
@@ -110,19 +117,23 @@ export default function CoursesPage() {
         ? departments.filter((d) => d.facultyId === filterFaculty)
         : departments;
 
-    const filteredCourses = getCoursesWithDetails.filter((c) => {
-        if (filterScope && c.scope !== filterScope) return false;
-        if (filterFaculty && c.scope === SCOPES.DEPARTMENTAL) {
-            const dept = departments.find((d) => d.id === c.departmentId);
-            if (!dept || dept.facultyId !== filterFaculty) return false;
-        }
-        if (filterDept && c.scope === SCOPES.DEPARTMENTAL && c.departmentId !== parseInt(filterDept)) return false;
-        if (search) {
-            const q = search.toLowerCase();
-            return c.code.toLowerCase().includes(q) || c.title.toLowerCase().includes(q) || c.lecturers.some((l) => l.toLowerCase().includes(q));
-        }
-        return true;
-    });
+    const filteredCourses = useMemo(() => {
+        return getCoursesWithDetails.filter((c) => {
+            if (filterScope && c.scope !== filterScope) return false;
+            if (filterFaculty && c.facultyId !== filterFaculty) return false;
+            if (filterDept && c.departmentId !== parseInt(filterDept, 10)) return false;
+
+            if (debouncedSearch) {
+                const q = debouncedSearch.toLowerCase();
+                return (
+                    c.code.toLowerCase().includes(q) ||
+                    c.title.toLowerCase().includes(q) ||
+                    c.lecturers.some((l) => l.toLowerCase().includes(q))
+                );
+            }
+            return true;
+        });
+    }, [getCoursesWithDetails, filterScope, filterFaculty, filterDept, debouncedSearch]);
 
     // Observer is handled via callback ref sentinelRef
 

@@ -237,7 +237,7 @@ export function AppProvider({ children }) {
 
     useEffect(() => {
         refreshMetadata();
-    }, []);
+    }, [refreshMetadata]);
 
     // Memoised derived data for the dashboard
     const stats = useMemo(() => {
@@ -255,17 +255,20 @@ export function AppProvider({ children }) {
 
     // Helper: get department with its faculty name
     const getDepartmentsWithFaculty = useMemo(() => {
+        const facMap = new Map(state.faculties.map((f) => [f.id, f]));
         return state.departments.map((dept) => {
-            const faculty = state.faculties.find((f) => f.id === dept.facultyId);
+            const faculty = facMap.get(dept.facultyId);
             return { ...dept, facultyName: faculty?.name || 'NIL' };
         });
     }, [state.departments, state.faculties]);
 
     // Helper: get courses with department & faculty info
     const getCoursesWithDetails = useMemo(() => {
+        const deptMap = new Map(state.departments.map((d) => [d.id, d]));
+        const facMap = new Map(state.faculties.map((f) => [f.id, f]));
         return state.courses.map((course) => {
-            const dept = course.departmentId ? state.departments.find((d) => d.id === course.departmentId) : null;
-            const faculty = dept ? state.faculties.find((f) => f.id === dept.facultyId) : null;
+            const dept = course.departmentId ? deptMap.get(course.departmentId) : null;
+            const faculty = dept ? facMap.get(dept.facultyId) : null;
             return {
                 ...course,
                 facultyId: faculty?.id || null,
@@ -278,15 +281,20 @@ export function AppProvider({ children }) {
 
     // Helper: get schedules with full details
     const getSchedulesWithDetails = useMemo(() => {
+        const courseMap = new Map(state.courses.map((c) => [c.id, c]));
+        const roomMap = new Map(state.rooms.map((r) => [r.id, r]));
+        const deptMap = new Map(state.departments.map((d) => [d.id, d]));
+        const facMap = new Map(state.faculties.map((f) => [f.id, f]));
+
         return state.scheduleItems.map((item) => {
-            const course = state.courses.find((c) => c.id === item.courseId);
+            const course = courseMap.get(item.courseId);
             // Resolve roomIds to room objects
             const ids = item.roomIds || (item.roomId ? [item.roomId] : []);
-            const resolvedRooms = ids.map((rid) => state.rooms.find((r) => r.id === rid)).filter(Boolean);
-            const dept = course ? state.departments.find((d) => d.id === course.departmentId) : null;
-            const faculty = dept ? state.faculties.find((f) => f.id === dept.facultyId) : null;
+            const resolvedRooms = ids.map((rid) => roomMap.get(rid)).filter(Boolean);
+            const dept = course?.departmentId ? deptMap.get(course.departmentId) : null;
+            const faculty = dept ? facMap.get(dept.facultyId) : null;
             const effFacId = item.facultyId || faculty?.id || null;
-            const effFaculty = state.faculties.find((f) => f.id === effFacId) || null;
+            const effFaculty = effFacId ? facMap.get(effFacId) : null;
             return {
                 ...item,
                 roomIds: ids,
