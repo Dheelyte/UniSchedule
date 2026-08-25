@@ -34,6 +34,7 @@ export default function LoginPage() {
                 </div>
                 <h1 className={styles.title}>University of Lagos</h1>
                 <p className={styles.subtitle} style={{ fontSize: '1rem', fontWeight: 'bold', letterSpacing: '1px' }}>Timetable Manager</p>
+                <span className={styles.realmBadge}>Undergraduate Login</span>
 
                 {error && <div className={styles.error}>{error}</div>}
 

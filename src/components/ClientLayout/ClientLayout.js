@@ -20,14 +20,20 @@ function LayoutInner({ children }) {
 	const pathname = usePathname();
 	const router = useRouter();
 
-	const publicPaths = ["/login", "/register", "/forgot-password"];
+	// Guest-only paths: rendered without the app shell, and authenticated
+	// users get bounced away from them back to the dashboard.
+	const guestOnlyPaths = ["/login", "/register", "/forgot-password", "/realms"];
+	// "/" is also reachable while logged out (it shows the landing page —
+	// see src/app/page.js) but, unlike the paths above, an authenticated
+	// user is allowed to stay on it (it shows the dashboard there instead).
+	const publicPaths = ["/", ...guestOnlyPaths];
 
     useEffect(() => {
         if (loading) return;
         if (!user && !publicPaths.includes(pathname)) {
             router.push('/login');
         }
-        if (user && publicPaths.includes(pathname)) {
+        if (user && guestOnlyPaths.includes(pathname)) {
             router.push('/');
         }
     }, [user, loading, pathname, router]);
@@ -66,7 +72,7 @@ function LayoutInner({ children }) {
     if (loading) return <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', width: '100vw' }}><div className="loader"></div></div>;
     if (!user && publicPaths.includes(pathname)) return <>{children}</>;
     if (!user) return null;
-    if (publicPaths.includes(pathname)) return null;
+    if (guestOnlyPaths.includes(pathname)) return null;
 
 	const mainClass = isSidebarCollapsed
 		? `${styles.main} ${styles.mainCollapsed}`
