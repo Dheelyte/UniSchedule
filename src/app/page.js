@@ -7,6 +7,7 @@ import { useApp, ACTION_TYPES } from "@/context/AppContext";
 import { useAuth } from "@/context/AuthContext";
 import { apiClient } from "@/lib/apiClient";
 import { DashboardSkeleton } from "@/components/Skeleton/Skeleton";
+import Landing from "@/components/Landing/Landing";
 
 const BAR_COLORS = [
 	"#6366f1",
@@ -32,7 +33,7 @@ function getGreeting() {
 	return "Good evening";
 }
 
-export default function DashboardPage() {
+function DashboardPage() {
 	const { state, dispatch, isInitialized, getSchedulesWithDetails } = useApp();
 	const { user } = useAuth();
 	const [currentTerm, setCurrentTerm] = useState(null);
@@ -803,4 +804,10 @@ export default function DashboardPage() {
 			</div>
 		</div>
 	);
+}
+
+export default function HomePage() {
+	const { user } = useAuth();
+	if (!user) return <Landing />;
+	return <DashboardPage />;
 }
