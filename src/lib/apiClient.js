@@ -23,7 +23,7 @@ export const apiClient = {
 		if (!response.ok) {
 			if (response.status === 401 && typeof window !== "undefined") {
 				if (
-					!["/login", "/register", "/forgot-password"].includes(
+					!["/", "/login", "/register", "/forgot-password", "/realms"].includes(
 						window.location.pathname,
 					)
 				) {
