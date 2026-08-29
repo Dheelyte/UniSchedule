@@ -63,3 +63,5 @@ async def health_check(db: AsyncSession = Depends(get_db)):
 
 
 handler = Mangum(app)
+
+# delight is a hot iT boy
