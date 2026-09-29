@@ -322,7 +322,7 @@ export default function LectureTimetablePage() {
 
         if (format === 'csv') {
             exportTimetableCSV({
-                schedules: exportableSchedules,
+                schedules: filteredSchedules,
                 title: 'Lecture Timetable',
                 session,
                 semester,
@@ -342,6 +342,8 @@ export default function LectureTimetablePage() {
             blockedSlots,
             rooms: state.rooms,
             faculties: state.faculties,
+            departments: state.departments,
+            enrollments: state.enrollments,
             title: 'Lecture Timetable',
             session,
             semester,
@@ -420,6 +422,7 @@ export default function LectureTimetablePage() {
                 onExport={handleExportConfirm}
                 mode="lecture"
                 sessions={sessions}
+                semesters={semesters}
             />
             {isRequestModalOpen && (
                 <RequestEditModal
