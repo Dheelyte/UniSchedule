@@ -194,8 +194,8 @@ export default function ExportModal({
 							className={styles.input}
 							value={paperSize}
 							onChange={(e) => setPaperSize(e.target.value)}>
-							<option value="a3">a3 - landscape</option>
-							<option value="a4">a4 - landscape (default)</option>
+							<option value="a3">a3 - landscape (default)</option>
+							<option value="a4">a4 - landscape</option>
 						</select>
 					</div>
 

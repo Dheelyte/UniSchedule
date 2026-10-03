@@ -63,8 +63,8 @@ The backend logic and database are managed within the `backend/` directory.
    ```
 
 6. Start the FastAPI server:
-   ```bash
-   uv run uvicorn main:app --reload
+   ```bash uv run uvicorn main:app --reload
+  
    ```
    The backend API will be available at `http://localhost:8000`.
 
