@@ -1,9 +1,23 @@
-const API_BASE_URL =
-	process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000/api/v1";
+function getApiBaseUrl() {
+	if (process.env.NEXT_PUBLIC_API_URL) {
+		return process.env.NEXT_PUBLIC_API_URL;
+	}
+
+	// Keep local requests on the same site so SameSite=Lax session cookies
+	// work whether the frontend is opened via localhost or 127.0.0.1.
+	if (typeof window !== "undefined") {
+		const { hostname } = window.location;
+		if (hostname === "localhost" || hostname === "127.0.0.1") {
+			return `http://${hostname}:8000/api/v1`;
+		}
+	}
+
+	return "http://127.0.0.1:8000/api/v1";
+}
 
 export const apiClient = {
 	async request(endpoint, options = {}) {
-		const url = `${API_BASE_URL}${endpoint}`;
+		const url = `${getApiBaseUrl()}${endpoint}`;
 		const headers = {
 			"Content-Type": "application/json",
 			...options.headers,
@@ -12,7 +26,7 @@ export const apiClient = {
 		const config = {
 			...options,
 			headers,
-			credentials: "include", // Guarantees Secure HTTP-only cookies are forwarded instantly
+			credentials: "include",
 		};
 
 		const response = await fetch(url, config);
