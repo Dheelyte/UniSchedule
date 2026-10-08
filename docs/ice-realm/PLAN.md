@@ -11,6 +11,7 @@ The design is in `SPEC.md`. When this plan and the spec disagree, the spec wins.
 - Work on `feature/ice-realm`. **Never commit to or push `main`.** A push to main deploys to production and runs migrations on the production database (`.github/workflows/deploy.yml`).
 - Only run Alembic or SQL against localhost databases.
 - UG behaviour must not change. When in doubt, pin today's UG behaviour with a test before touching the code.
+- While working, `uv run pytest -q -m "not slow"` skips the migration round trips. A phase's **Verify** always runs the whole suite (`uv run pytest -q`).
 - Stay inside the phase. Anything else goes under Follow-ups below.
 
 ---
@@ -123,7 +124,7 @@ Prerequisites: Phase 2.
 - An isolation matrix: for each resource, create one in UG and one in ICE.
   - Each realm's editor sees only their realm's data.
   - A super admin sees only the realm they're signed in to.
-  - Cross-realm get, update and delete all return 404. (Deleting a course or schedule item whose id doesn't exist at all is still a silent 200, as before realms; see Follow-ups.)
+  - Another realm's id behaves exactly like a missing id on every endpoint (SPEC §7): 404, except that deleting a course or schedule item is a 200 that does nothing.
 - Creating an ICE session doesn't demote UG's current semester.
 - The same course code works across realms.
 - Priority-override emails go only to editors in the same realm.
@@ -205,6 +206,7 @@ Prerequisites: Phase 6.
 
 - [ ] Run `/ice-audit` and fix its findings.
 - [ ] Restore a recent production dump into the local Postgres and run `alembic upgrade head`. Smoke-test UG: login, timetables and exports. Never commit the dump.
+- [ ] On the restored dump, list any courses whose level isn't in the UG config (`SELECT id, code, level FROM courses WHERE level IS NOT NULL AND level NOT IN (100, 200, 300, 400, 500, 600, 700)`). Since Phase 3 the API rejects those levels, so fix the courses or extend the config's `levels` before launch.
 - [ ] Add `.github/workflows/test.yml`, triggered on `pull_request`:
   - backend `pytest` with a `postgres:16` service;
   - `npm ci`, lint, test and build.
@@ -228,13 +230,14 @@ Launch is for people, not Claude:
 - `backend/Dockerfile:34` copies the whole folder into the Lambda image and there is no `.dockerignore`, so `backend/tests/` ships with it (harmless: the dev dependencies aren't installed). Add a `.dockerignore`.
 - `backend/test_service.py:1` is a leftover manual script, not a test. pytest ignores it (`testpaths = ["tests"]`); delete it or move it to `backend/scripts/`.
 - `README.md:3` says Next.js 15; the project is on Next.js 16.
-- `backend/tests/conftest.py:69`: the suite is slow (about 10.5 minutes for 84 tests). The autouse `_clean_tables` truncate runs even for pure unit tests (the 23 `RealmConfig` cases), and connections are set up per test under `NullPool`; the `world` fixture in `tests/test_realm_isolation.py` makes about 30 API calls per test. Skip the truncate for tests that don't touch the database, and speed up the per-request connection.
+- `backend/core/config.py` (`DB_NULL_POOL`): the tests no longer use it, since the suite runs on one event loop with pooled connections. Remove the setting if nothing else needs it.
+- `backend/tests/conftest.py` (`_CLEAN_SQL`): emptying the tables turns foreign-key triggers off, which needs a superuser. The Phase 7 CI job must connect as one (the `postgres:16` service's default user is).
 - `backend/migrations/versions/n4i5j6k7l8m9_add_realms.py:145`: the downgrade doesn't restore the `is_current` flags that step 6 cleared, and only course codes are checked before realms are merged back together. Acceptable while no ICE data exists (SPEC §5 Rollback).
 - `backend/modules/auth/models.py:22`: a Python `None` for `realm_key` is left out of the INSERT, so the `'UG'` server default applies. New users and invitations must go through `stored_realm_key()`, which sends an explicit SQL NULL for cross-realm roles. The same trap applies to any other nullable `realm_key` column with a default.
 - `backend/api/dependencies/auth.py:21`: `get_current_user` now does one extra primary-key lookup on `realms` per request and validates the config each time. Cache the realms in-process if it shows up in latency.
 - `backend/modules/auth/service.py`: changing a user's role is not possible through the API today. If it is added, a move between a cross-realm and a realm-bound role must also set or clear `realm_key`.
 - `src/app/register/page.js`: ignores the `&realm=` now on invitation links (Phase 5 uses it to redirect to the right portal).
-- `backend/modules/timetable/service.py` (`delete_course`, `delete_schedule_item`): SPEC §7 says another realm's id behaves exactly like a missing id, 404, but deleting a missing course or schedule item has always been a silent 200. To leave UG alone, a missing id is still a 200 and only another realm's id is a 404, so the two can be told apart. Decide whether both should be 404 (a small UG change) and update SPEC §7 to match.
+
 - `backend/modules/timetable/service.py` (`review_change_request`): the "Your change request was approved/rejected" notification goes to the requester with a link that has no `?realm=`. A SUPER_VIEWER requester is cross-realm and may be in another realm when they open it.
 - `backend/modules/auth/service.py` (`generate_invite`): `semester_id` on an invitation isn't checked against the inviter's realm. Nothing reads it for scoping today.
 - `src/` (notifications): links to super admins now end in `?realm=KEY`, including UG ones. The pages ignore the parameter until Phase 5 handles it.
@@ -248,3 +251,4 @@ Launch is for people, not Claude:
 2026-10-08 · Phase 1 · `modules/realms` (model, `RealmConfig`, repository, service), `GET /realms` and `PUT /realms/{key}`, `realm_key` columns on the models, `CROSS_REALM_ROLES`, revision `n4i5j6k7l8m9` (SPEC §5 steps 1–7) · backend `pytest` 42 passed (7 baseline unchanged), including upgrade → downgrade → upgrade, legacy backfill and `alembic check`
 2026-10-08 · Phase 2 · login takes a realm, tokens carry `realm`, `get_current_user` returns `realm`/`realm_name`/`realm_config`, `POST /auth/switch-realm`, impersonation keeps the realm, invitations and registration carry the realm (email and link name the portal), staff listings and deletes per realm, seeded super admin has no realm, temporary UG-only guard on the unscoped routers · backend `pytest` 72 passed (42 existing unchanged, 30 new in `tests/test_auth_realm.py`)
 2026-10-09 · Phase 3 · every realm-scoped query filters by the active realm (calendar, courses, schedule items, blocked slots, locks, edit requests, change requests, enrollments, conflict dismissals, audit log); repository reads take a required keyword-only `realm_key`; course level and semester checked against the realm config in the service; priority-override notifications reach only the same realm's editors and notifications to super admins name the realm; Phase 2 guard removed · backend `pytest` 84 passed (70 existing unchanged, the 2 guard tests removed, 14 new in `tests/test_realm_isolation.py`); frontend untouched, so npm checks not re-run
+2026-10-09 · Phase 3 follow-up · another realm's id now behaves exactly like a missing id on every endpoint (course and schedule-item deletes answer 200 and do nothing; SPEC §7 updated, test added); test suite sped up: one event loop with pooled connections instead of a new connection per request, tables emptied with DELETE instead of TRUNCATE, `BCRYPT_ROUNDS` setting (default 12, 4 in tests), migration tests marked `slow`; Phase 7 gains a check for course levels outside the UG config · backend `pytest` 83 passed (the two 404 tests merged into one that compares against a missing id); full suite about 10.5 minutes before, 66–107 seconds after; `-m "not slow"` 37 seconds

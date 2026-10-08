@@ -126,10 +126,7 @@ class TimetableRepository:
         result = await self.db.execute(select(Course).where(Course.id == id, Course.realm_key == realm_key))
         return result.scalar_one_or_none()
 
-    async def course_exists_in_any_realm(self, id: int) -> bool:
-        """Existence only, across realms - never returns the row."""
-        result = await self.db.execute(select(Course.id).where(Course.id == id))
-        return result.scalar() is not None
+
 
     async def update_course(self, course: Course) -> Course:
         await self.db.flush()
@@ -183,10 +180,7 @@ class TimetableRepository:
         )
         return result.scalar_one_or_none()
 
-    async def schedule_item_exists_in_any_realm(self, id: int) -> bool:
-        """Existence only, across realms - never returns the row."""
-        result = await self.db.execute(select(ScheduleItem.id).where(ScheduleItem.id == id))
-        return result.scalar() is not None
+
 
     async def update_schedule_item(self, item: ScheduleItem) -> ScheduleItem:
         await self.db.flush()

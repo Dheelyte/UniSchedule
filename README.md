@@ -103,8 +103,11 @@ The backend tests need the Postgres container from step 2 above to be running. T
 ```bash
 cd backend
 uv sync            # installs the dev group (pytest, pytest-asyncio, httpx)
-uv run pytest -q
+uv run pytest -q                  # everything, about 1-2 minutes
+uv run pytest -q -m "not slow"    # skips the migration round trips, under a minute
 ```
+
+Run everything before you commit. The `slow` tests run Alembic up and down on a scratch database.
 
 To use a different Postgres, set `TEST_DATABASE_URL`. It must be on localhost and the database name must end with `_test`.
 

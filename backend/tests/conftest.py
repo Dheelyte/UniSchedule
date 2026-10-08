@@ -13,7 +13,9 @@ os.environ["DATABASE_URL"] = TEST_DATABASE_URL
 os.environ.setdefault("SECRET_KEY", "test-secret-key-test-secret-key-test-secret-key")
 os.environ["ENVIRONMENT"] = "dev"
 os.environ["RATE_LIMIT_ENABLED"] = "false"
-os.environ["DB_NULL_POOL"] = "true"
+# The suite runs on one event loop (see pyproject.toml), so connections can be pooled.
+os.environ["DB_NULL_POOL"] = "false"
+os.environ["BCRYPT_ROUNDS"] = "4"
 
 import asyncpg  # noqa: E402
 import bcrypt  # noqa: E402
@@ -65,17 +67,32 @@ def _migrated_database():
     command.upgrade(Config(str(BACKEND_DIR / "alembic.ini")), "head")
 
 
+# Empties every table and restarts its ids. DELETE with foreign-key triggers off
+# (which needs a superuser, as the local and CI databases have) takes a few
+# milliseconds; TRUNCATE took over two seconds per test.
+_CLEAN_SQL = """
+DO $$
+DECLARE name text;
+BEGIN
+    SET LOCAL session_replication_role = replica;
+    FOR name IN
+        SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tablename <> ALL(ARRAY[{keep}])
+    LOOP
+        EXECUTE format('DELETE FROM %I', name);
+    END LOOP;
+    FOR name IN
+        SELECT sequencename FROM pg_sequences WHERE schemaname = 'public' AND last_value IS NOT NULL
+    LOOP
+        EXECUTE format('ALTER SEQUENCE %I RESTART', name);
+    END LOOP;
+END $$;
+""".format(keep=", ".join(f"'{table}'" for table in KEEP_TABLES))
+
+
 @pytest.fixture(autouse=True)
 async def _clean_tables(_migrated_database):
     async with engine.begin() as conn:
-        result = await conn.execute(
-            text("SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tablename <> ALL(:keep)"),
-            {"keep": list(KEEP_TABLES)},
-        )
-        tables = [row[0] for row in result]
-        if tables:
-            quoted = ", ".join(f'"{t}"' for t in tables)
-            await conn.execute(text(f"TRUNCATE {quoted} RESTART IDENTITY CASCADE"))
+        await conn.execute(text(_CLEAN_SQL))
 
 
 @pytest.fixture

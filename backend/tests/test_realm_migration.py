@@ -12,6 +12,10 @@ import pytest
 
 from tests.conftest import BACKEND_DIR, TEST_DATABASE_URL, _url
 
+# Each test runs Alembic several times in a subprocess. Quick runs can skip them
+# with -m "not slow"; a phase's final check runs everything.
+pytestmark = pytest.mark.slow
+
 PREVIOUS_HEAD = "m3h4i5j6k7l8"
 REALMS_REVISION = "n4i5j6k7l8m9"
 SCRATCH_DB = "unilag_timetable_migration_test"

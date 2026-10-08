@@ -163,7 +163,9 @@ Write one hand-written revision with `down_revision = "m3h4i5j6k7l8"` (the curre
 Every read or write of realm-scoped data filters by the active realm.
 
 - Repository list and query methods take a keyword-only, required `realm_key`, so forgetting it raises a `TypeError` instead of leaking data.
-- An id that belongs to another realm behaves exactly like a missing id: 404.
+- An id that belongs to another realm behaves exactly like a missing id on that endpoint: the same status and body, so the two can't be told apart.
+  - On most endpoints that is 404.
+  - Deleting a course or a schedule item has always answered 200 for a missing id and done nothing. It does the same for another realm's id.
 
 | Resource | Scoped by | Where (base commit) |
 |---|---|---|
@@ -308,7 +310,7 @@ This must be a pure module, with no `@/` imports and explicit `.js` extensions, 
 ## 10. Acceptance criteria
 
 1. With existing UG data after the migration, every UG screen and export behaves as before, and all baseline tests pass.
-2. For every realm-scoped resource, UG and ICE users see only their own realm's data. Ids from the other realm return 404.
+2. For every realm-scoped resource, UG and ICE users see only their own realm's data. Ids from the other realm behave like missing ids (§7): 404, or a 200 that does nothing when deleting a course or schedule item.
 3. Creating an ICE session or semester leaves UG's current semester untouched.
 4. The same course code can exist in UG and ICE. A duplicate within one realm returns 400.
 5. ICE: a Friday 19:15–20:45 lecture is accepted. Monday returns 400, a 06:45 start returns 400, and a 19:10 start returns 400.

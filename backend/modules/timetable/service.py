@@ -459,10 +459,8 @@ class TimetableService:
         return updated
 
     async def delete_course(self, id: int, current_user: dict) -> None:
+        # Another realm's course is not found here, so like a missing id it is a silent no-op.
         course = await self.repo.get_course(id, realm_key=current_user["realm"])
-        if not course and await self.repo.course_exists_in_any_realm(id):
-            # Another realm's course is a 404. (A missing id stays a silent no-op, as before realms.)
-            raise HTTPException(status_code=404, detail="Not found")
         if course:
             if _is_gs_admin(current_user) and course.scope != CourseScope.UNIVERSITY_WIDE:
                 raise HTTPException(status_code=403, detail="General Studies admins can only delete university-wide courses")
@@ -752,10 +750,8 @@ class TimetableService:
         return updated
 
     async def delete_schedule_item(self, id: int, current_user: dict) -> None:
+        # Another realm's item is not found here, so like a missing id it is a silent no-op.
         item = await self.repo.get_schedule_item(id, realm_key=current_user["realm"])
-        if not item and await self.repo.schedule_item_exists_in_any_realm(id):
-            # Another realm's item is a 404. (A missing id stays a silent no-op, as before realms.)
-            raise HTTPException(status_code=404, detail="Schedule missing")
         if not item: return
         if current_user.get("role") == RoleEnum.FACULTY_EDITOR.value:
             if current_user.get("faculty_id") != item.faculty_id:

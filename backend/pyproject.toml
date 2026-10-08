@@ -31,3 +31,9 @@ dev = [
 pythonpath = ["."]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+# One event loop for the whole run, so the engine's pooled connections outlive a test.
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
+markers = [
+    "slow: migration round trips on a scratch database; skip them with -m \"not slow\"",
+]
