@@ -82,13 +82,14 @@ Prerequisites: Phase 0.
 
 Prerequisites: Phase 1.
 
-- [ ] Login accepts an optional realm, tokens carry a `realm` claim, and `get_current_user` adds `realm`, `realm_name` and `realm_config` (SPEC §6).
-- [ ] Add `POST /auth/switch-realm`.
-- [ ] Impersonation keeps the realm.
-- [ ] Invitations carry the realm, registration copies it, and the invitation email and link include it.
-- [ ] Scope `GET /auth/users` and `GET /auth/invitations` to the active realm plus cross-realm accounts.
-- [ ] Seed the super admin in `main.py` with `realm_key = NULL`.
-- [ ] Add a `realm` parameter to the `make_user` and `login` test fixtures.
+- [x] Login accepts an optional realm, tokens carry a `realm` claim, and `get_current_user` adds `realm`, `realm_name` and `realm_config` (SPEC §6).
+- [x] Add `POST /auth/switch-realm`.
+- [x] Impersonation keeps the realm.
+- [x] Invitations carry the realm, registration copies it, and the invitation email and link include it.
+- [x] Scope `GET /auth/users` and `GET /auth/invitations` to the active realm plus cross-realm accounts. Deletes are limited to the same set.
+- [x] Seed the super admin in `main.py` with `realm_key = NULL`.
+- [x] Add a `realm` parameter to the `make_user` and `login` test fixtures.
+- [x] Temporary guard: `require_default_realm` (`api/dependencies/auth.py`) is mounted in `main.py` on the calendar, timetable, export, notifications and audit routers. It returns 403 to any session whose realm isn't UG, so an ICE user can't see UG data before Phase 3 scopes the queries.
 
 **Verify** with tests:
 - Logging in to the wrong portal returns 403; logging in to your own portal succeeds.
@@ -98,6 +99,7 @@ Prerequisites: Phase 1.
 - Impersonating inside ICE stays in ICE.
 - An invite sent from ICE leads, after registration, to a user with `realm_key = ICE`.
 - The staff listing is per realm.
+- A session in ICE gets 403 from the guarded routers; UG and signed-out requests are unaffected.
 
 ---
 
@@ -115,6 +117,7 @@ Prerequisites: Phase 2.
 - [ ] Notifications. Editor lookups are per realm, and messages to super admins name the realm with `?realm=` on the link.
 - [ ] Audit log.
 - [ ] Every repository list or query method takes a keyword-only, required `realm_key`.
+- [ ] Remove the Phase 2 guard: take `ug_only` off each router in `main.py` as it gets scoped, then delete `require_default_realm` and its two tests in `tests/test_auth_realm.py`. The export router returns sample data only (SPEC §11); decide there whether it stays guarded.
 
 **Verify** with tests:
 - An isolation matrix: for each resource, create one in UG and one in ICE.
@@ -225,9 +228,12 @@ Launch is for people, not Claude:
 - `backend/Dockerfile:34` copies the whole folder into the Lambda image and there is no `.dockerignore`, so `backend/tests/` ships with it (harmless: the dev dependencies aren't installed). Add a `.dockerignore`.
 - `backend/test_service.py:1` is a leftover manual script, not a test. pytest ignores it (`testpaths = ["tests"]`); delete it or move it to `backend/scripts/`.
 - `README.md:3` says Next.js 15; the project is on Next.js 16.
-- `backend/tests/conftest.py:69`: the suite now takes about 2.5 minutes for 42 tests. The autouse `_clean_tables` truncate runs even for pure unit tests (the 23 `RealmConfig` cases), and connections are set up per test under `NullPool`. Skip the truncate for tests that don't touch the database before the Phase 3 isolation matrix.
+- `backend/tests/conftest.py:69`: the suite now takes about 4.5 minutes for 72 tests. The autouse `_clean_tables` truncate runs even for pure unit tests (the 23 `RealmConfig` cases), and connections are set up per test under `NullPool`. Skip the truncate for tests that don't touch the database before the Phase 3 isolation matrix.
 - `backend/migrations/versions/n4i5j6k7l8m9_add_realms.py:145`: the downgrade doesn't restore the `is_current` flags that step 6 cleared, and only course codes are checked before realms are merged back together. Acceptable while no ICE data exists (SPEC §5 Rollback).
-- `backend/modules/auth/models.py:33`: until Phase 2, accounts created through the app get `realm_key = 'UG'` from the server default, including new cross-realm accounts. Phase 2 must set NULL explicitly on invite, registration and the seeded super admin.
+- `backend/modules/auth/models.py:22`: a Python `None` for `realm_key` is left out of the INSERT, so the `'UG'` server default applies. New users and invitations must go through `stored_realm_key()`, which sends an explicit SQL NULL for cross-realm roles. The same trap applies to any other nullable `realm_key` column with a default.
+- `backend/api/dependencies/auth.py:21`: `get_current_user` now does one extra primary-key lookup on `realms` per request and validates the config each time. Cache the realms in-process if it shows up in latency.
+- `backend/modules/auth/service.py`: changing a user's role is not possible through the API today. If it is added, a move between a cross-realm and a realm-bound role must also set or clear `realm_key`.
+- `src/app/register/page.js`: ignores the `&realm=` now on invitation links (Phase 5 uses it to redirect to the right portal).
 
 ## Progress log
 
@@ -235,3 +241,4 @@ Launch is for people, not Claude:
 
 2026-10-08 · Phase 0 · pytest harness (dev dependency group, `RATE_LIMIT_ENABLED`, `DB_NULL_POOL`, `tests/conftest.py`), 7 baseline tests pinning UG behaviour, README test and port notes · backend `pytest` 7 passed; `npm test` 10 passed; `npm run lint` 0 errors (20 existing warnings); `npm run build` OK
 2026-10-08 · Phase 1 · `modules/realms` (model, `RealmConfig`, repository, service), `GET /realms` and `PUT /realms/{key}`, `realm_key` columns on the models, `CROSS_REALM_ROLES`, revision `n4i5j6k7l8m9` (SPEC §5 steps 1–7) · backend `pytest` 42 passed (7 baseline unchanged), including upgrade → downgrade → upgrade, legacy backfill and `alembic check`
+2026-10-08 · Phase 2 · login takes a realm, tokens carry `realm`, `get_current_user` returns `realm`/`realm_name`/`realm_config`, `POST /auth/switch-realm`, impersonation keeps the realm, invitations and registration carry the realm (email and link name the portal), staff listings and deletes per realm, seeded super admin has no realm, temporary UG-only guard on the unscoped routers · backend `pytest` 72 passed (42 existing unchanged, 30 new in `tests/test_auth_realm.py`)

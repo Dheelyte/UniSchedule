@@ -1,7 +1,10 @@
 from fastapi import Request, Depends, HTTPException
 from core.security import decode_access_token
 from modules.auth.repository import AuthRepository
-from modules.auth.models import RoleEnum
+from modules.auth.models import RoleEnum, CROSS_REALM_ROLES
+from modules.realms.defaults import DEFAULT_REALM_KEY
+from modules.realms.repository import RealmRepository
+from modules.realms.schemas import RealmConfig
 
 async def get_token_from_cookie(request: Request) -> str:
     token = request.cookies.get("access_token")
@@ -10,9 +13,15 @@ async def get_token_from_cookie(request: Request) -> str:
     return token
 
 async def get_current_user(
+    request: Request,
     token: str = Depends(get_token_from_cookie),
     repo: AuthRepository = Depends(),
+    realm_repo: RealmRepository = Depends(),
 ) -> dict:
+    # Resolved once per request, even when a router-level guard asks first.
+    cached = getattr(request.state, "current_user", None)
+    if cached is not None:
+        return cached
     payload = decode_access_token(token)
     if not payload:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
@@ -46,7 +55,45 @@ async def get_current_user(
         payload["role"] = real_role
         payload["faculty_id"] = user.faculty_id
         payload["impersonating"] = False
+
+    # Realm: re-derived like the role. A realm-bound account always works in its
+    # own realm, whatever the token says; a cross-realm account (judged by the
+    # real role, so impersonation keeps the realm) works in the one it chose.
+    if user.role in CROSS_REALM_ROLES:
+        realm_key = payload.get("realm") or DEFAULT_REALM_KEY
+    else:
+        realm_key = user.realm_key or DEFAULT_REALM_KEY
+    realm = await realm_repo.get_realm(realm_key)
+    if not realm:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+    payload["realm"] = realm.key
+    payload["realm_name"] = realm.name
+    payload["realm_config"] = RealmConfig.model_validate(realm.config).model_dump()
+    request.state.current_user = payload
     return payload
+
+
+async def require_default_realm(
+    request: Request,
+    repo: AuthRepository = Depends(),
+    realm_repo: RealmRepository = Depends(),
+) -> None:
+    """Temporary (ICE realm phase 2): keeps routers whose queries aren't
+    realm-scoped yet closed to every realm but UG, so a user signed in to
+    another realm can't read or change UG data. Phase 3 removes it router by
+    router as each one gets real scoping.
+
+    Signed-out requests pass through, so each endpoint's own auth is unchanged.
+    """
+    token = request.cookies.get("access_token")
+    if not token:
+        return
+    try:
+        user = await get_current_user(request, token, repo, realm_repo)
+    except HTTPException:
+        return
+    if user["realm"] != DEFAULT_REALM_KEY:
+        raise HTTPException(status_code=403, detail=f"The {user['realm_name']} portal isn't available yet.")
 
 class RequireRole:
     def __init__(self, allowed_roles: list[str]):

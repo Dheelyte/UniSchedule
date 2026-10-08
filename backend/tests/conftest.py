@@ -26,7 +26,7 @@ from sqlalchemy.engine import make_url  # noqa: E402
 
 from core.database import async_session_maker, engine  # noqa: E402
 from main import app  # noqa: E402
-from modules.auth.models import RoleEnum, User  # noqa: E402
+from modules.auth.models import CROSS_REALM_ROLES, RoleEnum, User, stored_realm_key  # noqa: E402
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 DEFAULT_PASSWORD = "Password123"
@@ -100,15 +100,24 @@ async def client(make_client) -> AsyncClient:
 
 @pytest.fixture
 def make_user():
-    """Insert a user directly and return {"id", "email", "password", "role", "faculty_id"}."""
+    """Insert a user directly and return {"id", "email", "password", "role", "faculty_id", "realm_key"}.
 
-    async def _make(role: RoleEnum | str, faculty_id: str | None = None, email: str | None = None) -> dict:
+    `realm` applies to realm-bound roles; cross-realm roles are stored with no realm.
+    """
+
+    async def _make(
+        role: RoleEnum | str, faculty_id: str | None = None, email: str | None = None, realm: str = "UG"
+    ) -> dict:
         role = RoleEnum(role)
+        realm_key = None if role in CROSS_REALM_ROLES else realm
         email = email or f"{role.value.lower()}-{uuid.uuid4().hex[:8]}@example.com"
         # Low cost factor keeps the suite fast; verify_password accepts any cost.
         hashed = bcrypt.hashpw(DEFAULT_PASSWORD.encode(), bcrypt.gensalt(rounds=4)).decode()
         async with async_session_maker() as session:
-            user = User(email=email, hashed_password=hashed, role=role, faculty_id=faculty_id, is_active=True)
+            user = User(
+                email=email, hashed_password=hashed, role=role, faculty_id=faculty_id,
+                realm_key=stored_realm_key(role, realm), is_active=True,
+            )
             session.add(user)
             await session.commit()
             return {
@@ -117,6 +126,7 @@ def make_user():
                 "password": DEFAULT_PASSWORD,
                 "role": role.value,
                 "faculty_id": faculty_id,
+                "realm_key": realm_key,
             }
 
     return _make
@@ -124,10 +134,16 @@ def make_user():
 
 @pytest.fixture
 def login():
-    """Sign `client` in; the session cookie stays on the client."""
+    """Sign `client` in; the session cookie stays on the client.
 
-    async def _login(client: AsyncClient, email: str, password: str = DEFAULT_PASSWORD):
-        response = await client.post("/api/v1/auth/login", json={"email": email, "password": password})
+    `realm` is the portal to sign in to; leave it out to sign in the way the pre-realm frontend does.
+    """
+
+    async def _login(client: AsyncClient, email: str, password: str = DEFAULT_PASSWORD, realm: str | None = None):
+        body = {"email": email, "password": password}
+        if realm is not None:
+            body["realm"] = realm
+        response = await client.post("/api/v1/auth/login", json=body)
         assert response.status_code == 200, response.text
         return response
 
