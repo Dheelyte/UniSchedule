@@ -18,7 +18,7 @@ async def get_current_user(
     repo: AuthRepository = Depends(),
     realm_repo: RealmRepository = Depends(),
 ) -> dict:
-    # Resolved once per request, even when a router-level guard asks first.
+    # Resolved once per request.
     cached = getattr(request.state, "current_user", None)
     if cached is not None:
         return cached
@@ -72,28 +72,6 @@ async def get_current_user(
     request.state.current_user = payload
     return payload
 
-
-async def require_default_realm(
-    request: Request,
-    repo: AuthRepository = Depends(),
-    realm_repo: RealmRepository = Depends(),
-) -> None:
-    """Temporary (ICE realm phase 2): keeps routers whose queries aren't
-    realm-scoped yet closed to every realm but UG, so a user signed in to
-    another realm can't read or change UG data. Phase 3 removes it router by
-    router as each one gets real scoping.
-
-    Signed-out requests pass through, so each endpoint's own auth is unchanged.
-    """
-    token = request.cookies.get("access_token")
-    if not token:
-        return
-    try:
-        user = await get_current_user(request, token, repo, realm_repo)
-    except HTTPException:
-        return
-    if user["realm"] != DEFAULT_REALM_KEY:
-        raise HTTPException(status_code=403, detail=f"The {user['realm_name']} portal isn't available yet.")
 
 class RequireRole:
     def __init__(self, allowed_roles: list[str]):
