@@ -7,6 +7,11 @@ from modules.auth.models import RoleEnum
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str
+    # The portal being signed in to; omitted means the account's own realm.
+    realm: str | None = None
+
+class SwitchRealmRequest(BaseModel):
+    realm: str
 
 class InviteRequest(BaseModel):
     email: EmailStr
@@ -27,6 +32,7 @@ class UserResponse(BaseModel):
     role: RoleEnum
     faculty_id: str | None
     semester_id: int | None
+    realm_key: str | None  # None: cross-realm role
     is_active: bool
     created_at: datetime
     model_config = ConfigDict(from_attributes=True)
@@ -38,6 +44,7 @@ class InvitationResponse(BaseModel):
     target_role: RoleEnum
     faculty_id: str | None
     semester_id: int | None
+    realm_key: str | None  # None: cross-realm role
     expires_at: datetime
     is_used: bool
     model_config = ConfigDict(from_attributes=True)

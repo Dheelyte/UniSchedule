@@ -4,11 +4,13 @@ from datetime import datetime, timezone, timedelta
 from fastapi import Depends, HTTPException
 
 from core.mail import EmailService
-from modules.auth.repository import AuthRepository, PasswordRepository
-from modules.auth.models import PasswordResetToken, User, RoleEnum, Invitation
+from modules.auth.repository import AuthRepository, PasswordRepository, is_in_realm
+from modules.auth.models import PasswordResetToken, User, RoleEnum, Invitation, CROSS_REALM_ROLES, stored_realm_key
 from core.security import TokenGenerator, verify_password, create_access_token, get_password_hash, hash_code
 from core.config import settings
 from modules.audit.service import AuditService
+from modules.realms.defaults import DEFAULT_REALM_KEY
+from modules.realms.repository import RealmRepository
 
 # Roles a super admin may assume (everything except SUPER_ADMIN itself).
 IMPERSONABLE_ROLES = {
@@ -23,9 +25,26 @@ FACULTY_SCOPED_ROLES = {RoleEnum.FACULTY_EDITOR, RoleEnum.FACULTY_VIEWER}
 
 
 class AuthService:
-    def __init__(self, repo: AuthRepository = Depends(), audit_service: AuditService = Depends()):
+    def __init__(
+        self,
+        repo: AuthRepository = Depends(),
+        audit_service: AuditService = Depends(),
+        realm_repo: RealmRepository = Depends(),
+    ):
         self.repo = repo
         self.audit_service = audit_service
+        self.realm_repo = realm_repo
+
+    @staticmethod
+    def _plain_token(user: User, realm_key: str) -> str:
+        """A normal (non-impersonating) session token for `user` in a realm."""
+        return create_access_token(data={
+            "sub": str(user.id),
+            "email": user.email,
+            "role": user.role.value,
+            "faculty_id": user.faculty_id,
+            "realm": realm_key,
+        })
 
     async def impersonate(self, current_user: dict, target_role: RoleEnum, faculty_id: str | None) -> str:
         """Mint an impersonation token for a super admin to act as another role.
@@ -57,6 +76,8 @@ class AuthService:
             "act_as_role": target_role.value,
             "act_as_faculty_id": faculty_id,
             "impersonator_id": impersonator_id,
+            # Acting as another role happens inside the realm already chosen.
+            "realm": current_user.get("realm"),
         })
         await self.audit_service.log(
             current_user=current_user,
@@ -75,7 +96,7 @@ class AuthService:
         user = await self.repo.get_user_by_id(int(user_id))
         if not user:
             raise HTTPException(status_code=401, detail="Account no longer exists")
-        token = create_access_token(data={"sub": str(user.id), "email": user.email, "role": user.role.value, "faculty_id": user.faculty_id})
+        token = self._plain_token(user, current_user.get("realm") or DEFAULT_REALM_KEY)
         await self.audit_service.log(
             current_user={"sub": str(user.id), "email": user.email, "role": user.role.value, "faculty_id": user.faculty_id},
             action="auth.impersonate.stop",
@@ -85,14 +106,51 @@ class AuthService:
         )
         return token
 
-    async def authenticate_user(self, email: str, password: str) -> str:
+    async def switch_realm(self, current_user: dict, realm_key: str) -> str:
+        """Re-mint a plain token in another realm, which ends any impersonation.
+
+        Authorized on the real DB-derived role, like impersonation.
+        """
+        if current_user.get("real_role") not in {role.value for role in CROSS_REALM_ROLES}:
+            raise HTTPException(status_code=403, detail="This account belongs to one portal and can't switch")
+        realm = await self.realm_repo.get_realm(realm_key)
+        if not realm:
+            raise HTTPException(status_code=400, detail="Unknown portal")
+        user = await self.repo.get_user_by_id(int(current_user["sub"]))
+        if not user:
+            raise HTTPException(status_code=401, detail="Account no longer exists")
+
+        token = self._plain_token(user, realm.key)
+        await self.audit_service.log(
+            current_user={"sub": str(user.id), "email": user.email, "role": user.role.value, "faculty_id": user.faculty_id},
+            action="auth.switch_realm",
+            entity_type="user",
+            entity_id=user.id,
+            description=f"{user.email} switched to the {realm.name} portal",
+            extra={"from_realm": current_user.get("realm"), "to_realm": realm.key},
+        )
+        return token
+
+    async def authenticate_user(self, email: str, password: str, realm_key: str | None = None) -> str:
         user = await self.repo.get_user_by_email(email)
         if not user or not verify_password(password, user.hashed_password):
             raise HTTPException(status_code=401, detail="Invalid email or password")
         if not user.is_active:
             raise HTTPException(status_code=403, detail="Account disabled")
 
-        token = create_access_token(data={"sub": str(user.id), "email": user.email, "role": user.role.value, "faculty_id": user.faculty_id})
+        # A non-live realm is fine: staff set it up before launch.
+        if realm_key is not None and not await self.realm_repo.get_realm(realm_key):
+            raise HTTPException(status_code=400, detail="Unknown portal")
+        if user.role in CROSS_REALM_ROLES:
+            realm_key = realm_key or DEFAULT_REALM_KEY
+        else:
+            own_key = user.realm_key or DEFAULT_REALM_KEY
+            if realm_key is not None and realm_key != own_key:
+                own = await self.realm_repo.get_realm(own_key)
+                raise HTTPException(status_code=403, detail=f"This account belongs to the {own.name} portal.")
+            realm_key = own_key
+
+        token = self._plain_token(user, realm_key)
         await self.audit_service.log(
             current_user={"sub": str(user.id), "email": user.email, "role": user.role.value, "faculty_id": user.faculty_id},
             action="auth.login",
@@ -102,7 +160,7 @@ class AuthService:
         )
         return token
 
-    async def generate_invite(self, email: str, target_role: RoleEnum, faculty_id: str | None = None, semester_id: int | None = None, current_user: dict | None = None) -> Invitation:
+    async def generate_invite(self, email: str, target_role: RoleEnum, faculty_id: str | None = None, semester_id: int | None = None, *, current_user: dict) -> Invitation:
         existing_user = await self.repo.get_user_by_email(email)
         if existing_user:
             raise HTTPException(status_code=400, detail="User with this email already exists")
@@ -119,6 +177,8 @@ class AuthService:
             target_role=target_role,
             faculty_id=faculty_id,
             semester_id=semester_id,
+            # Realm-bound roles join the inviter's active realm; cross-realm roles have none.
+            realm_key=stored_realm_key(target_role, current_user["realm"]),
             expires_at=datetime.now(timezone.utc) + timedelta(days=7)
         )
         created = await self.repo.create_invitation(invitation)
@@ -146,7 +206,8 @@ class AuthService:
             hashed_password=get_password_hash(password),
             role=invite.target_role,
             faculty_id=invite.faculty_id,
-            semester_id=invite.semester_id
+            semester_id=invite.semester_id,
+            realm_key=stored_realm_key(invite.target_role, invite.realm_key or DEFAULT_REALM_KEY),
         )
         created_user = await self.repo.create_user(new_user)
         invite.is_used = True
@@ -160,18 +221,19 @@ class AuthService:
         )
         return created_user
 
-    async def get_all_users(self) -> list[User]:
-        return await self.repo.get_all_users()
-    
+    async def get_users(self, *, realm_key: str) -> list[User]:
+        return await self.repo.get_users(realm_key=realm_key)
+
     async def get_user_by_email(self, email: str) -> User:
         return await self.repo.get_user_by_email(email)
 
-    async def get_all_invitations(self) -> list[Invitation]:
-        return await self.repo.get_all_invitations()
+    async def get_invitations(self, *, realm_key: str) -> list[Invitation]:
+        return await self.repo.get_invitations(realm_key=realm_key)
 
-    async def delete_user(self, user_id: int, current_user: dict | None = None) -> bool:
+    async def delete_user(self, user_id: int, current_user: dict) -> bool:
         user = await self.repo.get_user_by_id(user_id)
-        if not user: return False
+        # An account in another realm behaves like a missing one.
+        if not user or not is_in_realm(user.role, user.realm_key, current_user["realm"]): return False
         email = user.email
         role = user.role.value
         await self.repo.delete_user(user)
@@ -184,9 +246,9 @@ class AuthService:
         )
         return True
 
-    async def delete_invitation(self, inv_id: int, current_user: dict | None = None) -> bool:
+    async def delete_invitation(self, inv_id: int, current_user: dict) -> bool:
         invitation = await self.repo.get_invitation_by_id(inv_id)
-        if not invitation: return False
+        if not invitation or not is_in_realm(invitation.target_role, invitation.realm_key, current_user["realm"]): return False
         email = invitation.email
         await self.repo.delete_invitation(invitation)
         await self.audit_service.log(

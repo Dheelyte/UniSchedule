@@ -1,6 +1,6 @@
 import enum
 from datetime import datetime
-from sqlalchemy import String, Boolean, Enum, DateTime, ForeignKey
+from sqlalchemy import String, Boolean, Enum, DateTime, ForeignKey, null
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 from core.base_model import Base
@@ -17,6 +17,15 @@ class RoleEnum(str, enum.Enum):
 # These roles choose a realm at login and can switch; every other role belongs
 # to exactly one realm. Unrelated to _has_global_scope, which is about faculties.
 CROSS_REALM_ROLES = frozenset({RoleEnum.SUPER_ADMIN, RoleEnum.SUPER_VIEWER, RoleEnum.CITS_ADMIN})
+
+
+def stored_realm_key(role: RoleEnum, realm_key: str | None):
+    """The `realm_key` to store on a new user or invitation with this role.
+
+    Cross-realm roles get an explicit SQL NULL: a Python None would be left out
+    of the INSERT and the column's 'UG' server default would apply instead.
+    """
+    return null() if role in CROSS_REALM_ROLES else realm_key
 
 
 class User(Base):
