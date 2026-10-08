@@ -39,8 +39,11 @@ class Room(Base):
 
 class Course(Base):
     __tablename__ = "courses"
+    __table_args__ = (UniqueConstraint("realm_key", "code", name="uq_courses_realm_code"),)
     id: Mapped[int] = mapped_column(primary_key=True)
-    code: Mapped[str] = mapped_column(String, unique=True, index=True)
+    # Unique per realm: the same code can exist in UG and ICE.
+    code: Mapped[str] = mapped_column(String, index=True)
+    realm_key: Mapped[str] = mapped_column(ForeignKey("realms.key"), server_default="UG", index=True)
     title: Mapped[str] = mapped_column(String)
     credit_load: Mapped[int] = mapped_column(Integer, default=3)
     lecturers: Mapped[list[str]] = mapped_column(ARRAY(String), default=[])
@@ -63,6 +66,8 @@ class ScheduleItem(Base):
     week: Mapped[int | None] = mapped_column(Integer, nullable=True)
     exam_date: Mapped[date_type | None] = mapped_column(Date, nullable=True)
     semester_id: Mapped[int | None] = mapped_column(ForeignKey("semesters.id"), nullable=True)
+    # Stored on the item: semester_id is nullable on legacy rows, and cross-realm room checks query it directly.
+    realm_key: Mapped[str] = mapped_column(ForeignKey("realms.key"), server_default="UG", index=True)
 
 class BlockedSlot(Base):
     __tablename__ = "blocked_slots"
@@ -105,6 +110,7 @@ class ChangeRequest(Base):
     __tablename__ = "change_requests"
     id: Mapped[int] = mapped_column(primary_key=True)
     semester_id: Mapped[int] = mapped_column(ForeignKey("semesters.id", ondelete="CASCADE"), index=True)
+    realm_key: Mapped[str] = mapped_column(ForeignKey("realms.key"), server_default="UG", index=True)
     timetable_type: Mapped[str] = mapped_column(String)  # "lecture" | "exam"
     action: Mapped[str] = mapped_column(String)  # ADD | MODIFY | REMOVE
     # Target existing item (MODIFY/REMOVE). Null for ADD or if the item was since deleted.

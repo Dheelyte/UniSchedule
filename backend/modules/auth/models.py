@@ -14,6 +14,11 @@ class RoleEnum(str, enum.Enum):
     CITS_ADMIN = "CITS_ADMIN"
 
 
+# These roles choose a realm at login and can switch; every other role belongs
+# to exactly one realm. Unrelated to _has_global_scope, which is about faculties.
+CROSS_REALM_ROLES = frozenset({RoleEnum.SUPER_ADMIN, RoleEnum.SUPER_VIEWER, RoleEnum.CITS_ADMIN})
+
+
 class User(Base):
     __tablename__ = "users"
     
@@ -24,6 +29,8 @@ class User(Base):
     faculty_id: Mapped[str | None] = mapped_column(String, nullable=True)
     semester_id: Mapped[int | None] = mapped_column(ForeignKey("semesters.id"), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    # NULL for cross-realm roles (set explicitly in code).
+    realm_key: Mapped[str | None] = mapped_column(ForeignKey("realms.key"), nullable=True, server_default="UG", index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -38,6 +45,8 @@ class Invitation(Base):
     semester_id: Mapped[int | None] = mapped_column(ForeignKey("semesters.id"), nullable=True)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     is_used: Mapped[bool] = mapped_column(Boolean, default=False)
+    # NULL for cross-realm roles (set explicitly in code).
+    realm_key: Mapped[str | None] = mapped_column(ForeignKey("realms.key"), nullable=True, server_default="UG", index=True)
 
 
 class PasswordResetToken(Base):
