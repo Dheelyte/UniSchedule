@@ -51,11 +51,11 @@ Prerequisites: none.
 
 Prerequisites: Phase 0.
 
-- [ ] Create `backend/modules/realms/` with `models.py` (`Realm`), `schemas.py` (`RealmConfig`, `ExamSlot`, `RealmResponse`, `RealmUpdate`), `repository.py` and `service.py`. The config rules are in SPEC §4.
-- [ ] Add the realm-scoped columns to the SQLAlchemy models (SPEC §5), including `server_default="UG"`. On `Course`, drop `unique=True` from `code` and add `UniqueConstraint("realm_key", "code", name="uq_courses_realm_code")`.
-- [ ] Define `CROSS_REALM_ROLES` next to `RoleEnum`.
-- [ ] Write one Alembic revision by hand (`down_revision = "m3h4i5j6k7l8"`) that follows SPEC §5 steps 1–7, and import the realms model in `migrations/env.py`. Run `alembic revision --autogenerate` against a scratch database to confirm nothing else is pending, then delete the generated file.
-- [ ] Add `api/v1/realms.py` and mount it in `main.py`:
+- [x] Create `backend/modules/realms/` with `models.py` (`Realm`), `schemas.py` (`RealmConfig`, `ExamSlot`, `RealmResponse`, `RealmUpdate`), `repository.py` and `service.py`. The config rules are in SPEC §4.
+- [x] Add the realm-scoped columns to the SQLAlchemy models (SPEC §5), including `server_default="UG"`. On `Course`, drop `unique=True` from `code` and add `UniqueConstraint("realm_key", "code", name="uq_courses_realm_code")`.
+- [x] Define `CROSS_REALM_ROLES` next to `RoleEnum`.
+- [x] Write one Alembic revision by hand (`down_revision = "m3h4i5j6k7l8"`) that follows SPEC §5 steps 1–7, and import the realms model in `migrations/env.py`. Confirm nothing else is pending with `alembic check` (autogenerate without writing a file) against a scratch database; `tests/test_realm_migration.py` runs it.
+- [x] Add `api/v1/realms.py` and mount it in `main.py`:
   - `GET /realms`: public, ordered by `sort_order`, includes the config.
   - `PUT /realms/{key}`: SUPER_ADMIN only; validates the config; writes an audit log entry.
 
@@ -225,10 +225,13 @@ Launch is for people, not Claude:
 - `backend/Dockerfile:34` copies the whole folder into the Lambda image and there is no `.dockerignore`, so `backend/tests/` ships with it (harmless: the dev dependencies aren't installed). Add a `.dockerignore`.
 - `backend/test_service.py:1` is a leftover manual script, not a test. pytest ignores it (`testpaths = ["tests"]`); delete it or move it to `backend/scripts/`.
 - `README.md:3` says Next.js 15; the project is on Next.js 16.
-- `backend/tests/conftest.py`: the suite takes about 35 s for 7 tests, mostly per-test connection setup under `NullPool`. Revisit if the Phase 3 isolation matrix makes it slow.
+- `backend/tests/conftest.py:69`: the suite now takes about 2.5 minutes for 42 tests. The autouse `_clean_tables` truncate runs even for pure unit tests (the 23 `RealmConfig` cases), and connections are set up per test under `NullPool`. Skip the truncate for tests that don't touch the database before the Phase 3 isolation matrix.
+- `backend/migrations/versions/n4i5j6k7l8m9_add_realms.py:145`: the downgrade doesn't restore the `is_current` flags that step 6 cleared, and only course codes are checked before realms are merged back together. Acceptable while no ICE data exists (SPEC §5 Rollback).
+- `backend/modules/auth/models.py:33`: until Phase 2, accounts created through the app get `realm_key = 'UG'` from the server default, including new cross-realm accounts. Phase 2 must set NULL explicitly on invite, registration and the seeded super admin.
 
 ## Progress log
 
 <!-- Claude appends one line per finished phase: YYYY-MM-DD · Phase N · what changed · test results -->
 
 2026-10-08 · Phase 0 · pytest harness (dev dependency group, `RATE_LIMIT_ENABLED`, `DB_NULL_POOL`, `tests/conftest.py`), 7 baseline tests pinning UG behaviour, README test and port notes · backend `pytest` 7 passed; `npm test` 10 passed; `npm run lint` 0 errors (20 existing warnings); `npm run build` OK
+2026-10-08 · Phase 1 · `modules/realms` (model, `RealmConfig`, repository, service), `GET /realms` and `PUT /realms/{key}`, `realm_key` columns on the models, `CROSS_REALM_ROLES`, revision `n4i5j6k7l8m9` (SPEC §5 steps 1–7) · backend `pytest` 42 passed (7 baseline unchanged), including upgrade → downgrade → upgrade, legacy backfill and `alembic check`
