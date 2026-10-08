@@ -11,6 +11,11 @@ class Settings(BaseSettings):
     DEBUG: bool = Field(default=True)
 
     DATABASE_URL: str = "postgresql+asyncpg://postgres:password@localhost:5432/unilag_timetable"
+    # Tests set this: pooled asyncpg connections break across pytest-asyncio event loops.
+    DB_NULL_POOL: bool = False
+
+    # Tests turn this off: slowapi's 60/minute default would fail the suite.
+    RATE_LIMIT_ENABLED: bool = True
     
     SECRET_KEY: str = Field(..., min_length=32)
     ALGORITHM: str = Field(default="HS256")

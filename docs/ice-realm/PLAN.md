@@ -19,29 +19,29 @@ The design is in `SPEC.md`. When this plan and the spec disagree, the spec wins.
 
 Prerequisites: none.
 
-- [ ] Create the branch `feature/ice-realm` from `main`.
-- [ ] Bring the stack up locally:
+- [x] Create the branch `feature/ice-realm` from `main`.
+- [x] Bring the stack up locally:
   - `cd backend && docker compose up -d` (Postgres on host port **5433**, not 5432).
   - Create `backend/.env` with `DATABASE_URL=postgresql+asyncpg://postgres:password@localhost:5433/unilag_timetable` and a `SECRET_KEY` of 32 or more characters.
   - `uv sync`, `uv run alembic upgrade head`, then `uv run uvicorn main:app --reload`.
   - At the repo root, `npm install && npm run build`.
   - Log anything that fails before changing code. If Docker or uv is missing, stop and say so.
-- [ ] Add a uv dev dependency group with pytest, pytest-asyncio and httpx. Add `[tool.pytest.ini_options]` with `pythonpath = ["."]`, `testpaths = ["tests"]` and `asyncio_mode = "auto"`. The Dockerfile and CI install with `--no-dev`, so the Lambda image doesn't change.
-- [ ] Make rate limiting switchable: add `RATE_LIMIT_ENABLED: bool = True` to `Settings` and pass `enabled=settings.RATE_LIMIT_ENABLED` to `Limiter` in `main.py`. Tests turn it off, because slowapi's 60/minute default would fail the suite.
-- [ ] Add `DB_NULL_POOL: bool = False` to `Settings`. When it's true, `core/database.py` creates the engine with `NullPool`. Tests turn it on, because pooled asyncpg connections break across pytest-asyncio event loops ("attached to a different loop").
-- [ ] Create `backend/tests/conftest.py`:
+- [x] Add a uv dev dependency group with pytest, pytest-asyncio and httpx. Add `[tool.pytest.ini_options]` with `pythonpath = ["."]`, `testpaths = ["tests"]` and `asyncio_mode = "auto"`. The Dockerfile and CI install with `--no-dev`, so the Lambda image doesn't change.
+- [x] Make rate limiting switchable: add `RATE_LIMIT_ENABLED: bool = True` to `Settings` and pass `enabled=settings.RATE_LIMIT_ENABLED` to `Limiter` in `main.py`. Tests turn it off, because slowapi's 60/minute default would fail the suite.
+- [x] Add `DB_NULL_POOL: bool = False` to `Settings`. When it's true, `core/database.py` creates the engine with `NullPool`. Tests turn it on, because pooled asyncpg connections break across pytest-asyncio event loops ("attached to a different loop").
+- [x] Create `backend/tests/conftest.py`:
   - Before importing the app, set the environment: `DATABASE_URL` pointing at `unilag_timetable_test` on localhost:5433, `SECRET_KEY`, `ENVIRONMENT=dev`, `RATE_LIMIT_ENABLED=false`, `DB_NULL_POOL=true`.
   - Create the test database if it's missing, and run `alembic upgrade head` once per session.
   - Before each test, `TRUNCATE … RESTART IDENTITY CASCADE` every table except `alembic_version` (and `realms` once it exists).
   - Fixtures: an httpx `AsyncClient` over `ASGITransport(app=app)`, `make_user(role, faculty_id=None)`, and `login(client, email, password)`.
-- [ ] Baseline tests that pin today's behaviour:
+- [x] Baseline tests that pin today's behaviour:
   - `/health`;
   - login, then `/auth/me`;
   - a faculty editor creating a course in another faculty's department gets 403;
   - scheduling into a locked lecture timetable gets 423;
   - scheduling into a blocked slot gets 400;
   - creating a new session demotes the previous current semester.
-- [ ] README: note that local Postgres is on 5433, and explain how to run the backend and frontend tests.
+- [x] README: note that local Postgres is on 5433, and explain how to run the backend and frontend tests.
 
 **Verify:** `cd backend && uv run pytest -q`, `npm test`, `npm run lint`, `npm run build`.
 
@@ -222,6 +222,13 @@ Launch is for people, not Claude:
 
 <!-- Claude adds out-of-scope findings here: one line each, with file:line. -->
 
+- `backend/Dockerfile:34` copies the whole folder into the Lambda image and there is no `.dockerignore`, so `backend/tests/` ships with it (harmless: the dev dependencies aren't installed). Add a `.dockerignore`.
+- `backend/test_service.py:1` is a leftover manual script, not a test. pytest ignores it (`testpaths = ["tests"]`); delete it or move it to `backend/scripts/`.
+- `README.md:3` says Next.js 15; the project is on Next.js 16.
+- `backend/tests/conftest.py`: the suite takes about 35 s for 7 tests, mostly per-test connection setup under `NullPool`. Revisit if the Phase 3 isolation matrix makes it slow.
+
 ## Progress log
 
 <!-- Claude appends one line per finished phase: YYYY-MM-DD · Phase N · what changed · test results -->
+
+2026-10-08 · Phase 0 · pytest harness (dev dependency group, `RATE_LIMIT_ENABLED`, `DB_NULL_POOL`, `tests/conftest.py`), 7 baseline tests pinning UG behaviour, README test and port notes · backend `pytest` 7 passed; `npm test` 10 passed; `npm run lint` 0 errors (20 existing warnings); `npm run build` OK
