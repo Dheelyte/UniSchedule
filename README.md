@@ -34,6 +34,8 @@ The backend logic and database are managed within the `backend/` directory.
    docker compose up -d
    ```
 
+   The container publishes Postgres on host port **5433** (not the default 5432), so it doesn't clash with a Postgres already installed on your machine.
+
    _(Alternatively, configure a local PostgreSQL instance with credentials matching `core/config.py`)_
 
 3. Create the virtual environment and install dependencies using `uv` (recommended):
@@ -49,8 +51,8 @@ The backend logic and database are managed within the `backend/` directory.
    Create a `.env` file inside `/backend` with the following variables:
 
    ```env
-   DATABASE_URL=postgresql+asyncpg://postgres:password@localhost:5432/unilag_timetable
-   SECRET_KEY=your_secret_key
+   DATABASE_URL=postgresql+asyncpg://postgres:password@localhost:5433/unilag_timetable
+   SECRET_KEY=a_random_string_of_at_least_32_characters
    DEFAULT_SUPER_ADMIN_EMAIL=admin@email.com
    DEFAULT_SUPER_ADMIN_PASSWORD=adminpassword
    FRONTEND_URL=http://localhost:3000
@@ -91,6 +93,30 @@ The frontend is a Next.js application located at the project root.
    ```
 
 4. Open [http://localhost:3000](http://localhost:3000) with your browser to launch the application.
+
+## Running the Tests
+
+### Backend
+
+The backend tests need the Postgres container from step 2 above to be running. They never touch your development data: they create and migrate their own database, `unilag_timetable_test`, on `localhost:5433`, and empty its tables before every test.
+
+```bash
+cd backend
+uv sync            # installs the dev group (pytest, pytest-asyncio, httpx)
+uv run pytest -q
+```
+
+To use a different Postgres, set `TEST_DATABASE_URL`. It must be on localhost and the database name must end with `_test`.
+
+### Frontend
+
+From the project root:
+
+```bash
+npm test         # unit tests (node --test)
+npm run lint
+npm run build
+```
 
 ## Contributing
 

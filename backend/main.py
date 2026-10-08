@@ -14,7 +14,11 @@ from api.v1 import dummy, auth, calendar, timetable, export, notifications, audi
 from modules.auth.models import User, RoleEnum
 from core.security import get_password_hash
 
-limiter = Limiter(key_func=get_remote_address, default_limits=["60/minute"])
+limiter = Limiter(
+    key_func=get_remote_address,
+    default_limits=["60/minute"],
+    enabled=settings.RATE_LIMIT_ENABLED,
+)
 
 
 @contextlib.asynccontextmanager
