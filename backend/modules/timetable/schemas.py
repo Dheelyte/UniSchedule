@@ -63,7 +63,9 @@ class RoomReorderRequest(BaseModel):
     rooms: list[RoomReorderItem]
 
 
-_VALID_SEMESTERS = {"First Semester", "Second Semester"}
+def _blank_to_none(v: str | None) -> str | None:
+    # Which semester names and levels are valid depends on the realm, so the service checks them.
+    return None if v is None or v == '' else v
 
 
 class CourseCreate(BaseModel):
@@ -80,11 +82,7 @@ class CourseCreate(BaseModel):
     @field_validator('semester')
     @classmethod
     def validate_semester(cls, v: str | None) -> str | None:
-        if v is None or v == '':
-            return None
-        if v not in _VALID_SEMESTERS:
-            raise ValueError('semester must be "First Semester" or "Second Semester"')
-        return v
+        return _blank_to_none(v)
 
     @field_validator('code')
     @classmethod
@@ -145,11 +143,7 @@ class CourseUpdate(BaseModel):
     @field_validator('semester')
     @classmethod
     def validate_semester(cls, v: str | None) -> str | None:
-        if v is None or v == '':
-            return None
-        if v not in _VALID_SEMESTERS:
-            raise ValueError('semester must be "First Semester" or "Second Semester"')
-        return v
+        return _blank_to_none(v)
 
 
 class ScheduleItemCreate(BaseModel):

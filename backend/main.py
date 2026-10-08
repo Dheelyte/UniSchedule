@@ -13,7 +13,6 @@ from core.database import get_db, async_session_maker
 from api.v1 import dummy, auth, calendar, timetable, export, notifications, audit, realms
 from modules.auth.models import User, RoleEnum, stored_realm_key
 from core.security import get_password_hash
-from api.dependencies.auth import require_default_realm
 
 limiter = Limiter(
     key_func=get_remote_address,
@@ -56,13 +55,11 @@ app.add_middleware(
 
 app.include_router(dummy.router, prefix="/api/v1")
 app.include_router(auth.router, prefix="/api/v1")
-# Not realm-scoped yet: UG only until ICE realm phase 3 scopes their queries.
-ug_only = [Depends(require_default_realm)]
-app.include_router(calendar.router, prefix="/api/v1", dependencies=ug_only)
-app.include_router(timetable.router, prefix="/api/v1", dependencies=ug_only)
-app.include_router(export.router, prefix="/api/v1", dependencies=ug_only)
-app.include_router(notifications.router, prefix="/api/v1", dependencies=ug_only)
-app.include_router(audit.router, prefix="/api/v1", dependencies=ug_only)
+app.include_router(calendar.router, prefix="/api/v1")
+app.include_router(timetable.router, prefix="/api/v1")
+app.include_router(export.router, prefix="/api/v1")
+app.include_router(notifications.router, prefix="/api/v1")
+app.include_router(audit.router, prefix="/api/v1")
 app.include_router(realms.router, prefix="/api/v1")
 
 @app.get("/health")

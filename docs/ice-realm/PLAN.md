@@ -107,23 +107,23 @@ Prerequisites: Phase 1.
 
 Prerequisites: Phase 2.
 
-- [ ] Calendar, following SPEC §7's calendar rules. The endpoints now pass `current_user` through.
-- [ ] Courses, with the semester and level checks moved into the service and validated against the config.
-- [ ] Schedule items.
-- [ ] Blocked slots, locks and edit requests.
-- [ ] Change requests.
-- [ ] Enrollments.
-- [ ] Conflict dismissals.
-- [ ] Notifications. Editor lookups are per realm, and messages to super admins name the realm with `?realm=` on the link.
-- [ ] Audit log.
-- [ ] Every repository list or query method takes a keyword-only, required `realm_key`.
-- [ ] Remove the Phase 2 guard: take `ug_only` off each router in `main.py` as it gets scoped, then delete `require_default_realm` and its two tests in `tests/test_auth_realm.py`. The export router returns sample data only (SPEC §11); decide there whether it stays guarded.
+- [x] Calendar, following SPEC §7's calendar rules. The endpoints now pass `current_user` through.
+- [x] Courses, with the semester and level checks moved into the service and validated against the config.
+- [x] Schedule items.
+- [x] Blocked slots, locks and edit requests.
+- [x] Change requests.
+- [x] Enrollments.
+- [x] Conflict dismissals.
+- [x] Notifications. Editor lookups are per realm, and messages to super admins name the realm with `?realm=` on the link.
+- [x] Audit log.
+- [x] Every repository list or query method takes a keyword-only, required `realm_key`.
+- [x] Remove the Phase 2 guard: take `ug_only` off each router in `main.py` as it gets scoped, then delete `require_default_realm` and its two tests in `tests/test_auth_realm.py`. The export router returns sample data only (SPEC §11), so it is left unguarded: it has no realm data to leak.
 
 **Verify** with tests:
 - An isolation matrix: for each resource, create one in UG and one in ICE.
   - Each realm's editor sees only their realm's data.
   - A super admin sees only the realm they're signed in to.
-  - Cross-realm get, update and delete all return 404.
+  - Cross-realm get, update and delete all return 404. (Deleting a course or schedule item whose id doesn't exist at all is still a silent 200, as before realms; see Follow-ups.)
 - Creating an ICE session doesn't demote UG's current semester.
 - The same course code works across realms.
 - Priority-override emails go only to editors in the same realm.
@@ -228,12 +228,17 @@ Launch is for people, not Claude:
 - `backend/Dockerfile:34` copies the whole folder into the Lambda image and there is no `.dockerignore`, so `backend/tests/` ships with it (harmless: the dev dependencies aren't installed). Add a `.dockerignore`.
 - `backend/test_service.py:1` is a leftover manual script, not a test. pytest ignores it (`testpaths = ["tests"]`); delete it or move it to `backend/scripts/`.
 - `README.md:3` says Next.js 15; the project is on Next.js 16.
-- `backend/tests/conftest.py:69`: the suite now takes about 4.5 minutes for 72 tests. The autouse `_clean_tables` truncate runs even for pure unit tests (the 23 `RealmConfig` cases), and connections are set up per test under `NullPool`. Skip the truncate for tests that don't touch the database before the Phase 3 isolation matrix.
+- `backend/tests/conftest.py:69`: the suite is slow (about 10.5 minutes for 84 tests). The autouse `_clean_tables` truncate runs even for pure unit tests (the 23 `RealmConfig` cases), and connections are set up per test under `NullPool`; the `world` fixture in `tests/test_realm_isolation.py` makes about 30 API calls per test. Skip the truncate for tests that don't touch the database, and speed up the per-request connection.
 - `backend/migrations/versions/n4i5j6k7l8m9_add_realms.py:145`: the downgrade doesn't restore the `is_current` flags that step 6 cleared, and only course codes are checked before realms are merged back together. Acceptable while no ICE data exists (SPEC §5 Rollback).
 - `backend/modules/auth/models.py:22`: a Python `None` for `realm_key` is left out of the INSERT, so the `'UG'` server default applies. New users and invitations must go through `stored_realm_key()`, which sends an explicit SQL NULL for cross-realm roles. The same trap applies to any other nullable `realm_key` column with a default.
 - `backend/api/dependencies/auth.py:21`: `get_current_user` now does one extra primary-key lookup on `realms` per request and validates the config each time. Cache the realms in-process if it shows up in latency.
 - `backend/modules/auth/service.py`: changing a user's role is not possible through the API today. If it is added, a move between a cross-realm and a realm-bound role must also set or clear `realm_key`.
 - `src/app/register/page.js`: ignores the `&realm=` now on invitation links (Phase 5 uses it to redirect to the right portal).
+- `backend/modules/timetable/service.py` (`delete_course`, `delete_schedule_item`): SPEC §7 says another realm's id behaves exactly like a missing id, 404, but deleting a missing course or schedule item has always been a silent 200. To leave UG alone, a missing id is still a 200 and only another realm's id is a 404, so the two can be told apart. Decide whether both should be 404 (a small UG change) and update SPEC §7 to match.
+- `backend/modules/timetable/service.py` (`review_change_request`): the "Your change request was approved/rejected" notification goes to the requester with a link that has no `?realm=`. A SUPER_VIEWER requester is cross-realm and may be in another realm when they open it.
+- `backend/modules/auth/service.py` (`generate_invite`): `semester_id` on an invitation isn't checked against the inviter's realm. Nothing reads it for scoping today.
+- `src/` (notifications): links to super admins now end in `?realm=KEY`, including UG ones. The pages ignore the parameter until Phase 5 handles it.
+- `backend/modules/audit/service.py`: activity logs written by the previous code version during a deploy have `realm_key` NULL, so they show in every realm's audit list. Harmless; backfill to `UG` if it matters.
 
 ## Progress log
 
@@ -242,3 +247,4 @@ Launch is for people, not Claude:
 2026-10-08 · Phase 0 · pytest harness (dev dependency group, `RATE_LIMIT_ENABLED`, `DB_NULL_POOL`, `tests/conftest.py`), 7 baseline tests pinning UG behaviour, README test and port notes · backend `pytest` 7 passed; `npm test` 10 passed; `npm run lint` 0 errors (20 existing warnings); `npm run build` OK
 2026-10-08 · Phase 1 · `modules/realms` (model, `RealmConfig`, repository, service), `GET /realms` and `PUT /realms/{key}`, `realm_key` columns on the models, `CROSS_REALM_ROLES`, revision `n4i5j6k7l8m9` (SPEC §5 steps 1–7) · backend `pytest` 42 passed (7 baseline unchanged), including upgrade → downgrade → upgrade, legacy backfill and `alembic check`
 2026-10-08 · Phase 2 · login takes a realm, tokens carry `realm`, `get_current_user` returns `realm`/`realm_name`/`realm_config`, `POST /auth/switch-realm`, impersonation keeps the realm, invitations and registration carry the realm (email and link name the portal), staff listings and deletes per realm, seeded super admin has no realm, temporary UG-only guard on the unscoped routers · backend `pytest` 72 passed (42 existing unchanged, 30 new in `tests/test_auth_realm.py`)
+2026-10-09 · Phase 3 · every realm-scoped query filters by the active realm (calendar, courses, schedule items, blocked slots, locks, edit requests, change requests, enrollments, conflict dismissals, audit log); repository reads take a required keyword-only `realm_key`; course level and semester checked against the realm config in the service; priority-override notifications reach only the same realm's editors and notifications to super admins name the realm; Phase 2 guard removed · backend `pytest` 84 passed (70 existing unchanged, the 2 guard tests removed, 14 new in `tests/test_realm_isolation.py`); frontend untouched, so npm checks not re-run

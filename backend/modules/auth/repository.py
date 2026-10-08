@@ -66,13 +66,14 @@ class AuthRepository:
         result = await self.db.execute(select(User).where(User.id.in_(ids)))
         return list(result.scalars().all())
 
-    async def get_faculty_editors_in_faculties(self, faculty_ids: list[str]) -> list[User]:
+    async def get_faculty_editors_in_faculties(self, faculty_ids: list[str], *, realm_key: str) -> list[User]:
         if not faculty_ids:
             return []
         result = await self.db.execute(
             select(User).where(
                 User.role == RoleEnum.FACULTY_EDITOR,
                 User.faculty_id.in_(faculty_ids),
+                func.coalesce(User.realm_key, DEFAULT_REALM_KEY) == realm_key,
             )
         )
         return list(result.scalars().all())

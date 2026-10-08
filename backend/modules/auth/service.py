@@ -98,7 +98,7 @@ class AuthService:
             raise HTTPException(status_code=401, detail="Account no longer exists")
         token = self._plain_token(user, current_user.get("realm") or DEFAULT_REALM_KEY)
         await self.audit_service.log(
-            current_user={"sub": str(user.id), "email": user.email, "role": user.role.value, "faculty_id": user.faculty_id},
+            current_user={"sub": str(user.id), "email": user.email, "role": user.role.value, "faculty_id": user.faculty_id, "realm": current_user.get("realm")},
             action="auth.impersonate.stop",
             entity_type="user",
             entity_id=user.id,
@@ -152,7 +152,7 @@ class AuthService:
 
         token = self._plain_token(user, realm_key)
         await self.audit_service.log(
-            current_user={"sub": str(user.id), "email": user.email, "role": user.role.value, "faculty_id": user.faculty_id},
+            current_user={"sub": str(user.id), "email": user.email, "role": user.role.value, "faculty_id": user.faculty_id, "realm": realm_key},
             action="auth.login",
             entity_type="user",
             entity_id=user.id,
@@ -213,7 +213,7 @@ class AuthService:
         invite.is_used = True
         await self.repo.db.flush()
         await self.audit_service.log(
-            current_user={"sub": str(created_user.id), "email": created_user.email, "role": created_user.role.value, "faculty_id": created_user.faculty_id},
+            current_user={"sub": str(created_user.id), "email": created_user.email, "role": created_user.role.value, "faculty_id": created_user.faculty_id, "realm": invite.realm_key},
             action="user.register",
             entity_type="user",
             entity_id=created_user.id,
