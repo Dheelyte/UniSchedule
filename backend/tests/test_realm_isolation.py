@@ -1,5 +1,6 @@
 """Every realm-scoped resource is invisible and untouchable from another realm (ICE realm phase 3)."""
 import inspect
+import re
 
 import pytest
 from sqlalchemy import select
@@ -193,49 +194,66 @@ async def test_new_rows_are_stored_in_the_callers_realm(world):
 
 # --- Another realm's ids are not found --------------------------------------
 
-async def test_another_realms_ids_are_404(world):
+async def test_another_realms_id_behaves_exactly_like_a_missing_id(world):
+    """Same status and body on every endpoint that takes an id, so the two can't be told apart.
+
+    Most of these are 404s; deleting a course or a schedule item is a silent 200, as it always was.
+    """
+    missing = 999999
     for key in ("UG", "ICE"):
         mine, theirs = world[key], world[OTHER[key]]
         admin, editor = mine["admin"], mine["editor"]
         before = await _snapshot(theirs["admin"], theirs, admin=False)
-        semester = {"semester_id": theirs["semester"]["id"]}
-        enrollment = {"course_id": theirs["course"]["id"], "department_id": theirs["department"]["id"], "level": 200}
 
-        attempts = {
-            "update course": admin.put(f"{API}/timetable/courses/{theirs['course']['id']}", json={"title": "Taken"}),
-            "delete course": admin.delete(f"{API}/timetable/courses/{theirs['course']['id']}"),
-            "update item": admin.put(f"{API}/timetable/schedule-items/{theirs['item']['id']}", json={"start_time": "09:00:00"}),
-            "delete item": admin.delete(f"{API}/timetable/schedule-items/{theirs['item']['id']}"),
-            "schedule their course": admin.post(f"{API}/timetable/schedule-items", json=_lecture(
-                mine, course_id=theirs["course"]["id"], start_time="16:00:00", end_time="17:00:00",
-            )),
-            "delete slot": admin.delete(f"{API}/timetable/blocked-slots/{theirs['slot']['id']}"),
-            "block their semester": admin.post(f"{API}/timetable/blocked-slots", json={
-                "name": "Mine now", "day_of_week": "Thursday", "applies_to": "LECTURE_ONLY", **semester,
-            }),
-            "read locks": admin.get(f"{API}/timetable/locks", params=semester),
-            "lock": admin.put(f"{API}/timetable/locks/lecture", params=semester, json={"is_locked": True}),
-            "request edit": editor.post(f"{API}/timetable/locks/lecture/edit-requests", params=semester, json={}),
-            "semester in their session": admin.post(
-                f"{API}/calendar/semesters", json={"name": "Second Semester", "session_id": theirs["session"]["id"]}
-            ),
-            "enroll": admin.post(f"{API}/timetable/enrollments", json={**enrollment, "level": 300}),
-            "unenroll": admin.delete(f"{API}/timetable/enrollments", params=enrollment),
-            "dismiss": admin.post(f"{API}/timetable/conflict-dismissals", json={
-                "conflict_type": "duplicate", "item_a_id": theirs["item"]["id"], "reason": "no",
-            }),
-            "restore": admin.delete(f"{API}/timetable/conflict-dismissals/{theirs['dismissal']['id']}"),
-            "review": admin.post(f"{API}/timetable/change-requests/{theirs['request']['id']}/review", json={"approve": True}),
-            "request for their course": editor.post(f"{API}/timetable/change-requests", json=_lecture(
-                mine, timetable_type="lecture", action="ADD", course_id=theirs["course"]["id"],
-            )),
-            "request on their item": editor.post(f"{API}/timetable/change-requests", json=_lecture(
-                mine, timetable_type="lecture", action="REMOVE", target_schedule_item_id=theirs["item"]["id"],
-            )),
-        }
-        for name, attempt in attempts.items():
-            response = await attempt
-            assert response.status_code == 404, f"{key}: {name}: {response.status_code} {response.text}"
+        def attempts(course_id, item_id, slot_id, semester_id, session_id, dismissal_id, request_id) -> dict:
+            semester = {"semester_id": semester_id}
+            enrollment = {"course_id": course_id, "department_id": mine["department"]["id"], "level": 200}
+            return {
+                "update course": (admin.put(f"{API}/timetable/courses/{course_id}", json={"title": "Taken"}), 404),
+                "delete course": (admin.delete(f"{API}/timetable/courses/{course_id}"), 200),
+                "update item": (admin.put(f"{API}/timetable/schedule-items/{item_id}", json={"start_time": "09:00:00"}), 404),
+                "delete item": (admin.delete(f"{API}/timetable/schedule-items/{item_id}"), 200),
+                "schedule course": (admin.post(f"{API}/timetable/schedule-items", json=_lecture(
+                    mine, course_id=course_id, start_time="16:00:00", end_time="17:00:00",
+                )), 404),
+                "delete slot": (admin.delete(f"{API}/timetable/blocked-slots/{slot_id}"), 404),
+                "block semester": (admin.post(f"{API}/timetable/blocked-slots", json={
+                    "name": "Mine now", "day_of_week": "Thursday", "applies_to": "LECTURE_ONLY", **semester,
+                }), 404),
+                "read locks": (admin.get(f"{API}/timetable/locks", params=semester), 404),
+                "lock": (admin.put(f"{API}/timetable/locks/lecture", params=semester, json={"is_locked": True}), 404),
+                "request edit": (editor.post(f"{API}/timetable/locks/lecture/edit-requests", params=semester, json={}), 404),
+                "semester in session": (admin.post(
+                    f"{API}/calendar/semesters", json={"name": "Second Semester", "session_id": session_id}
+                ), 404),
+                "semesters of session": (admin.get(f"{API}/calendar/sessions/{session_id}/semesters"), 200),
+                "enroll": (admin.post(f"{API}/timetable/enrollments", json={**enrollment, "level": 300}), 404),
+                "unenroll": (admin.delete(f"{API}/timetable/enrollments", params=enrollment), 404),
+                "course enrollments": (admin.get(f"{API}/timetable/courses/{course_id}/enrollments"), 200),
+                "dismiss": (admin.post(f"{API}/timetable/conflict-dismissals", json={
+                    "conflict_type": "duplicate", "item_a_id": item_id, "reason": "no",
+                }), 404),
+                "restore": (admin.delete(f"{API}/timetable/conflict-dismissals/{dismissal_id}"), 404),
+                "review": (admin.post(f"{API}/timetable/change-requests/{request_id}/review", json={"approve": True}), 404),
+                "request for course": (editor.post(f"{API}/timetable/change-requests", json=_lecture(
+                    mine, timetable_type="lecture", action="ADD", course_id=course_id,
+                )), 404),
+                "request on item": (editor.post(f"{API}/timetable/change-requests", json=_lecture(
+                    mine, timetable_type="lecture", action="REMOVE", target_schedule_item_id=item_id,
+                )), 404),
+            }
+
+        foreign = attempts(
+            theirs["course"]["id"], theirs["item"]["id"], theirs["slot"]["id"], theirs["semester"]["id"],
+            theirs["session"]["id"], theirs["dismissal"]["id"], theirs["request"]["id"],
+        )
+        absent = attempts(*[missing] * 7)
+        for name, (attempt, status) in foreign.items():
+            theirs_response, missing_response = await attempt, await absent[name][0]
+            # One message echoes the id ("Schedule item 7 not found"), so compare with numbers masked.
+            theirs_body, missing_body = (re.sub(r"\d+", "N", r.text) for r in (theirs_response, missing_response))
+            assert (theirs_response.status_code, theirs_body) == (missing_response.status_code, missing_body), f"{key}: {name}"
+            assert theirs_response.status_code == status, f"{key}: {name}: {theirs_response.text}"
 
         # A bulk dismissal skips what it can't find, so their item is skipped too.
         bulk = await _ok(await admin.post(f"{API}/timetable/conflict-dismissals/bulk", json={
@@ -244,16 +262,10 @@ async def test_another_realms_ids_are_404(world):
         }))
         assert bulk == []
 
+        # Nothing of theirs was touched, including by the deletes that answered 200.
         assert await _snapshot(theirs["admin"], theirs, admin=False) == before, f"{key} changed {OTHER[key]}"
-        locks = await _ok(await theirs["admin"].get(f"{API}/timetable/locks", params=semester))
+        locks = await _ok(await theirs["admin"].get(f"{API}/timetable/locks", params={"semester_id": theirs["semester"]["id"]}))
         assert [lock["is_locked"] for lock in locks] == [False, False]
-
-
-async def test_deleting_a_missing_id_is_still_a_silent_no_op(world):
-    """Pins pre-realm behaviour: only another realm's id is a 404."""
-    admin = world["UG"]["admin"]
-    assert (await admin.delete(f"{API}/timetable/courses/999999")).status_code == 200
-    assert (await admin.delete(f"{API}/timetable/schedule-items/999999")).status_code == 200
 
 
 async def test_a_lock_holds_only_in_its_own_realm(world):
