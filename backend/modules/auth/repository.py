@@ -1,10 +1,29 @@
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import func, select, update
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.orm import joinedload
 from core.database import get_db
-from modules.auth.models import PasswordResetToken, User, Invitation, RoleEnum
+from modules.auth.models import PasswordResetToken, User, Invitation, RoleEnum, CROSS_REALM_ROLES
+from modules.realms.defaults import DEFAULT_REALM_KEY
 from modules.timetable.models import Faculty
+
+
+def is_in_realm(role: RoleEnum, account_realm_key: str | None, realm_key: str) -> bool:
+    """Whether an account (or invitation) shows up in a realm's staff list.
+
+    Cross-realm is judged by role, as in get_current_user; a realm-bound
+    account with no realm counts as UG there too.
+    """
+    return role in CROSS_REALM_ROLES or (account_realm_key or DEFAULT_REALM_KEY) == realm_key
+
+
+def _in_realm(role_col, realm_col, realm_key: str):
+    # SQL form of is_in_realm.
+    return or_(
+        role_col.in_(list(CROSS_REALM_ROLES)),
+        func.coalesce(realm_col, DEFAULT_REALM_KEY) == realm_key,
+    )
+
 
 class AuthRepository:
     def __init__(self, db: AsyncSession = Depends(get_db)):
@@ -32,8 +51,9 @@ class AuthRepository:
         await self.db.flush()
         return invitation
 
-    async def get_all_users(self) -> list[User]:
-        result = await self.db.execute(select(User))
+    async def get_users(self, *, realm_key: str) -> list[User]:
+        """Accounts in the realm, plus the cross-realm ones."""
+        result = await self.db.execute(select(User).where(_in_realm(User.role, User.realm_key, realm_key)))
         return list(result.scalars().all())
 
     async def get_users_by_role(self, role: RoleEnum) -> list[User]:
@@ -46,20 +66,27 @@ class AuthRepository:
         result = await self.db.execute(select(User).where(User.id.in_(ids)))
         return list(result.scalars().all())
 
-    async def get_faculty_editors_in_faculties(self, faculty_ids: list[str]) -> list[User]:
+    async def get_faculty_editors_in_faculties(self, faculty_ids: list[str], *, realm_key: str) -> list[User]:
         if not faculty_ids:
             return []
         result = await self.db.execute(
             select(User).where(
                 User.role == RoleEnum.FACULTY_EDITOR,
                 User.faculty_id.in_(faculty_ids),
+                func.coalesce(User.realm_key, DEFAULT_REALM_KEY) == realm_key,
             )
         )
         return list(result.scalars().all())
 
 
-    async def get_all_invitations(self) -> list[Invitation]:
-        result = await self.db.execute(select(Invitation).where(Invitation.is_used.is_(False)))
+    async def get_invitations(self, *, realm_key: str) -> list[Invitation]:
+        """Open invitations to the realm, plus those for cross-realm roles."""
+        result = await self.db.execute(
+            select(Invitation).where(
+                Invitation.is_used.is_(False),
+                _in_realm(Invitation.target_role, Invitation.realm_key, realm_key),
+            )
+        )
         return list(result.scalars().all())
     
     async def get_user_by_id(self, id: int) -> User | None:

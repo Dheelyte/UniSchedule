@@ -3,7 +3,8 @@
 import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { useApp, ACTION_TYPES } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
-import { DAYS, EXAM_DAYS, timeToMinutes, isRoomActive } from '@/lib/utils';
+import { timeToMinutes, isRoomActive } from '@/lib/utils';
+import { hourRange, timeOptions as realmTimeOptions, minutesFromDayStart, isAllowedExamDate } from '@/lib/realm';
 import { apiClient } from '@/lib/apiClient';
 import { detectConflicts, detectAllConflicts, dismissalSignatureSet } from '@/lib/conflicts';
 import { useToast } from '@/components/Toast/Toast';
@@ -25,7 +26,23 @@ function formatDateLabel(ds, opts) {
     return parseLocalDate(ds).toLocaleDateString('en-GB', opts);
 }
 
-const HOURS = Array.from({ length: 11 }, (_, i) => i + 8); // 8, 9, 10...18
+const pad2 = (n) => String(n).padStart(2, '0');
+
+/** Minutes since midnight ➜ "HH:MM" */
+function minutesToTime(min) {
+    return `${pad2(Math.floor(min / 60))}:${pad2(min % 60)}`;
+}
+
+/** "18:00" ➜ "6:00 PM" */
+function formatClock(time) {
+    const [h, m] = time.split(':').map(Number);
+    return `${h % 12 || 12}:${pad2(m)} ${h < 12 ? 'AM' : 'PM'}`;
+}
+
+/** ["Friday", "Saturday", "Sunday"] ➜ "Friday, Saturday or Sunday" */
+function listDays(days) {
+    return days.length > 1 ? `${days.slice(0, -1).join(', ')} or ${days[days.length - 1]}` : days[0];
+}
 
 // Color palette for course blocks (light mode)
 const COLORS = [
@@ -43,11 +60,6 @@ const COLORS = [
 
 function getColor(index) {
     return COLORS[index % COLORS.length];
-}
-
-function timeToCol(time) {
-    const [h, m] = time.split(':').map(Number);
-    return (h - 8) * 2 + (m >= 30 ? 1 : 0);
 }
 
 /**
@@ -124,12 +136,19 @@ function computeVerticalOverlapLayout(events) {
     return assignments;
 }
 
-export default function TimetableGrid({ mode = 'lecture', semesterId = null, semesterName = null, readOnly = false, readOnlyReasons = [], blockedSlots = [], enrollmentsByCourse = null, cbtOnly = false }) {
+const NO_EXTERNAL_BOOKINGS = [];
+
+export default function TimetableGrid({ mode = 'lecture', semesterId = null, semesterName = null, readOnly = false, readOnlyReasons = [], blockedSlots = [], enrollmentsByCourse = null, cbtOnly = false, externalBookings = NO_EXTERNAL_BOOKINGS }) {
     const { state, dispatch, getSchedulesWithDetails } = useApp();
     const { faculties, departments, courses, rooms } = state;
     const { addToast } = useToast();
     const confirm = useConfirm();
-    const { user } = useAuth();
+    const { user, realmConfig: config } = useAuth();
+
+    // The realm's day window: one grid column per hour from day_start to day_end.
+    const hourCols = useMemo(() => hourRange(config).slice(0, -1), [config]);
+    const dayEndMin = timeToMinutes(config.day_end);
+    const conflictOptions = useMemo(() => ({ config, externalBookings }), [config, externalBookings]);
     const isOwnItem = useCallback((schedule) => {
         if (!schedule) return false;
         if (isViewerRole(user?.role)) return false;
@@ -156,7 +175,7 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
         return roomLabel;
     }, [faculties]);
 
-    const activeDays = mode === 'exam' ? EXAM_DAYS : DAYS;
+    const activeDays = mode === 'exam' ? config.exam_days : config.lecture_days;
 
     // Filters
     const [filterFaculty, setFilterFaculty] = useState('');
@@ -177,10 +196,10 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
     const [modalForm, setModalForm] = useState({
         courseId: '',
         roomIds: [''],
-        day: 'Monday',
+        day: config.lecture_days[0],
         examDate: '',
-        startTime: '08:00',
-        endTime: '10:00',
+        startTime: config.day_start,
+        endTime: minutesToTime(Math.min(timeToMinutes(config.day_start) + 120, timeToMinutes(config.day_end))),
     });
 
     const [isSaving, setIsSaving] = useState(false);
@@ -262,8 +281,8 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
     const canManageConflicts = !readOnly && !isViewerRole(user?.role);
 
     const conflictMap = useMemo(() => {
-        return detectAllConflicts(allModeSchedules, enrollmentsByCourse, departmentsById, dismissedSignatures);
-    }, [allModeSchedules, enrollmentsByCourse, departmentsById, dismissedSignatures]);
+        return detectAllConflicts(allModeSchedules, enrollmentsByCourse, departmentsById, dismissedSignatures, conflictOptions);
+    }, [allModeSchedules, enrollmentsByCourse, departmentsById, dismissedSignatures, conflictOptions]);
 
     // First schedule item (in render order) that has at least one error-severity conflict.
     const firstConflictItem = useMemo(() => {
@@ -345,6 +364,15 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
         }
         return filteredModeSchedules.filter(s => s.day === currentDay);
     }, [filteredModeSchedules, currentDay, currentDate, mode]);
+
+    // Other realms' sessions of this type on the current day/date. They are
+    // drawn read-only and never counted as this realm's items.
+    const dayExternalBookings = useMemo(() => {
+        return externalBookings.filter((b) => {
+            if (b.type !== mode) return false;
+            return mode === 'exam' ? b.examDate === currentDate : b.day === currentDay;
+        });
+    }, [externalBookings, mode, currentDay, currentDate]);
 
     // Blocked slots relevant for the current day/date
     const activeBlockedSlots = useMemo(() => {
@@ -452,8 +480,7 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
     const handleCellClick = (roomId, hour) => {
         if (readOnly) return;
         const startTime = `${hour.toString().padStart(2, '0')}:00`;
-        const endH = Math.min(hour + 2, 18);
-        const endTime = `${endH.toString().padStart(2, '0')}:00`;
+        const endTime = minutesToTime(Math.min((hour + 2) * 60, dayEndMin));
         setEditing(null);
         setModalConflicts([]);
         setModalForm({
@@ -479,7 +506,7 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
             roomIds: (schedule.roomIds && schedule.roomIds.length > 0)
                 ? schedule.roomIds
                 : (schedule.roomId ? [schedule.roomId] : ['']),
-            day: schedule.day || 'Monday',
+            day: schedule.day || config.lecture_days[0],
             examDate: schedule.examDate || currentDate,
             startTime: trimSec(schedule.startTime),
             endTime: trimSec(schedule.endTime),
@@ -487,12 +514,17 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
         setShowModal(true);
     };
 
+    // Names of the chosen rooms, for conflict messages about the candidate itself.
+    const roomNamesOf = (roomIds) =>
+        (roomIds || []).map((rid) => rooms.find((r) => r.id === rid)?.name).filter(Boolean).join(', ') || undefined;
+
     const enrichCandidate = (formData) => {
         const c = courses.find((cc) => cc.id === formData.courseId);
         const dept = c ? departments.find((d) => d.id === c.departmentId) : null;
         const fac = dept ? faculties.find((f) => f.id === dept.facultyId) : null;
         return {
             ...formData,
+            roomNames: roomNamesOf(formData.roomIds),
             type: mode,
             courseId: formData.courseId,
             courseDepartmentId: c?.departmentId ?? null,
@@ -511,6 +543,7 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
             editing?.id || null,
             enrollmentsByCourse,
             departmentsById,
+            conflictOptions,
         );
         setModalConflicts(result.conflicts);
     };
@@ -543,13 +576,26 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
 
         const formWithCleanRooms = { ...modalForm, roomIds: validRoomIds };
 
+        if (config.strict && mode === 'exam' && !isAllowedExamDate(modalForm.examDate, config)) {
+            addToast({ type: 'error', title: 'Date Not Allowed', message: `Exams in this programme can only be held on a ${listDays(config.exam_days)}.` });
+            return;
+        }
+
         const result = detectConflicts(
             enrichCandidate(formWithCleanRooms),
             allModeSchedules,
             editing?.id || null,
             enrollmentsByCourse,
             departmentsById,
+            conflictOptions,
         );
+
+        // A room another programme holds can't be ignored: the alerts in this
+        // modal explain the clash, and one of the two sessions has to move.
+        if (result.conflicts.some((c) => c.external && c.severity === 'error')) {
+            setModalConflicts(result.conflicts);
+            return;
+        }
 
         const candidateCourse = courses.find((c) => c.id === modalForm.courseId);
         // Conflicts the user chose to ignore — recorded as dismissals after saving.
@@ -719,8 +765,8 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
         const newStartMin = hour * 60;
         const newEndMin = newStartMin + duration;
 
-        if (newEndMin > 18 * 60) {
-            addToast({ type: 'warning', title: 'Cannot Drop', message: 'The course would extend past 6:00 PM.' });
+        if (newEndMin > dayEndMin) {
+            addToast({ type: 'warning', title: 'Cannot Drop', message: `The course would extend past ${formatClock(config.day_end)}.` });
             setDragItem(null);
             return;
         }
@@ -739,6 +785,7 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
         const candidate = {
             courseId: dragItem.courseId,
             roomIds: [roomId],
+            roomNames: rooms.find((r) => r.id === roomId)?.name,
             day: mode === 'exam' ? null : currentDay,
             examDate: mode === 'exam' ? currentDate : null,
             startTime: newStartTime,
@@ -751,7 +798,7 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
             isSpecialFaculty: dragItem.isSpecialFaculty ?? false,
         };
 
-        const result = detectConflicts(candidate, allModeSchedules, dragItem.id, enrollmentsByCourse, departmentsById);
+        const result = detectConflicts(candidate, allModeSchedules, dragItem.id, enrollmentsByCourse, departmentsById, conflictOptions);
 
         if (result.hasConflict) {
             result.conflicts.filter((c) => c.severity === 'error').forEach((c) => {
@@ -809,13 +856,10 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
         }
 
         setDragItem(null);
-    }, [dragItem, allModeSchedules, mode, dispatch, addToast, currentDay, currentDate, enrollmentsByCourse]);
+    }, [dragItem, allModeSchedules, mode, dispatch, addToast, currentDay, currentDate, enrollmentsByCourse, conflictOptions, config, dayEndMin, rooms]);
 
-    const timeOptions = [];
-    for (let h = 8; h <= 18; h++) {
-        timeOptions.push(`${h.toString().padStart(2, '0')}:00`);
-        if (h < 18) timeOptions.push(`${h.toString().padStart(2, '0')}:30`);
-    }
+    const timeOptions = realmTimeOptions(config);
+    const hasExternalClash = modalConflicts.some((c) => c.external && c.severity === 'error');
 
     const visibleConflictCount = daySchedules.filter((s) => conflictMap.has(s.id)).length;
 
@@ -945,6 +989,10 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
                                 onClick={() => {
                                     const input = document.getElementById('exam-date-adder');
                                     const val = input?.value;
+                                    if (val && config.strict && !isAllowedExamDate(val, config)) {
+                                        addToast({ type: 'warning', title: 'Date Not Allowed', message: `Exams in this programme can only be held on a ${listDays(config.exam_days)}.` });
+                                        return;
+                                    }
                                     if (val) {
                                         if (!allActiveDates.includes(val)) {
                                             setAddedDates(prev => [...prev, val]);
@@ -981,17 +1029,17 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
 
             {/* Grid */}
             <div className={styles.gridWrapper} id="timetable-grid">
-                {/* 1 room column, then 1 column per half-hour from 8:00 to 18:00 (20 columns total) */}
+                {/* 1 room column, then 2 columns per hour of the realm's day (UG: 8:00 to 18:00, 20 columns) */}
                 <div
                     className={styles.grid}
-                    style={{ '--grid-columns': `180px repeat(20, 1fr)` }}
+                    style={{ '--grid-columns': `180px repeat(${hourCols.length * 2}, 1fr)` }}
                 >
                     {/* Header row */}
                     <div className={styles.cornerCell}>
                         <span className={styles.cornerLabel}>Room / Time</span>
                     </div>
                     {/* Time slots (only showing 8:00, 9:00, etc. but spanning 2 columns) */}
-                    {HOURS.slice(0, 10).map((hour) => (
+                    {hourCols.map((hour) => (
                         <div key={hour} className={styles.timeHeader} style={{ gridColumn: 'span 2' }}>
                             <span className={styles.timePrimary}>
                                 {hour.toString().padStart(2, '0')}:00 - {(hour + 1).toString().padStart(2, '0')}:00
@@ -1005,6 +1053,7 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
                             s.roomIds?.includes(room.id) || s.roomId === room.id
                         );
                         const layoutMap = overlapLayoutMap[room.id] || new Map();
+                        const roomExternal = dayExternalBookings.filter((b) => b.roomIds.includes(room.id));
 
                         return (
                             <div key={room.id} className={styles.roomRow}>
@@ -1015,21 +1064,30 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
                                 </div>
 
                                 {/* Hourly cells for grid lining & drop zones (spanning 2 columns each) */}
-                                {HOURS.slice(0, 10).map((hour) => {
-                                    const cellStartCol = (hour - 8) * 2;
-                                    const cellEndCol = cellStartCol + 2;
+                                {hourCols.map((hour, hourIdx) => {
+                                    // Positions are minutes from the realm's day_start.
+                                    const cellStartMin = hourIdx * 60;
+                                    const cellEndMin = cellStartMin + 60;
 
                                     const cellEvents = roomSchedules.filter((s) => {
-                                        const startCol = timeToCol(s.startTime);
+                                        const startMin = minutesFromDayStart(s.startTime, config);
                                         // Return true if it STARTS in this hour block (so we only render it once)
-                                        return startCol >= cellStartCol && startCol < cellEndCol;
+                                        return startMin >= cellStartMin && startMin < cellEndMin;
                                     });
 
                                     const isCellEmpty = !roomSchedules.some((s) => {
-                                        const startCol = timeToCol(s.startTime);
-                                        const endCol = timeToCol(s.endTime);
-                                        return startCol < cellEndCol && endCol > cellStartCol;
+                                        const startMin = minutesFromDayStart(s.startTime, config);
+                                        const endMin = minutesFromDayStart(s.endTime, config);
+                                        return startMin < cellEndMin && endMin > cellStartMin;
                                     });
+
+                                    // Another realm's booking, clamped to this grid's window and
+                                    // drawn once, in the hour where its visible part starts.
+                                    const cellExternal = roomExternal.map((b) => ({
+                                        booking: b,
+                                        startMin: Math.max(0, minutesFromDayStart(b.startTime, config)),
+                                        endMin: Math.min(hourCols.length * 60, minutesFromDayStart(b.endTime, config)),
+                                    })).filter((e) => e.endMin > e.startMin && e.startMin >= cellStartMin && e.startMin < cellEndMin);
 
                                     return (
                                         <div
@@ -1103,11 +1161,25 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
                                                 );
                                             })}
 
+                                            {/* Rooms held by another realm: read-only */}
+                                            {cellExternal.map(({ booking, startMin, endMin }) => (
+                                                <div
+                                                    key={booking.id}
+                                                    className={styles.externalBooking}
+                                                    style={{
+                                                        left: `${((startMin - cellStartMin) / 60) * 100}%`,
+                                                        width: `calc(${((endMin - startMin) / 60) * 100}% - 4px)`,
+                                                    }}
+                                                >
+                                                    <span className={styles.externalLabel}>{booking.realmName} · {booking.courseCode}</span>
+                                                    <span className={styles.eventRoom}>{booking.startTime}–{booking.endTime}</span>
+                                                </div>
+                                            ))}
+
                                             {/* Schedule blocks that START in this hour block */}
                                             {cellEvents.map((s) => {
-                                                const startCol = timeToCol(s.startTime);
-                                                const endCol = timeToCol(s.endTime);
-                                                const span = endCol - startCol;
+                                                const startMin = minutesFromDayStart(s.startTime, config);
+                                                const endMin = minutesFromDayStart(s.endTime, config);
                                                 const color = courseColorMap[s.courseId] || COLORS[0];
 
                                                 const hasConflict = conflictMap.has(s.id);
@@ -1118,11 +1190,9 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
                                                 const rowHeight = 100 / layout.total;
                                                 const topOffset = layout.offset * rowHeight;
 
-                                                // startCol is 0-20. cellStartCol is the col index of this cell.
-                                                // So inside this cell, relative position is based on the 30-min granular offset.
-                                                // 1 span = 1 column (30 mins) = 50% width of the 1-hour cell.
-                                                const leftPct = ((startCol - cellStartCol) / 2) * 100;
-                                                const widthPct = (span / 2) * 100;
+                                                // Inside this 1-hour cell, 60 minutes = 100% of its width.
+                                                const leftPct = ((startMin - cellStartMin) / 60) * 100;
+                                                const widthPct = ((endMin - startMin) / 60) * 100;
 
                                                 const isFlashing = flashScheduleId === s.id;
                                                 return (
@@ -1293,7 +1363,8 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
                             <button
                                 className="btn btn-primary"
                                 onClick={handleSave}
-                                disabled={!modalForm.courseId || !modalForm.roomIds.some((r) => r) || isSaving}
+                                disabled={!modalForm.courseId || !modalForm.roomIds.some((r) => r) || isSaving || hasExternalClash}
+                                title={hasExternalClash ? 'This room is held by another programme at that time' : undefined}
                             >
                                 {isSaving ? 'Saving...' : (editing ? 'Save Changes' : 'Add to Timetable')}
                             </button>

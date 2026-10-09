@@ -19,3 +19,21 @@ dependencies = [
     "sqlalchemy[asyncio]>=2.0.49",
     "uvicorn>=0.44.0",
 ]
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28.1",
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+# One event loop for the whole run, so the engine's pooled connections outlive a test.
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
+markers = [
+    "slow: migration round trips on a scratch database; skip them with -m \"not slow\"",
+]

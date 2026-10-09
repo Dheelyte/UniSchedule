@@ -2,6 +2,7 @@ import jsPDF from "jspdf";
 import { unilagLogoBase64 } from "@/lib/logo";
 import { GENERAL_STUDIES_FACULTY, isGeneralStudiesCourse } from "@/lib/utils";
 import { assignLanes, computeDayRange, fitChipText } from "@/lib/timetableLayout";
+import { UG_CONFIG, DEFAULT_REALM, hourRange } from "@/lib/realm";
 import { robotoCondensedRegular, robotoCondensedBold } from "@/lib/fonts/robotoCondensed";
 
 export function exportTimetablePDF({
@@ -25,6 +26,9 @@ export function exportTimetablePDF({
 	structured = false,
 	gstOnly = false,
 	isLocked = false,
+	config = UG_CONFIG,
+	realmKey = DEFAULT_REALM,
+	realmName = null,
 }) {
 	if (!schedules || schedules.length === 0) return;
 
@@ -33,7 +37,43 @@ export function exportTimetablePDF({
 	// rows instead, so it never conflates a level-only export with "Department".
 	const scopeLabel = [department, level].filter(Boolean).join(" · ") || null;
 
+	// Realms other than UG are named in titles and file names.
+	const otherRealm = realmKey && realmKey !== DEFAULT_REALM;
+	const realmTitlePrefix = otherRealm ? `${String(realmName || realmKey).toUpperCase()} ` : "";
+	const realmFilePrefix = otherRealm ? `${realmKey.toLowerCase()}_` : "";
 
+	// The realm's day window in whole hours (UG: 8 and 18).
+	const realmHours = hourRange(config);
+	const WINDOW_START_H = realmHours[0];
+	const WINDOW_END_H = realmHours[realmHours.length - 1];
+
+	const WEEK_ORDER = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+
+	// The realm's days plus any other day that has items, in Monday-Sunday
+	// order: a session outside the realm's days is still printed.
+	const withExtraDays = (configDays, usedDays, what) => {
+		const extra = WEEK_ORDER.filter((d) => usedDays.includes(d) && !configDays.includes(d));
+		if (extra.length === 0) return configDays;
+		console.warn(`[pdfExport] ${what} on ${extra.join(", ")}, outside the realm's days; added to the export`);
+		return WEEK_ORDER.filter((d) => configDays.includes(d) || extra.includes(d));
+	};
+	const lectureDays = mode === "exam"
+		? config.lecture_days
+		: withExtraDays(config.lecture_days, schedules.map((s) => s.day), "Lectures");
+
+	// YYYY-MM-DD <-> local Date, without the UTC shift of `new Date("YYYY-MM-DD")`.
+	const parseYmd = (ymd) => {
+		const [y, mo, d] = ymd.split("-").map(Number);
+		return new Date(y, mo - 1, d);
+	};
+	const toYmd = (date) =>
+		`${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+	const addDays = (date, n) => new Date(date.getFullYear(), date.getMonth(), date.getDate() + n);
+	// Monday of the date's week, as a local Date.
+	const mondayOf = (ymd) => {
+		const date = parseYmd(ymd);
+		return addDays(date, -((date.getDay() + 6) % 7));
+	};
 
 	// Helper: get Monday of date string
 	const getMondayOfDate = (dateStr) => {
@@ -123,11 +163,11 @@ export function exportTimetablePDF({
 		const modeStr = titleVal.toLowerCase().includes("exam") ? "EXAMINATION" : "LECTURE";
 
 		if (isAllFaculty && isAllDept) {
-			return `GENERAL UNIVERSITY ${modeStr} TIMETABLE`;
+			return `${realmTitlePrefix}GENERAL UNIVERSITY ${modeStr} TIMETABLE`;
 		} else if (!isAllFaculty && isAllDept) {
-			return `${facultyVal.toUpperCase()} ${modeStr} TIMETABLE`;
+			return `${realmTitlePrefix}${facultyVal.toUpperCase()} ${modeStr} TIMETABLE`;
 		} else {
-			return `${departmentVal.toUpperCase()} ${modeStr} TIMETABLE`;
+			return `${realmTitlePrefix}${departmentVal.toUpperCase()} ${modeStr} TIMETABLE`;
 		}
 	};
 
@@ -168,7 +208,7 @@ export function exportTimetablePDF({
 
 		const suffix = paperSizeVal === "a3" ? "_a3" : "";
 		const dateStr = new Date().toISOString().slice(0, 10);
-		return `${baseName.toLowerCase()}_${dateStr}${suffix}.pdf`;
+		return `${realmFilePrefix}${baseName.toLowerCase()}_${dateStr}${suffix}.pdf`;
 	};
 
 	// ---- Group schedules by logical day/week/date ----
@@ -188,8 +228,7 @@ export function exportTimetablePDF({
 				if (ds.length) out.push({ label: ptLabel, day: dateStr, schedules: ds });
 			});
 		} else {
-			const ACTIVE_DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-			ACTIVE_DAYS.forEach((day) => {
+			lectureDays.forEach((day) => {
 				const ds = subset.filter((s) => s.day === day);
 				if (ds.length) out.push({ label: day, day, schedules: ds });
 			});
@@ -364,19 +403,49 @@ export function exportTimetablePDF({
 			year: "numeric",
 		});
 
-		// Lecture timetables use a flexible hourly grid (8am-6pm, mirroring the
-		// A4 layout) since lecture durations vary (1/2/3hr) and can start as
-		// early as 8am. Exam timetables keep their fixed 9am-12pm / 12-3pm /
-		// 3-6pm blocks untouched.
-		const GRID_START_H = mode === "exam" ? 9 : 8;
-		const GRID_END_H = 18;
-		const SLOT_HOURS = mode === "exam" ? 3 : 1;
-		const NUM_SLOTS = (GRID_END_H - GRID_START_H) / SLOT_HOURS;
+		// Lecture timetables use a flexible hourly grid over the realm's day
+		// window (UG: 8am-6pm), since lecture durations vary (1/2/3hr). Exam
+		// timetables use the realm's exam slots (UG: 9am-12pm / 12-3pm / 3-6pm),
+		// each matched on its own start and end.
+		const GRID_START_H = WINDOW_START_H;
+		const GRID_END_H = WINDOW_END_H;
+
+		const examSlots = config.exam_slots.map((slot) => ({
+			label: slot.label,
+			startMin: timeToMinutes(slot.start),
+			endMin: timeToMinutes(slot.end),
+		}));
+		if (mode === "exam") {
+			// An exam that touches none of the slots would not be printed at
+			// all, so it gets an extra slot before the first or after the last.
+			const firstStart = examSlots[0].startMin;
+			const lastEnd = examSlots[examSlots.length - 1].endMin;
+			const hourLabel = (min) => {
+				const h = (min / 60) % 24;
+				return `${h % 12 || 12}${h < 12 ? "am" : "pm"}`;
+			};
+			const early = schedules.filter((si) => timeToMinutes(si.endTime) <= firstStart);
+			const late = schedules.filter((si) => timeToMinutes(si.startTime) >= lastEnd);
+			if (early.length > 0) {
+				const startMin = Math.floor(Math.min(...early.map((si) => timeToMinutes(si.startTime))) / 60) * 60;
+				examSlots.unshift({ label: `${hourLabel(startMin)} - ${hourLabel(firstStart)}`, startMin, endMin: firstStart });
+			}
+			if (late.length > 0) {
+				const endMin = Math.ceil(Math.max(...late.map((si) => timeToMinutes(si.endTime))) / 60) * 60;
+				examSlots.push({ label: `${hourLabel(lastEnd)} - ${hourLabel(endMin)}`, startMin: lastEnd, endMin });
+			}
+			if (early.length + late.length > 0) {
+				console.warn(
+					`[pdfExport] ${early.length + late.length} exam(s) outside the exam slots; slot(s) added`,
+					[...early, ...late].map((si) => `${si.courseCode} ${si.examDate || si.day} ${si.startTime}-${si.endTime}`),
+				);
+			}
+		}
+		const NUM_SLOTS = mode === "exam" ? examSlots.length : GRID_END_H - GRID_START_H;
 
 		// Helper: get blocked slots for a specific day/timeslot
 		function getBlockedSlotsForSlot(dayOrDate, slotIdx) {
-			const slotStartMin = (GRID_START_H + slotIdx * SLOT_HOURS) * 60;
-			const slotEndMin = slotStartMin + SLOT_HOURS * 60;
+			const { startMin: slotStartMin, endMin: slotEndMin } = examSlots[slotIdx];
 
 			const isDate = !dayOrDate.startsWith("legacy:") && dayOrDate.includes("-");
 			let dateVal = null;
@@ -469,7 +538,7 @@ export function exportTimetablePDF({
 		}
 
 		// Lecture-only: hour range shared by every day of one faculty table.
-		// Defaults to 08:00-18:00 and widens to cover any class outside it, so
+		// Defaults to the realm's day window and widens to cover any class outside it, so
 		// a chip can never run past its day's wall into the next day.
 		function getLectureDayRange(facName, facSchedules) {
 			const range = computeDayRange(facSchedules, GRID_START_H, GRID_END_H);
@@ -552,20 +621,12 @@ export function exportTimetablePDF({
 
 		// 1. Gather all unique dates (or legacy days) from schedules
 		const uniqueDates = [];
-		const STANDARD_SLOTS = [
-			{ id: 0, label: "9am - 12pm", start: "09:00", end: "12:00" },
-			{ id: 1, label: "12pm - 3pm", start: "12:00", end: "15:00" },
-			{ id: 2, label: "3pm - 6pm", start: "15:00", end: "18:00" }
-		];
-		// Lecture grid: one column per hour, 8am-6pm, instead of exam's 3 fixed blocks.
-		const activeSlots = mode === "exam"
-			? STANDARD_SLOTS
-			: Array.from({ length: NUM_SLOTS }, (_, i) => {
-				const h = GRID_START_H + i;
-				const label = h < 12 ? `${h}am` : h === 12 ? "12pm" : `${h - 12}pm`;
-				return { id: i, label, start: `${String(h).padStart(2, "0")}:00`, end: `${String(h + 1).padStart(2, "0")}:00` };
-			});
+		// Exam slots are only drawn in exam mode; lectures use the hourly grid.
+		const activeSlots = examSlots;
 
+		// Exam mode: one entry per calendar week (Monday-Sunday), holding the
+		// dates that fall on the realm's exam days.
+		const examWeeks = [];
 		if (mode === "exam") {
 			const calendarDates = schedules
 				.map(s => s.examDate)
@@ -573,31 +634,34 @@ export function exportTimetablePDF({
 
 			if (calendarDates.length > 0) {
 				const sortedDates = [...new Set(calendarDates)].sort();
-				const minDate = sortedDates[0];
-				const maxDate = sortedDates[sortedDates.length - 1];
+				const offDays = sortedDates.filter((d) => !config.exam_days.includes(WEEK_ORDER[(parseYmd(d).getDay() + 6) % 7]));
+				if (offDays.length > 0) {
+					console.warn(`[pdfExport] Exams on ${offDays.join(", ")}, outside the realm's exam days; added to the export`);
+				}
 
-				let currentMondayStr = getMondayOfDate(minDate);
-				const maxMondayStr = getMondayOfDate(maxDate);
-
-				while (currentMondayStr <= maxMondayStr) {
-					const currentMonday = new Date(currentMondayStr);
-					for (let i = 0; i < 6; i++) {
-						const nextDate = new Date(currentMonday);
-						nextDate.setDate(currentMonday.getDate() + i);
-						uniqueDates.push(nextDate.toISOString().slice(0, 10));
-					}
-					currentMonday.setDate(currentMonday.getDate() + 7);
-					currentMondayStr = currentMonday.toISOString().slice(0, 10);
+				let monday = mondayOf(sortedDates[0]);
+				const lastMonday = mondayOf(sortedDates[sortedDates.length - 1]);
+				while (monday <= lastMonday) {
+					const week = [];
+					WEEK_ORDER.forEach((dayName, i) => {
+						const dateStr = toYmd(addDays(monday, i));
+						if (config.exam_days.includes(dayName) || offDays.includes(dateStr)) week.push(dateStr);
+					});
+					examWeeks.push(week);
+					monday = addDays(monday, 7);
 				}
 			} else {
-				uniqueDates.push("legacy:Monday", "legacy:Tuesday", "legacy:Wednesday", "legacy:Thursday", "legacy:Friday", "legacy:Saturday");
+				const legacyDays = withExtraDays(config.exam_days, schedules.map((s) => s.day), "Exams");
+				examWeeks.push(legacyDays.map((d) => `legacy:${d}`));
 			}
+			examWeeks.forEach((week) => uniqueDates.push(...week));
 		} else {
-			// Saturday is an optional lecture day - only show its column when
-			// something is actually scheduled on a Saturday.
-			const hasSaturdayLecture = schedules.some((s) => s.day === "Saturday");
-			uniqueDates.push("Monday", "Tuesday", "Wednesday", "Thursday", "Friday");
-			if (hasSaturdayLecture) uniqueDates.push("Saturday");
+			// Saturday and Sunday are optional lecture days - only show their
+			// columns when something is actually scheduled on them.
+			lectureDays.forEach((day) => {
+				const isWeekend = day === "Saturday" || day === "Sunday";
+				if (!isWeekend || schedules.some((s) => s.day === day)) uniqueDates.push(day);
+			});
 		}
 
 		// 2. Identify active rooms and map them to faculties
@@ -684,8 +748,7 @@ export function exportTimetablePDF({
 				const startMin = timeToMinutes(si.startTime);
 				const endMin = timeToMinutes(si.endTime);
 				for (let slotIdx = 0; slotIdx < NUM_SLOTS; slotIdx++) {
-					const slotStartMin = (GRID_START_H + slotIdx * SLOT_HOURS) * 60;
-					const slotEndMin = slotStartMin + SLOT_HOURS * 60;
+					const { startMin: slotStartMin, endMin: slotEndMin } = examSlots[slotIdx];
 					if (startMin < slotEndMin && slotStartMin < endMin) {
 						const key = `${dayOrDate}-${slotIdx}`;
 						if (!slotGroups[key]) slotGroups[key] = [];
@@ -745,11 +808,16 @@ export function exportTimetablePDF({
 		};
 
 		// 3. Dynamic row slicing per week and faculty grouping
-		// A4 lectures split the week across two pages (Mon-Wed, Thu-Fri[-Sat]).
-		const daysPerPage = pageFormat === "a4" ? 3 : 6;
+		// Exams print one week per page. A4 lectures split the week across
+		// pages of three days (UG: Mon-Wed, Thu-Fri[-Sat]).
 		const dayChunks = [];
-		for (let i = 0; i < uniqueDates.length; i += daysPerPage) {
-			dayChunks.push(uniqueDates.slice(i, i + daysPerPage));
+		if (mode === "exam") {
+			dayChunks.push(...examWeeks);
+		} else {
+			const daysPerPage = pageFormat === "a4" ? 3 : Math.max(6, uniqueDates.length);
+			for (let i = 0; i < uniqueDates.length; i += daysPerPage) {
+				dayChunks.push(uniqueDates.slice(i, i + daysPerPage));
+			}
 		}
 
 		// Vertical space for room rows below the repeated day/hour header,
@@ -988,7 +1056,7 @@ export function exportTimetablePDF({
 			pdfA3.line(cx - 38, 130, cx + 38, 130);
 
 			// Timetable type
-			const coverType = mode === "exam" ? "EXAMINATION TIMETABLE" : "LECTURE TIMETABLE";
+			const coverType = `${realmTitlePrefix}${mode === "exam" ? "EXAMINATION TIMETABLE" : "LECTURE TIMETABLE"}`;
 			pdfA3.setFont("helvetica", "bold");
 			pdfA3.setFontSize(44);
 			pdfA3.setTextColor(99, 102, 241);
@@ -1132,7 +1200,7 @@ export function exportTimetablePDF({
 			// Title
 			let timetableTitle = getTimetableTypeLabel(title, facName, scopeLabel);
 			if (isGSTSection) {
-				timetableTitle = "GENERAL STUDIES EXAMINATION TIMETABLE";
+				timetableTitle = `${realmTitlePrefix}GENERAL STUDIES EXAMINATION TIMETABLE`;
 			}
 			pdfA3.setFont("helvetica", "bold");
 			pdfA3.setFontSize(14);
@@ -1296,6 +1364,7 @@ export function exportTimetablePDF({
 					if (mode === "exam") {
 						activeSlots.forEach((slot, sIdx) => {
 							const cellX = dayX + sIdx * slotWidth;
+							const slotHours = (slot.endMin - slot.startMin) / 60;
 
 							// Fetch scheduled sittings for this faculty/room/day/timeslot
 							const cellSchedules = facWeekSchedules.filter(si => {
@@ -1311,9 +1380,7 @@ export function exportTimetablePDF({
 
 								const startMin = timeToMinutes(si.startTime);
 								const endMin = timeToMinutes(si.endTime);
-								const slotStartMin = (GRID_START_H + sIdx * SLOT_HOURS) * 60;
-								const slotEndMin = slotStartMin + SLOT_HOURS * 60;
-								return startMin < slotEndMin && slotStartMin < endMin;
+								return startMin < slot.endMin && slot.startMin < endMin;
 							});
 
 							// Deduplicate cellSchedules by courseCode to avoid duplicate cards in the cell
@@ -1334,12 +1401,12 @@ export function exportTimetablePDF({
 							pdfA3.rect(cellX, rowY, slotWidth, rowH, "D");
 
 							// Internal hour ticks within a slot (only meaningful when a slot
-							// spans more than one hour, i.e. exam's 3-hour blocks).
-							if (SLOT_HOURS > 1) {
+							// spans more than one hour, e.g. UG's 3-hour blocks).
+							if (slotHours > 1) {
 								pdfA3.setDrawColor(226, 232, 240);
 								pdfA3.setLineWidth(0.08);
-								for (let hIdx = 1; hIdx < SLOT_HOURS; hIdx++) {
-									const tickX = cellX + (hIdx / SLOT_HOURS) * slotWidth;
+								for (let hIdx = 1; hIdx < slotHours; hIdx++) {
+									const tickX = cellX + (hIdx / slotHours) * slotWidth;
 									pdfA3.line(tickX, rowY, tickX, rowY + rowH);
 								}
 								pdfA3.setDrawColor(71, 85, 105);
@@ -1352,8 +1419,8 @@ export function exportTimetablePDF({
 								cellBlockedSlots.forEach(b => {
 									let relStart = 0;
 									let relEnd = 1;
-									const slotStartMin = (GRID_START_H + sIdx * SLOT_HOURS) * 60;
-									const slotDurationMin = SLOT_HOURS * 60;
+									const slotStartMin = slot.startMin;
+									const slotDurationMin = slot.endMin - slot.startMin;
 
 									if (b.type === "EXTRACURRICULAR" && b.start_time && b.end_time) {
 										const [sH, sM] = b.start_time.split(":").map(Number);
@@ -1390,7 +1457,7 @@ export function exportTimetablePDF({
 								const lanes = packLanes(sortedSchedules);
 								const numLanes = lanes.length;
 								const laneH = rowH / numLanes;
-								const slotStartHour = GRID_START_H + sIdx * SLOT_HOURS;
+								const slotStartHour = slot.startMin / 60;
 
 								lanes.forEach((laneSchedules, laneIdx) => {
 									const laneY = rowY + laneIdx * laneH;
@@ -1398,8 +1465,8 @@ export function exportTimetablePDF({
 										const startHour = timeToMinutes(si.startTime) / 60.0;
 										const endHour = timeToMinutes(si.endTime) / 60.0;
 
-										let relStart = (startHour - slotStartHour) / SLOT_HOURS;
-										let relEnd = (endHour - slotStartHour) / SLOT_HOURS;
+										let relStart = (startHour - slotStartHour) / slotHours;
+										let relEnd = (endHour - slotStartHour) / slotHours;
 										relStart = Math.max(0.0, Math.min(1.0, relStart));
 										relEnd = Math.max(0.0, Math.min(1.0, relEnd));
 
@@ -1604,9 +1671,23 @@ export function exportTimetablePDF({
 	const pageH = 210;
 	const margin = 10;
 	const headerH = 8;
-	const START_H = 8; // 08:00
-	const END_H = 18; // 18:00
-	const SLOTS = END_H - START_H; // 10 one-hour columns
+	// One-hour columns over the realm's day window (UG: 08:00-18:00, 10
+	// columns), widened to cover anything scheduled outside it.
+	let START_H = WINDOW_START_H;
+	let END_H = WINDOW_END_H;
+	const outsideWindow = schedules.filter(
+		(s) => timeToMinutes(s.startTime) < START_H * 60 || timeToMinutes(s.endTime) > END_H * 60,
+	);
+	if (outsideWindow.length > 0) {
+		START_H = Math.min(START_H, ...outsideWindow.map((s) => Math.floor(timeToMinutes(s.startTime) / 60)));
+		END_H = Math.min(24, Math.max(END_H, ...outsideWindow.map((s) => Math.ceil(timeToMinutes(s.endTime) / 60))));
+		console.warn(
+			`[pdfExport] ${outsideWindow.length} session(s) outside ${WINDOW_START_H}:00-${WINDOW_END_H}:00; ` +
+			`grid extended to ${START_H}:00-${END_H}:00`,
+			outsideWindow.map((s) => `${s.courseCode} ${s.examDate || s.day} ${s.startTime}-${s.endTime}`),
+		);
+	}
+	const SLOTS = END_H - START_H;
 
 	const BLOCK_HEAD_H = 10 + headerH;
 	const BLOCK_GAP = 6;

@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, Response, HTTPException, status
 from core.security import verify_password
 from modules.auth.service import AuthService, PasswordResetService
-from modules.auth.schemas import LoginRequest, InviteRequest, MsgResponse, PasswordReset, PasswordResetCodeCheck, PasswordResetRequest, PasswordResetVerify, RegisterRequest, UserResponse, InvitationResponse, ImpersonateRequest
+from modules.auth.schemas import LoginRequest, InviteRequest, MsgResponse, PasswordReset, PasswordResetCodeCheck, PasswordResetRequest, PasswordResetVerify, RegisterRequest, UserResponse, InvitationResponse, ImpersonateRequest, SwitchRealmRequest
 from core.config import settings
 from api.dependencies.auth import RequireRole, get_current_user, require_real_super_admin
 from modules.auth.models import RoleEnum
@@ -12,7 +12,7 @@ router = APIRouter(prefix="/auth", tags=["Auth"])
 
 @router.post("/login")
 async def login(response: Response, data: LoginRequest, service: AuthService = Depends()):
-    token = await service.authenticate_user(data.email, data.password)
+    token = await service.authenticate_user(data.email, data.password, data.realm)
     response.set_cookie(
         key="access_token",
         value=token,
@@ -63,6 +63,17 @@ async def stop_impersonation(
     _set_session_cookie(response, token)
     return {"message": "Stopped impersonating"}
 
+@router.post("/switch-realm")
+async def switch_realm(
+    response: Response,
+    data: SwitchRealmRequest,
+    service: AuthService = Depends(),
+    current_user: dict = Depends(get_current_user),
+):
+    token = await service.switch_realm(current_user, data.realm)
+    _set_session_cookie(response, token)
+    return {"message": "Switched portal", "realm": data.realm}
+
 @router.post("/invite")
 async def invite_staff(
     data: InviteRequest, 
@@ -70,7 +81,7 @@ async def invite_staff(
     timetable_repo: TimetableRepository = Depends(),
     current_user: dict = Depends(RequireRole([RoleEnum.SUPER_ADMIN.value]))
 ):
-    invite = await service.generate_invite(data.email, data.target_role, data.faculty_id, data.semester_id, current_user)
+    invite = await service.generate_invite(data.email, data.target_role, data.faculty_id, data.semester_id, current_user=current_user)
     
     faculty_name = None
     if data.faculty_id:
@@ -81,7 +92,10 @@ async def invite_staff(
     await EmailService.send_invitation_email(
         recipient_email=data.email, 
         token=invite.token, 
-        role=data.target_role.value, 
+        role=data.target_role.value,
+        # The portal the inviter is working in; a cross-realm invitee can switch later.
+        realm_key=current_user["realm"],
+        realm_name=current_user["realm_name"],
         faculty_name=faculty_name
     )
     return {"message": "Invitation created", "token": invite.token}
@@ -97,11 +111,15 @@ async def complete_registration(
 
 @router.get("/users", response_model=list[UserResponse])
 async def get_users(service: AuthService = Depends(), user: dict = Depends(RequireRole([RoleEnum.SUPER_ADMIN.value, RoleEnum.SUPER_VIEWER.value]))):
-    return await service.get_all_users()
+    return await service.get_users(realm_key=user["realm"])
 
 @router.get("/invitations", response_model=list[InvitationResponse])
 async def get_invitations(service: AuthService = Depends(), user: dict = Depends(RequireRole([RoleEnum.SUPER_ADMIN.value, RoleEnum.SUPER_VIEWER.value]))):
-    return await service.get_all_invitations()
+    invitations = [InvitationResponse.model_validate(inv) for inv in await service.get_invitations(realm_key=user["realm"])]
+    if user.get("role") != RoleEnum.SUPER_ADMIN.value:
+        for invitation in invitations:
+            invitation.token = None
+    return invitations
 
 @router.delete("/users/{user_id}")
 async def delete_user(user_id: int, service: AuthService = Depends(), user: dict = Depends(RequireRole([RoleEnum.SUPER_ADMIN.value]))):

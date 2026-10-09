@@ -8,8 +8,9 @@ from modules.timetable.schemas import (
     FacultyUpdate, DepartmentUpdate, RoomUpdate, CourseUpdate, BlockedSlotCreate, RoomReorderRequest,
     ChangeRequestCreate, ConflictDismissalCreate, ConflictDismissalBulkCreate
 )
-from modules.auth.models import RoleEnum
+from modules.auth.models import RoleEnum, CROSS_REALM_ROLES
 from modules.auth.repository import AuthRepository
+from modules.realms.schemas import WEEKDAYS
 from modules.notifications.service import NotificationService
 from modules.audit.service import AuditService
 from sqlalchemy.exc import IntegrityError
@@ -62,6 +63,72 @@ def _times_overlap(a_start, a_end, b_start, b_end) -> bool:
     return a_start < b_end and b_start < a_end
 
 
+def _for_super_admins(current_user: dict, title: str, link: str) -> tuple[str, str]:
+    """Super admins work across realms, so a notification to them names the
+    realm in its title and carries it on its link."""
+    return f"{current_user['realm_name']}: {title}", f"{link}?realm={current_user['realm']}"
+
+
+def _assert_course_fits_realm(current_user: dict, level: int | None, semester: str | None) -> None:
+    """Levels and semester names come from the realm config, which the request schemas can't see."""
+    config = current_user["realm_config"]
+    if level is not None and level not in config["levels"]:
+        raise HTTPException(status_code=400, detail=f"level must be one of: {', '.join(str(l) for l in config['levels'])}")
+    if semester is not None and semester not in config["semester_names"]:
+        raise HTTPException(status_code=400, detail=f"semester must be one of: {', '.join(config['semester_names'])}")
+
+
+def _clock_minutes(value) -> int:
+    return value.hour * 60 + value.minute
+
+
+def _config_minutes(value: str) -> int:
+    hours, minutes = value.split(":")
+    return int(hours) * 60 + int(minutes)
+
+
+def _assert_day_allowed(current_user: dict, kind: str, day: str | None) -> None:
+    """In a strict realm, `day` must be one of the realm's lecture or exam days."""
+    config = current_user["realm_config"]
+    if not config["strict"]:
+        return
+    allowed = config["exam_days"] if kind == "exam" else config["lecture_days"]
+    if day not in allowed:
+        raise HTTPException(
+            status_code=400,
+            detail=f"{current_user['realm_name']} {kind}s run on {', '.join(allowed)} only",
+        )
+
+
+def _assert_fits_window(current_user: dict, item_type: str, day_of_week: str | None, exam_date: date | None, start_time, end_time) -> None:
+    """In a strict realm, a session must sit on the realm's days, inside its day
+    window and on its time grid. Other realms are only flagged in the UI."""
+    config = current_user["realm_config"]
+    if not config["strict"]:
+        return
+    if item_type == "exam":
+        day = WEEKDAYS[exam_date.weekday()] if exam_date else day_of_week
+        _assert_day_allowed(current_user, "exam", day)
+    else:
+        _assert_day_allowed(current_user, "lecture", day_of_week)
+
+    if end_time <= start_time:
+        raise HTTPException(status_code=400, detail="End time must be after start time")
+    day_start, day_end = _config_minutes(config["day_start"]), _config_minutes(config["day_end"])
+    start, end = _clock_minutes(start_time), _clock_minutes(end_time)
+    if start < day_start or end > day_end:
+        raise HTTPException(
+            status_code=400,
+            detail=f"{current_user['realm_name']} sessions must be within {config['day_start']}–{config['day_end']}",
+        )
+    step = config["slot_minutes"]
+    off_grid = any(
+        (_clock_minutes(t) - day_start) % step or t.second or t.microsecond for t in (start_time, end_time)
+    )
+    if off_grid:
+        raise HTTPException(status_code=400, detail=f"Start and end times must be in {step}-minute steps")
+
+
 class TimetableService:
     def __init__(
         self,
@@ -77,6 +144,13 @@ class TimetableService:
         self.notification_service = notification_service
         self.audit_service = audit_service
         
+    async def _semester_in_realm(self, semester_id: int, current_user: dict):
+        """The semester, or 404 when it isn't one of the active realm's."""
+        semester = await self.cal_repo.get_semester(semester_id, realm_key=current_user["realm"])
+        if not semester:
+            raise HTTPException(status_code=404, detail="Semester not found")
+        return semester
+
     async def create_faculty(self, data: FacultyCreate, current_user: dict | None = None) -> Faculty:
         faculty = Faculty(id=data.id, name=data.name, is_special=data.is_special)
         created = await self.repo.create_faculty(faculty)
@@ -181,6 +255,8 @@ class TimetableService:
         if current_user.get("role") == RoleEnum.FACULTY_EDITOR.value:
             if current_user.get("faculty_id") != dept.faculty_id:
                 raise HTTPException(status_code=403, detail="Not authorized")
+        if await self.repo.is_department_enrolled_outside_realm(dept.id, realm_key=current_user["realm"]):
+            raise HTTPException(status_code=400, detail="Cannot delete department because another programme has courses enrolled for it.")
         try:
             await self.repo.delete_department(dept)
         except IntegrityError:
@@ -334,8 +410,10 @@ class TimetableService:
                 raise HTTPException(status_code=400, detail="Department not found")
             if dept.faculty_id != current_user.get("faculty_id"):
                 raise HTTPException(status_code=403, detail="Faculty editors can only add courses to departments in their own faculty")
+        _assert_course_fits_realm(current_user, data.level, data.semester)
         course = Course(
             code=data.code,
+            realm_key=current_user["realm"],
             title=data.title or "",
             credit_load=data.credit_load,
             lecturers=data.lecturers,
@@ -368,10 +446,10 @@ class TimetableService:
 
     async def get_courses(self, current_user: dict) -> list[Course]:
         faculty_id = None if _has_global_read_scope(current_user) else current_user.get('faculty_id')
-        return await self.repo.get_courses(faculty_id=faculty_id)
+        return await self.repo.get_courses(realm_key=current_user["realm"], faculty_id=faculty_id)
 
     async def update_course(self, id: int, data: CourseUpdate, current_user: dict) -> Course:
-        course = await self.repo.get_course(id)
+        course = await self.repo.get_course(id, realm_key=current_user["realm"])
         if not course: raise HTTPException(status_code=404, detail="Not found")
         
         # If user is CITS admin, they can ONLY update the `is_cbt_exam` field
@@ -405,6 +483,7 @@ class TimetableService:
                     raise HTTPException(status_code=400, detail="Department not found")
                 if target_dept.faculty_id != user_faculty:
                     raise HTTPException(status_code=403, detail="Faculty editors can only assign courses to departments in their own faculty")
+        _assert_course_fits_realm(current_user, data.level, data.semester)
         if data.code is not None: course.code = data.code
         if data.title is not None: course.title = data.title
         if data.credit_load is not None: course.credit_load = data.credit_load
@@ -434,12 +513,13 @@ class TimetableService:
         return updated
 
     async def delete_course(self, id: int, current_user: dict) -> None:
-        course = await self.repo.get_course(id)
+        # Another realm's course is not found here, so like a missing id it is a silent no-op.
+        course = await self.repo.get_course(id, realm_key=current_user["realm"])
         if course:
             if _is_gs_admin(current_user) and course.scope != CourseScope.UNIVERSITY_WIDE:
                 raise HTTPException(status_code=403, detail="General Studies admins can only delete university-wide courses")
             
-            is_referenced = await self.repo.is_course_referenced_by_schedule(id)
+            is_referenced = await self.repo.is_course_referenced_by_schedule(id, realm_key=current_user["realm"])
             if is_referenced:
                 raise HTTPException(status_code=400, detail="Cannot delete course because it is currently scheduled. Please unschedule it from all timetables first.")
 
@@ -455,12 +535,12 @@ class TimetableService:
                 description=f"Deleted course {course.code} ({course.title})",
             )
 
-    async def _check_blocked_slots(self, item_type: str, day_of_week: str | None, exam_date: date | None, start_time, end_time, semester_id: int):
+    async def _check_blocked_slots(self, item_type: str, day_of_week: str | None, exam_date: date | None, start_time, end_time, semester_id: int, realm_key: str):
         """Raise HTTPException if the proposed time overlaps any blocked slot."""
         if item_type == "exam" and exam_date:
             day_of_week = exam_date.strftime("%A")
             
-        blocked = await self.repo.get_relevant_blocked_slots(semester_id, day_of_week, exam_date)
+        blocked = await self.repo.get_relevant_blocked_slots(semester_id, day_of_week, exam_date, realm_key=realm_key)
         for slot in blocked:
             # Check applies_to scope
             scope = getattr(slot, 'applies_to', 'BOTH')
@@ -500,7 +580,8 @@ class TimetableService:
         (shared room OR same course OR overlapping student audience).
         Lower priority is determined by the originating course scope.
         """
-        new_course = await self.repo.get_course(new_item.course_id)
+        realm_key = new_item.realm_key
+        new_course = await self.repo.get_course(new_item.course_id, realm_key=realm_key)
         if not new_course:
             return
         new_priority = _scope_priority(new_course.scope)
@@ -509,11 +590,11 @@ class TimetableService:
 
         sem_id = new_item.semester_id
         if sem_id is None:
-            current_sem = await self.cal_repo.get_current_semester()
+            current_sem = await self.cal_repo.get_current_semester(realm_key=realm_key)
             sem_id = current_sem.id if current_sem else None
         if sem_id is None:
             return
-        siblings = await self.repo.get_schedule_items(semester_id=sem_id)
+        siblings = await self.repo.get_schedule_items(realm_key=realm_key, semester_id=sem_id)
 
         # Audience: a UW course targets every (dept, level); a scoped course targets
         # its own (dept, level). Two items "share an audience" if either side is UW
@@ -546,7 +627,7 @@ class TimetableService:
             if not _times_overlap(new_item.start_time, new_item.end_time, s.start_time, s.end_time):
                 continue
 
-            other_course = await self.repo.get_course(s.course_id)
+            other_course = await self.repo.get_course(s.course_id, realm_key=realm_key)
             if not other_course:
                 continue
             if _scope_priority(other_course.scope) >= new_priority:
@@ -575,7 +656,8 @@ class TimetableService:
 
         if not faculty_ids:
             return
-        editors = await self.auth_repo.get_faculty_editors_in_faculties(list(faculty_ids))
+        # Only this realm's editors: the same faculty has different editors per realm.
+        editors = await self.auth_repo.get_faculty_editors_in_faculties(list(faculty_ids), realm_key=realm_key)
         editor_ids = [u.id for u in editors]
         if not editor_ids:
             return
@@ -599,10 +681,10 @@ class TimetableService:
             send_email=True,
         )
 
-    async def _assert_not_locked(self, semester_id: int | None, item_type: str) -> None:
+    async def _assert_not_locked(self, semester_id: int | None, item_type: str, realm_key: str) -> None:
         if semester_id is None:
             return
-        lock = await self.repo.get_lock(semester_id, item_type)
+        lock = await self.repo.get_lock(semester_id, item_type, realm_key=realm_key)
         if lock and lock.is_locked:
             raise HTTPException(status_code=423, detail=f"This {item_type} timetable is locked.")
 
@@ -616,28 +698,93 @@ class TimetableService:
         if inactive:
             raise HTTPException(status_code=400, detail=f"Cannot schedule into inactive room(s): {', '.join(inactive)}")
 
+    async def _assert_no_cross_realm_clash(
+        self,
+        *,
+        realm_key: str,
+        semester_id: int | None,
+        item_type: str,
+        day_of_week: str | None,
+        exam_date: date | None,
+        start_time,
+        end_time,
+        room_ids: list[int] | None,
+        faculty_id: str | None,
+    ) -> None:
+        """Rooms are shared: 409 when another realm already holds one of these
+        rooms for a same-type session at an overlapping time. It can't be
+        dismissed - one of the two sessions has to move."""
+        slot = exam_date if item_type == "exam" else day_of_week
+        if not room_ids or slot is None:
+            return
+        # Only sessions in each realm's current semester hold a room.
+        current_sem = await self.cal_repo.get_current_semester(realm_key=realm_key)
+        if not current_sem or semester_id != current_sem.id:
+            return
+        # Special faculties are exempt, as they are within a realm.
+        if faculty_id:
+            faculty = await self.repo.get_faculty(faculty_id)
+            if faculty and faculty.is_special:
+                return
+
+        others = await self.repo.get_other_realms_current_items(
+            exclude_realm_key=realm_key,
+            item_type=item_type,
+            day_of_week=day_of_week if item_type != "exam" else None,
+            exam_date=exam_date if item_type == "exam" else None,
+        )
+        for other in others:
+            if other["is_special_faculty"]:
+                continue
+            shared = sorted(set(room_ids) & set(other["room_ids"]))
+            if not shared or not _times_overlap(start_time, end_time, other["start_time"], other["end_time"]):
+                continue
+            rooms = await self.repo.get_rooms_by_ids(shared)
+            room_names = ", ".join(r.name for r in rooms) or f"#{shared[0]}"
+            when = other["exam_date"].strftime("%d %b %Y") if item_type == "exam" else other["day_of_week"]
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"Room {room_names} is already booked by {other['realm_name']} for {other['course_code']} "
+                    f"on {when} {other['start_time'].strftime('%H:%M')}–{other['end_time'].strftime('%H:%M')}. "
+                    f"One of the two sessions has to move."
+                ),
+            )
+
+    async def get_external_bookings(self, current_user: dict) -> list[dict]:
+        return await self.repo.get_other_realms_current_items(exclude_realm_key=current_user["realm"])
+
     async def create_schedule_item(self, data: ScheduleItemCreate, current_user: dict) -> ScheduleItem:
         if current_user.get("role") == RoleEnum.FACULTY_EDITOR.value:
             if current_user.get("faculty_id") != data.faculty_id:
                 raise HTTPException(status_code=403, detail="Strictly forbidden to schedule outside assigned faculty")
         if _is_gs_admin(current_user):
-            course = await self.repo.get_course(data.course_id)
+            course = await self.repo.get_course(data.course_id, realm_key=current_user["realm"])
             if not course or course.scope != CourseScope.UNIVERSITY_WIDE:
                 raise HTTPException(status_code=403, detail="General Studies admins can only schedule university-wide courses")
             data.faculty_id = None
 
         # Verify schedule targets the current semester
-        current_sem = await self.cal_repo.get_current_semester()
+        current_sem = await self.cal_repo.get_current_semester(realm_key=current_user["realm"])
         if not current_sem:
             raise HTTPException(status_code=400, detail="No active semester found. Please create a current semester before scheduling.")
         if data.semester_id is not None and data.semester_id != current_sem.id:
             raise HTTPException(status_code=403, detail="You can only schedule courses for the current semester.")
 
         sem_id = data.semester_id or current_sem.id
-        await self._assert_not_locked(sem_id, data.type)
+        if not await self.repo.get_course(data.course_id, realm_key=current_user["realm"]):
+            raise HTTPException(status_code=404, detail="Course not found")
+        await self._assert_not_locked(sem_id, data.type, current_user["realm"])
         exam_date_val = getattr(data, 'exam_date', None)
-        await self._check_blocked_slots(data.type, data.day_of_week, exam_date_val, data.start_time, data.end_time, sem_id)
+        _assert_fits_window(current_user, data.type, data.day_of_week, exam_date_val, data.start_time, data.end_time)
+        await self._check_blocked_slots(data.type, data.day_of_week, exam_date_val, data.start_time, data.end_time, sem_id, current_user["realm"])
         await self._assert_rooms_active(data.room_ids)
+        await self._assert_no_cross_realm_clash(
+            realm_key=current_user["realm"], semester_id=sem_id, item_type=data.type,
+            day_of_week=data.day_of_week, exam_date=exam_date_val,
+            start_time=data.start_time, end_time=data.end_time,
+            room_ids=data.room_ids, faculty_id=data.faculty_id,
+        )
 
         item = ScheduleItem(
             course_id=data.course_id,
@@ -650,10 +797,11 @@ class TimetableService:
             week=data.week,
             exam_date=getattr(data, 'exam_date', None),
             semester_id=sem_id,
+            realm_key=current_user["realm"],
         )
         created = await self.repo.create_schedule_item(item)
         await self._notify_priority_overrides(created)
-        course = await self.repo.get_course(created.course_id)
+        course = await self.repo.get_course(created.course_id, realm_key=current_user["realm"])
         await self.audit_service.log(
             current_user=current_user,
             action=f"schedule_item.{created.type}.create",
@@ -677,27 +825,34 @@ class TimetableService:
 
     async def get_schedule_items(self, current_user: dict, semester_id: int | None = None) -> list[ScheduleItem]:
         faculty_id = None if _has_global_read_scope(current_user) else current_user.get('faculty_id')
-        return await self.repo.get_schedule_items(semester_id=semester_id, faculty_id=faculty_id)
+        return await self.repo.get_schedule_items(realm_key=current_user["realm"], semester_id=semester_id, faculty_id=faculty_id)
         
     async def update_schedule_item(self, id: int, data: ScheduleItemUpdate, current_user: dict) -> ScheduleItem:
-        item = await self.repo.get_schedule_item(id)
+        item = await self.repo.get_schedule_item(id, realm_key=current_user["realm"])
         if not item:
             raise HTTPException(status_code=404, detail="Schedule missing")
         if current_user.get("role") == RoleEnum.FACULTY_EDITOR.value:
             if current_user.get("faculty_id") != item.faculty_id:
                 raise HTTPException(status_code=403, detail="Forbidden update")
         if _is_gs_admin(current_user):
-            course = await self.repo.get_course(item.course_id)
+            course = await self.repo.get_course(item.course_id, realm_key=current_user["realm"])
             if not course or course.scope != CourseScope.UNIVERSITY_WIDE:
                 raise HTTPException(status_code=403, detail="General Studies admins can only edit university-wide schedule items")
-        await self._assert_not_locked(item.semester_id, item.type)
+        await self._assert_not_locked(item.semester_id, item.type, current_user["realm"])
         # Check blocked slots if day or time is changing
         new_day = data.day_of_week if data.day_of_week is not None else item.day_of_week
         new_exam_date = getattr(data, 'exam_date', None) if getattr(data, 'exam_date', None) is not None else getattr(item, 'exam_date', None)
         new_start = data.start_time or item.start_time
         new_end = data.end_time or item.end_time
+        _assert_fits_window(current_user, item.type, new_day, new_exam_date, new_start, new_end)
         if item.semester_id:
-            await self._check_blocked_slots(item.type, new_day, new_exam_date, new_start, new_end, item.semester_id)
+            await self._check_blocked_slots(item.type, new_day, new_exam_date, new_start, new_end, item.semester_id, current_user["realm"])
+        await self._assert_no_cross_realm_clash(
+            realm_key=current_user["realm"], semester_id=item.semester_id, item_type=item.type,
+            day_of_week=new_day, exam_date=new_exam_date, start_time=new_start, end_time=new_end,
+            room_ids=data.room_ids if data.room_ids is not None else item.room_ids,
+            faculty_id=item.faculty_id,
+        )
         if data.room_ids is not None:
             await self._assert_rooms_active(data.room_ids, already_assigned_ids=item.room_ids or [])
             item.room_ids = data.room_ids
@@ -707,7 +862,7 @@ class TimetableService:
         if data.end_time is not None: item.end_time = data.end_time
         updated = await self.repo.update_schedule_item(item)
         await self._notify_priority_overrides(updated)
-        course = await self.repo.get_course(updated.course_id)
+        course = await self.repo.get_course(updated.course_id, realm_key=current_user["realm"])
         await self.audit_service.log(
             current_user=current_user,
             action=f"schedule_item.{updated.type}.update",
@@ -719,17 +874,18 @@ class TimetableService:
         return updated
 
     async def delete_schedule_item(self, id: int, current_user: dict) -> None:
-        item = await self.repo.get_schedule_item(id)
+        # Another realm's item is not found here, so like a missing id it is a silent no-op.
+        item = await self.repo.get_schedule_item(id, realm_key=current_user["realm"])
         if not item: return
         if current_user.get("role") == RoleEnum.FACULTY_EDITOR.value:
             if current_user.get("faculty_id") != item.faculty_id:
                 raise HTTPException(status_code=403, detail="Forbidden delete")
         if _is_gs_admin(current_user):
-            course = await self.repo.get_course(item.course_id)
+            course = await self.repo.get_course(item.course_id, realm_key=current_user["realm"])
             if not course or course.scope != CourseScope.UNIVERSITY_WIDE:
                 raise HTTPException(status_code=403, detail="General Studies admins can only delete university-wide schedule items")
-        await self._assert_not_locked(item.semester_id, item.type)
-        course = await self.repo.get_course(item.course_id)
+        await self._assert_not_locked(item.semester_id, item.type, current_user["realm"])
+        course = await self.repo.get_course(item.course_id, realm_key=current_user["realm"])
         await self.repo.delete_schedule_item(item)
         await self.audit_service.log(
             current_user=current_user,
@@ -741,7 +897,15 @@ class TimetableService:
 
     # ---------- Blocked Slots ----------
 
-    async def create_blocked_slot(self, data: BlockedSlotCreate, current_user: dict | None = None) -> BlockedSlot:
+    async def create_blocked_slot(self, data: BlockedSlotCreate, current_user: dict) -> BlockedSlot:
+        await self._semester_in_realm(data.semester_id, current_user)
+        config = current_user["realm_config"]
+        if config["strict"]:
+            if data.applies_to == "EXAM_ONLY":
+                _assert_day_allowed(current_user, "exam", WEEKDAYS[data.date.weekday()])
+            elif data.applies_to == "LECTURE_ONLY" or data.day_of_week not in config["exam_days"]:
+                # A block for both timetables may sit on a day either of them uses.
+                _assert_day_allowed(current_user, "lecture", data.day_of_week)
         slot = BlockedSlot(
             name=data.name,
             type=data.type,
@@ -771,11 +935,18 @@ class TimetableService:
         )
         return created
 
-    async def get_blocked_slots(self, semester_id: int | None = None) -> list[BlockedSlot]:
-        return await self.repo.get_blocked_slots(semester_id=semester_id)
+    async def get_blocked_slots(self, current_user: dict, semester_id: int | None = None) -> list[BlockedSlot]:
+        realm_key = current_user["realm"]
+        if semester_id is None:
+            # No semester named: the realm's current one.
+            current_sem = await self.cal_repo.get_current_semester(realm_key=realm_key)
+            if not current_sem:
+                return []
+            semester_id = current_sem.id
+        return await self.repo.get_blocked_slots(realm_key=realm_key, semester_id=semester_id)
 
-    async def delete_blocked_slot(self, id: int, current_user: dict | None = None) -> None:
-        slot = await self.repo.get_blocked_slot(id)
+    async def delete_blocked_slot(self, id: int, current_user: dict) -> None:
+        slot = await self.repo.get_blocked_slot(id, realm_key=current_user["realm"])
         if not slot:
             raise HTTPException(status_code=404, detail="Blocked slot not found")
         await self.repo.delete_blocked_slot(slot)
@@ -789,8 +960,9 @@ class TimetableService:
 
     # ---------- Timetable Locks ----------
 
-    async def list_locks(self, semester_id: int) -> list[TimetableLock]:
-        existing = await self.repo.list_locks(semester_id)
+    async def list_locks(self, semester_id: int, current_user: dict) -> list[TimetableLock]:
+        await self._semester_in_realm(semester_id, current_user)
+        existing = await self.repo.list_locks(semester_id, realm_key=current_user["realm"])
         by_type = {lock.timetable_type: lock for lock in existing}
         for t in ("lecture", "exam"):
             if t not in by_type:
@@ -806,10 +978,11 @@ class TimetableService:
     async def set_lock(self, semester_id: int, timetable_type: str, is_locked: bool, current_user: dict) -> TimetableLock:
         if timetable_type not in ("lecture", "exam"):
             raise HTTPException(status_code=400, detail="timetable_type must be 'lecture' or 'exam'")
+        await self._semester_in_realm(semester_id, current_user)
         sub = current_user.get("sub")
         user_id = int(sub) if sub is not None else None
         try:
-            lock = await self.repo.upsert_lock(semester_id, timetable_type, is_locked, user_id)
+            lock = await self.repo.upsert_lock(semester_id, timetable_type, is_locked, user_id, realm_key=current_user["realm"])
         except IntegrityError:
             raise HTTPException(status_code=404, detail="Semester not found")
         await self.audit_service.log(
@@ -835,8 +1008,9 @@ class TimetableService:
             raise HTTPException(status_code=403, detail="Super admins can unlock directly")
         if current_user.get("role") != RoleEnum.FACULTY_EDITOR.value:
             raise HTTPException(status_code=403, detail="Only faculty editors can request edit access")
+        await self._semester_in_realm(semester_id, current_user)
 
-        lock = await self.repo.get_lock(semester_id, timetable_type)
+        lock = await self.repo.get_lock(semester_id, timetable_type, realm_key=current_user["realm"])
         if not lock or not lock.is_locked:
             raise HTTPException(status_code=409, detail=f"This {timetable_type} timetable is not locked")
 
@@ -857,6 +1031,7 @@ class TimetableService:
             f"Reason: {reason.strip() if reason else '—'}"
         )
         link = f"/timetable/{'lectures' if timetable_type == 'lecture' else 'exams'}"
+        title, link = _for_super_admins(current_user, title, link)
 
         await self.notification_service.notify(
             user_ids=admin_ids,
@@ -884,7 +1059,7 @@ class TimetableService:
     )
 
     async def _enrich_change_request(self, cr: ChangeRequest) -> dict:
-        course = await self.repo.get_course(cr.course_id) if cr.course_id is not None else None
+        course = await self.repo.get_course(cr.course_id, realm_key=cr.realm_key) if cr.course_id is not None else None
         requester = await self.auth_repo.get_user_by_id(cr.requested_by) if cr.requested_by is not None else None
         data = {c.name: getattr(cr, c.name) for c in cr.__table__.columns}
         data["course_code"] = course.code if course else None
@@ -903,13 +1078,13 @@ class TimetableService:
         if target is not None and target.faculty_id == faculty_id:
             return
         # A course whose home department belongs to the user's faculty is in scope.
-        course = await self.repo.get_course(course_id) if course_id is not None else None
+        course = await self.repo.get_course(course_id, realm_key=current_user["realm"]) if course_id is not None else None
         if course is not None and course.department_id is not None:
             dept = await self.repo.get_department(course.department_id)
             if dept is not None and dept.faculty_id == faculty_id:
                 return
         # Otherwise the course must be enrolled to a department in the user's faculty (cross-listed).
-        enrollments = await self.repo.list_enrollments(faculty_id=faculty_id, course_id=course_id)
+        enrollments = await self.repo.list_enrollments(realm_key=current_user["realm"], faculty_id=faculty_id, course_id=course_id)
         if not enrollments:
             raise HTTPException(status_code=403, detail="You can only request changes for courses in your faculty")
 
@@ -918,28 +1093,39 @@ class TimetableService:
         if role not in self._CHANGE_REQUEST_ROLES:
             raise HTTPException(status_code=403, detail="Your role cannot submit change requests")
 
-        current_sem = await self.cal_repo.get_current_semester()
+        current_sem = await self.cal_repo.get_current_semester(realm_key=current_user["realm"])
         if not current_sem:
             raise HTTPException(status_code=400, detail="No active semester found.")
         if data.semester_id is not None and data.semester_id != current_sem.id:
             raise HTTPException(status_code=403, detail="You can only request changes for the current semester.")
         sem_id = data.semester_id or current_sem.id
 
-        lock = await self.repo.get_lock(sem_id, data.timetable_type)
+        lock = await self.repo.get_lock(sem_id, data.timetable_type, realm_key=current_user["realm"])
         if lock and lock.is_locked:
             raise HTTPException(status_code=423, detail=f"This {data.timetable_type} timetable is locked.")
 
-        course = await self.repo.get_course(data.course_id)
+        course = await self.repo.get_course(data.course_id, realm_key=current_user["realm"])
         if not course:
             raise HTTPException(status_code=404, detail="Course not found")
 
         target = None
         if data.action in (ChangeRequestAction.MODIFY.value, ChangeRequestAction.REMOVE.value):
-            target = await self.repo.get_schedule_item(data.target_schedule_item_id)
+            target = await self.repo.get_schedule_item(data.target_schedule_item_id, realm_key=current_user["realm"])
             if not target:
                 raise HTTPException(status_code=404, detail="The schedule item to change no longer exists")
             if target.semester_id != sem_id or target.type != data.timetable_type:
                 raise HTTPException(status_code=400, detail="Target schedule item does not match this timetable")
+
+        if data.action != ChangeRequestAction.REMOVE.value:
+            # A MODIFY leaves out what it doesn't change, so the target fills the gaps.
+            _assert_fits_window(
+                current_user,
+                data.timetable_type,
+                data.day_of_week if data.day_of_week is not None or target is None else target.day_of_week,
+                data.exam_date if data.exam_date is not None or target is None else target.exam_date,
+                data.start_time,
+                data.end_time,
+            )
 
         await self._assert_request_scope(data.action, data.course_id, target, current_user)
 
@@ -948,9 +1134,11 @@ class TimetableService:
 
         cr = ChangeRequest(
             semester_id=sem_id,
+            realm_key=current_user["realm"],
             timetable_type=data.timetable_type,
             action=data.action,
-            target_schedule_item_id=data.target_schedule_item_id,
+            # An ADD has no target; whatever id it sent was never checked against the realm.
+            target_schedule_item_id=target.id if target else None,
             course_id=data.course_id,
             room_ids=data.room_ids,
             faculty_id=data.faculty_id,
@@ -976,11 +1164,12 @@ class TimetableService:
                 f"{requester_email} requested to {action_label} a {data.timetable_type} session "
                 f"for {course.code}.\nReason: {data.reason.strip() if data.reason else '—'}"
             )
+            title, link = _for_super_admins(current_user, title, "/requests")
             await self.notification_service.notify(
                 user_ids=admin_ids,
                 title=title,
                 message=message,
-                link="/requests",
+                link=link,
                 send_email=False,
             )
 
@@ -1008,6 +1197,7 @@ class TimetableService:
             sub = current_user.get("sub")
             requested_by = int(sub) if sub is not None else -1
         rows = await self.repo.list_change_requests(
+            realm_key=current_user["realm"],
             semester_id=semester_id,
             timetable_type=timetable_type,
             status=status,
@@ -1016,14 +1206,14 @@ class TimetableService:
         return [await self._enrich_change_request(cr) for cr in rows]
 
     async def review_change_request(self, id: int, approve: bool, note: str | None, current_user: dict) -> dict:
-        cr = await self.repo.get_change_request(id)
+        cr = await self.repo.get_change_request(id, realm_key=current_user["realm"])
         if not cr:
             raise HTTPException(status_code=404, detail="Change request not found")
         if cr.status != ChangeRequestStatus.PENDING.value:
             raise HTTPException(status_code=409, detail=f"This request has already been {cr.status.lower()}")
 
         if approve:
-            lock = await self.repo.get_lock(cr.semester_id, cr.timetable_type)
+            lock = await self.repo.get_lock(cr.semester_id, cr.timetable_type, realm_key=current_user["realm"])
             if lock and lock.is_locked:
                 raise HTTPException(status_code=423, detail="Unlock the timetable before approving this request.")
 
@@ -1043,7 +1233,7 @@ class TimetableService:
                 created_item = await self.create_schedule_item(payload, current_user)
                 cr.resulting_schedule_item_id = created_item.id
             elif cr.action == ChangeRequestAction.MODIFY.value:
-                if cr.target_schedule_item_id is None or not await self.repo.get_schedule_item(cr.target_schedule_item_id):
+                if cr.target_schedule_item_id is None or not await self.repo.get_schedule_item(cr.target_schedule_item_id, realm_key=current_user["realm"]):
                     raise HTTPException(status_code=409, detail="The target schedule item no longer exists; cannot apply this change.")
                 payload = ScheduleItemUpdate(
                     room_ids=cr.room_ids,
@@ -1055,7 +1245,7 @@ class TimetableService:
                 updated_item = await self.update_schedule_item(cr.target_schedule_item_id, payload, current_user)
                 cr.resulting_schedule_item_id = updated_item.id
             elif cr.action == ChangeRequestAction.REMOVE.value:
-                if cr.target_schedule_item_id is None or not await self.repo.get_schedule_item(cr.target_schedule_item_id):
+                if cr.target_schedule_item_id is None or not await self.repo.get_schedule_item(cr.target_schedule_item_id, realm_key=current_user["realm"]):
                     raise HTTPException(status_code=409, detail="The target schedule item no longer exists; cannot apply this change.")
                 await self.delete_schedule_item(cr.target_schedule_item_id, current_user)
 
@@ -1069,18 +1259,24 @@ class TimetableService:
         cr.review_note = note
         await self.repo.update_change_request(cr)
 
-        course = await self.repo.get_course(cr.course_id) if cr.course_id is not None else None
+        course = await self.repo.get_course(cr.course_id, realm_key=current_user["realm"]) if cr.course_id is not None else None
         course_label = course.code if course else "the course"
         if cr.requested_by is not None:
             outcome = "approved and applied" if approve else "rejected"
+            title = f"Your change request was {('approved' if approve else 'rejected')}"
+            link = f"/timetable/{'lectures' if cr.timetable_type == 'lecture' else 'exams'}"
+            # A cross-realm requester (a super viewer) may be in another realm when this arrives.
+            requester = await self.auth_repo.get_user_by_id(cr.requested_by)
+            if requester and requester.role in CROSS_REALM_ROLES:
+                title, link = _for_super_admins(current_user, title, link)
             await self.notification_service.notify(
                 user_ids=[cr.requested_by],
-                title=f"Your change request was {('approved' if approve else 'rejected')}",
+                title=title,
                 message=(
                     f"Your request to {cr.action.lower()} a {cr.timetable_type} session for {course_label} "
                     f"was {outcome}.\n" + (f"Note: {note.strip()}" if note else "")
                 ),
-                link=f"/timetable/{'lectures' if cr.timetable_type == 'lecture' else 'exams'}",
+                link=link,
                 send_email=False,
             )
 
@@ -1098,11 +1294,11 @@ class TimetableService:
 
     async def list_enrollments(self, current_user: dict, course_id: int | None = None) -> list[CourseEnrollment]:
         if _has_global_scope(current_user):
-            return await self.repo.list_enrollments(course_id=course_id)
+            return await self.repo.list_enrollments(realm_key=current_user["realm"], course_id=course_id)
         faculty_id = current_user.get("faculty_id")
         if not faculty_id:
             return []
-        return await self.repo.list_enrollments(faculty_id=faculty_id, course_id=course_id)
+        return await self.repo.list_enrollments(realm_key=current_user["realm"], faculty_id=faculty_id, course_id=course_id)
 
     async def _check_dept_belongs_to_user_faculty(self, department_id: int, current_user: dict) -> Department:
         dept = await self.repo.get_department(department_id)
@@ -1119,14 +1315,14 @@ class TimetableService:
     async def create_enrollment(self, course_id: int, department_id: int, level: int, current_user: dict) -> CourseEnrollment:
         await self._check_dept_belongs_to_user_faculty(department_id, current_user)
 
-        course = await self.repo.get_course(course_id)
+        course = await self.repo.get_course(course_id, realm_key=current_user["realm"])
         if not course:
             raise HTTPException(status_code=404, detail="Course not found")
         if course.scope == CourseScope.DEPARTMENTAL:
             raise HTTPException(status_code=400, detail="Departmental courses are auto-audienced; no enrollment needed")
 
         # Idempotent: return existing if already enrolled at this dept × level.
-        existing = await self.repo.get_enrollment(course_id, department_id, level)
+        existing = await self.repo.get_enrollment(course_id, department_id, level, realm_key=current_user["realm"])
         if existing:
             return existing
 
@@ -1145,7 +1341,7 @@ class TimetableService:
 
     async def delete_enrollment(self, course_id: int, department_id: int, level: int, current_user: dict) -> None:
         await self._check_dept_belongs_to_user_faculty(department_id, current_user)
-        enrollment = await self.repo.get_enrollment(course_id, department_id, level)
+        enrollment = await self.repo.get_enrollment(course_id, department_id, level, realm_key=current_user["realm"])
         if not enrollment:
             raise HTTPException(status_code=404, detail="Enrollment not found")
         await self.repo.delete_enrollment(enrollment)
@@ -1164,21 +1360,21 @@ class TimetableService:
         raise HTTPException(status_code=403, detail="You can only dismiss conflicts involving your faculty")
 
     async def get_dismissals(self, current_user: dict) -> list[ConflictDismissal]:
-        return await self.repo.get_dismissals()
+        return await self.repo.get_dismissals(realm_key=current_user["realm"])
 
     async def create_dismissal(self, data: ConflictDismissalCreate, current_user: dict) -> ConflictDismissal:
         ctype, a_id, b_id = _normalize_signature(data.conflict_type, data.item_a_id, data.item_b_id)
         if b_id is not None and b_id == a_id:
             raise HTTPException(status_code=400, detail="A conflict must reference two different schedule items")
         ids = [a_id] + ([b_id] if b_id is not None else [])
-        items = await self.repo.get_schedule_items_by_ids(ids)
+        items = await self.repo.get_schedule_items_by_ids(ids, realm_key=current_user["realm"])
         found = {i.id for i in items}
         for i in ids:
             if i not in found:
                 raise HTTPException(status_code=404, detail=f"Schedule item {i} not found")
         self._assert_faculty_can_dismiss(current_user, items)
 
-        existing = await self.repo.find_dismissal(ctype, a_id, b_id)
+        existing = await self.repo.find_dismissal(ctype, a_id, b_id, realm_key=current_user["realm"])
         if existing:
             return existing
 
@@ -1220,9 +1416,9 @@ class TimetableService:
             all_ids.add(s.item_a_id)
             if s.item_b_id is not None:
                 all_ids.add(s.item_b_id)
-        items = await self.repo.get_schedule_items_by_ids(list(all_ids))
+        items = await self.repo.get_schedule_items_by_ids(list(all_ids), realm_key=current_user["realm"])
         items_map = {i.id: i for i in items}
-        existing = {(d.conflict_type, d.item_a_id, d.item_b_id) for d in await self.repo.get_dismissals()}
+        existing = {(d.conflict_type, d.item_a_id, d.item_b_id) for d in await self.repo.get_dismissals(realm_key=current_user["realm"])}
 
         sub = current_user.get("sub")
         actor_id = int(sub) if sub is not None else None
@@ -1260,11 +1456,11 @@ class TimetableService:
         return created
 
     async def delete_dismissal(self, id: int, current_user: dict) -> None:
-        dismissal = await self.repo.get_dismissal(id)
+        dismissal = await self.repo.get_dismissal(id, realm_key=current_user["realm"])
         if not dismissal:
             raise HTTPException(status_code=404, detail="Dismissal not found")
         ids = [dismissal.item_a_id] + ([dismissal.item_b_id] if dismissal.item_b_id is not None else [])
-        items = await self.repo.get_schedule_items_by_ids(ids)
+        items = await self.repo.get_schedule_items_by_ids(ids, realm_key=current_user["realm"])
         self._assert_faculty_can_dismiss(current_user, items)
         ctype = dismissal.conflict_type
         item_a = dismissal.item_a_id

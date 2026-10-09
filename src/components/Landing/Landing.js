@@ -328,7 +328,7 @@ export default function Landing() {
 						<Link href="/realms">
 							Login <ArrowUpRightIcon />
 						</Link>
-						<Link href="/login">Undergraduate portal</Link>
+						<Link href="/realms">Undergraduate portal</Link>
 					</div>
 				</div>
 

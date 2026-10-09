@@ -148,7 +148,7 @@ const navItems = [
 
 export default function Sidebar({ isCollapsed, isMobileOpen = false, onMobileClose }) {
   const pathname = usePathname();
-  const { user } = useAuth();
+  const { user, realmName } = useAuth();
   const role = user?.role;
 
   const isAllowed = (item) => {
@@ -169,7 +169,7 @@ export default function Sidebar({ isCollapsed, isMobileOpen = false, onMobileClo
         {!isCollapsed && (
           <div className={styles.brandText}>
             <span className={styles.brandName}>University of Lagos</span>
-            <span className={styles.brandSub}>Timetable Manager</span>
+            <span className={styles.brandSub}>{realmName ? `${realmName} · Timetable Manager` : 'Timetable Manager'}</span>
           </div>
         )}
       </div>

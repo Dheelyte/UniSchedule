@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useApp, ACTION_TYPES } from "@/context/AppContext";
 import { useAuth } from "@/context/AuthContext";
 import { apiClient } from "@/lib/apiClient";
-import { detectAllConflicts } from "@/lib/conflicts";
+import { detectAllConflicts, toExternalBooking } from "@/lib/conflicts";
 import { exportTimetablePDF } from "@/lib/pdfExport";
 import { exportTimetableCSV } from "@/lib/csvExport";
 import { isGeneralStudiesCourse, GENERAL_STUDIES_FACULTY } from "@/lib/utils";
@@ -22,9 +22,11 @@ import styles from "../exams/exams.module.css";
 
 const SHOW_CONFLICTS_BEFORE_EXPORT = false;
 
+const NO_EXTERNAL_BOOKINGS = [];
+
 export default function CBTTimetablePage() {
 	const { getSchedulesWithDetails, state, dispatch, isInitialized } = useApp();
-	const { user, loading: authLoading } = useAuth();
+	const { user, loading: authLoading, realm, realmName, realmConfig } = useAuth();
 	const { addToast } = useToast();
 	const confirm = useConfirm();
 	const router = useRouter();
@@ -59,6 +61,8 @@ export default function CBTTimetablePage() {
 	const [isChangeModalOpen, setIsChangeModalOpen] = useState(false);
 	const [changeBusy, setChangeBusy] = useState(false);
 	const [enrollmentsByCourse, setEnrollmentsByCourse] = useState(new Map());
+	// Sessions other realms hold in the shared rooms (their current semesters).
+	const [externalBookings, setExternalBookings] = useState(NO_EXTERNAL_BOOKINGS);
 
 	// CBT Management state
 	const [isManageModalOpen, setIsManageModalOpen] = useState(false);
@@ -150,6 +154,10 @@ export default function CBTTimetablePage() {
 		async (semId) => {
 			if (semId === null) return;
 			try {
+				apiClient
+					.get("/timetable/external-bookings")
+					.then((rows) => setExternalBookings((rows || []).map(toExternalBooking)))
+					.catch(() => setExternalBookings(NO_EXTERNAL_BOOKINGS));
 				if (isInitialized) {
 					const [
 						scheduleItems,
@@ -327,7 +335,7 @@ export default function CBTTimetablePage() {
 					(s.roomIds || []).some(rid => state.rooms.find(rm => rm.id === rid)?.name?.toUpperCase().includes("CBT"))
 				)
 			);
-			const conflictsMap = detectAllConflicts(schedules);
+			const conflictsMap = detectAllConflicts(schedules, null, null, null, { config: realmConfig, externalBookings });
 			const errorMessages = [
 				...new Set(
 					Array.from(conflictsMap.values())
@@ -426,6 +434,9 @@ export default function CBTTimetablePage() {
 				department: departmentInfo,
 				mode: "exam",
 				groupByFaculty,
+				config: realmConfig,
+				realmKey: realm,
+				realmName,
 			});
 			addToast({
 				type: "success",
@@ -459,6 +470,9 @@ export default function CBTTimetablePage() {
 				paperSize: "a3",
 				structured: true,
 				isLocked,
+				config: realmConfig,
+				realmKey: realm,
+				realmName,
 			});
 
 			addToast({
@@ -486,6 +500,9 @@ export default function CBTTimetablePage() {
 			monochrome,
 			groupByFaculty,
 			isLocked,
+			config: realmConfig,
+			realmKey: realm,
+			realmName,
 		});
 		addToast({
 			type: "success",
@@ -606,6 +623,7 @@ export default function CBTTimetablePage() {
 				readOnly={readOnly}
 				readOnlyReasons={readOnlyReasons}
 				enrollmentsByCourse={enrollmentsByCourse}
+				externalBookings={isCurrentSemester ? externalBookings : NO_EXTERNAL_BOOKINGS}
 			/>
 			
 			<ExportModal
