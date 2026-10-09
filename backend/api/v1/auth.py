@@ -115,7 +115,11 @@ async def get_users(service: AuthService = Depends(), user: dict = Depends(Requi
 
 @router.get("/invitations", response_model=list[InvitationResponse])
 async def get_invitations(service: AuthService = Depends(), user: dict = Depends(RequireRole([RoleEnum.SUPER_ADMIN.value, RoleEnum.SUPER_VIEWER.value]))):
-    return await service.get_invitations(realm_key=user["realm"])
+    invitations = [InvitationResponse.model_validate(inv) for inv in await service.get_invitations(realm_key=user["realm"])]
+    if user.get("role") != RoleEnum.SUPER_ADMIN.value:
+        for invitation in invitations:
+            invitation.token = None
+    return invitations
 
 @router.delete("/users/{user_id}")
 async def delete_user(user_id: int, service: AuthService = Depends(), user: dict = Depends(RequireRole([RoleEnum.SUPER_ADMIN.value]))):

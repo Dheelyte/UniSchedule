@@ -150,6 +150,7 @@ async def test_super_admin_updates_realm(make_client, make_user, login, restore_
         logs = (await session.execute(select(ActivityLog).where(ActivityLog.action == "realm.update"))).scalars().all()
     assert len(logs) == 1
     assert logs[0].entity_id == "ICE"
+    assert logs[0].realm_key == "ICE"  # filed under the realm that changed, not the portal the admin is in
     assert logs[0].user_id == admin_user["id"]
 
 

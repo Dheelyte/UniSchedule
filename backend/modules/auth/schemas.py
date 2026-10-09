@@ -40,7 +40,7 @@ class UserResponse(BaseModel):
 class InvitationResponse(BaseModel):
     id: int
     email: EmailStr
-    token: str
+    token: str | None  # None for viewers: the token alone is enough to register the account
     target_role: RoleEnum
     faculty_id: str | None
     semester_id: int | None

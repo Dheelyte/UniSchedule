@@ -204,13 +204,13 @@ Prerequisites: Phase 5.
 
 Prerequisites: Phase 6.
 
-- [ ] Run `/ice-audit` and fix its findings.
+- [x] Run `/ice-audit` and fix its findings.
 - [ ] Restore a recent production dump into the local Postgres and run `alembic upgrade head`. Smoke-test UG: login, timetables and exports. Never commit the dump.
 - [ ] On the restored dump, list any courses whose level isn't in the UG config (`SELECT id, code, level FROM courses WHERE level IS NOT NULL AND level NOT IN (100, 200, 300, 400, 500, 600, 700)`). Since Phase 3 the API rejects those levels, so fix the courses or extend the config's `levels` before launch.
-- [ ] Add `.github/workflows/test.yml`, triggered on `pull_request`:
+- [x] Add `.github/workflows/test.yml`, triggered on `pull_request`:
   - backend `pytest` with a `postgres:16` service;
   - `npm ci`, lint, test and build.
-- [ ] Update the README with realms and how to run the tests. Make sure SPEC.md matches what was actually built.
+- [x] Update the README with realms and how to run the tests. Make sure SPEC.md matches what was actually built.
 - [ ] Push `feature/ice-realm` and open a PR (`gh pr create` if available). **Don't merge it.**
 
 Launch is for people, not Claude:
@@ -229,21 +229,15 @@ Launch is for people, not Claude:
 
 - `backend/Dockerfile:34` copies the whole folder into the Lambda image and there is no `.dockerignore`, so `backend/tests/` ships with it (harmless: the dev dependencies aren't installed). Add a `.dockerignore`.
 - `backend/test_service.py:1` is a leftover manual script, not a test. pytest ignores it (`testpaths = ["tests"]`); delete it or move it to `backend/scripts/`.
-- `README.md:3` says Next.js 15; the project is on Next.js 16.
 - `backend/core/config.py` (`DB_NULL_POOL`): the tests no longer use it, since the suite runs on one event loop with pooled connections. Remove the setting if nothing else needs it.
-- `backend/tests/conftest.py` (`_CLEAN_SQL`): emptying the tables turns foreign-key triggers off, which needs a superuser. The Phase 7 CI job must connect as one (the `postgres:16` service's default user is).
 - `backend/migrations/versions/n4i5j6k7l8m9_add_realms.py:145`: the downgrade doesn't restore the `is_current` flags that step 6 cleared, and only course codes are checked before realms are merged back together. Acceptable while no ICE data exists (SPEC §5 Rollback).
 - `backend/modules/auth/models.py:22`: a Python `None` for `realm_key` is left out of the INSERT, so the `'UG'` server default applies. New users and invitations must go through `stored_realm_key()`, which sends an explicit SQL NULL for cross-realm roles. The same trap applies to any other nullable `realm_key` column with a default.
 - `backend/api/dependencies/auth.py:21`: `get_current_user` now does one extra primary-key lookup on `realms` per request and validates the config each time. Cache the realms in-process if it shows up in latency.
 - `backend/modules/auth/service.py`: changing a user's role is not possible through the API today. If it is added, a move between a cross-realm and a realm-bound role must also set or clear `realm_key`.
 
-- `backend/modules/timetable/service.py` (`review_change_request`): the "Your change request was approved/rejected" notification goes to the requester with a link that has no `?realm=`. A SUPER_VIEWER requester is cross-realm and may be in another realm when they open it.
 - `backend/modules/auth/service.py` (`generate_invite`): `semester_id` on an invitation isn't checked against the inviter's realm. Nothing reads it for scoping today.
 - `backend/modules/audit/service.py`: activity logs written by the previous code version during a deploy have `realm_key` NULL, so they show in every realm's audit list. Harmless; backfill to `UG` if it matters.
 
-- `backend/modules/timetable/service.py:200` (`delete_department`): departments are shared, and `course_enrollments.department_id` cascades (`backend/modules/timetable/models.py:146`), so deleting a department with no home courses silently removes every realm's enrollments for it. Refuse with 400 while any enrollment or course in any realm references the department. (ice-audit 2026-10-09)
-- `backend/modules/timetable/service.py:998` (`create_change_request`): `target_schedule_item_id` is realm-checked only for MODIFY and REMOVE, so an ADD can store another realm's item id. Set it to `None` for ADD. (ice-audit 2026-10-09)
-- `backend/api/v1/auth.py:116` (`GET /auth/invitations`): SUPER_VIEWER receives each open invitation's `token` (`backend/modules/auth/schemas.py:43`), and `POST /auth/register/{token}` needs no login, so a viewer can register any pending account, including a SUPER_ADMIN one, with their own password. Not a realm issue. Drop `token` from the list response or limit the route to SUPER_ADMIN. (ice-audit 2026-10-09)
 
 - `backend/modules/timetable/service.py` (`_assert_no_cross_realm_clash`): nothing in the database enforces the rule, so two saves in different realms at the same moment can both pass. Take a per-room advisory lock (`pg_advisory_xact_lock`) if it ever happens.
 - `backend/modules/timetable/service.py` (`_assert_no_cross_realm_clash`): schedule items with `semester_id` NULL (legacy UG rows) count as outside the current semester, so they hold no room across realms and are missing from `external-bookings`. Check on the production dump in Phase 7 whether any are still in use.
@@ -265,6 +259,11 @@ Launch is for people, not Claude:
 - `src/app/timetable/*/page.js`: the conflict check before export now includes external bookings, but it is still switched off by `SHOW_CONFLICTS_BEFORE_EXPORT = false`, as before.
 - `backend/scripts/seed_ice_qa.py` is git-ignored with the rest of `backend/scripts/`, so it exists only on the machine that ran Phase 6. Copy it into the repo (for example under `backend/tests/`) if others need it.
 
+- `backend/modules/timetable/service.py` (`create_change_request`): a MODIFY or REMOVE request doesn't check that the target item's course is the `course_id` it names, so a faculty user can name one of their own courses to pass the scope check while targeting another faculty's item in the same realm. A super admin still has to approve it. Reject with 400 when the two differ. (ice-audit 2026-10-09)
+- `backend/modules/auth/repository.py` (`get_user_by_id`, `get_invitation_by_id`): the delete paths look the account up without a realm and check it afterwards in the service. Correct today; give them realm-scoped lookups so a new caller can't skip the check. (ice-audit 2026-10-09)
+- `backend/modules/timetable/service.py` (`delete_room`, `delete_faculty`): a shared room or faculty that only another realm uses can't be deleted, and the message doesn't say another programme is the reason. (ice-audit 2026-10-09)
+- `.github/workflows/test.yml` runs only on pull requests, and `deploy.yml` doesn't wait for it: a direct push to `main` deploys untested. Protect `main` and require the two test jobs.
+
 ## Progress log
 
 <!-- Claude appends one line per finished phase: YYYY-MM-DD · Phase N · what changed · test results -->
@@ -277,3 +276,4 @@ Launch is for people, not Claude:
 2026-10-09 · Phase 4 · strict realms (ICE) reject schedule items, ADD/MODIFY change requests and blocked slots outside the realm's days, day window or time grid (400); a same-type session in a room another realm holds at an overlapping time in its current semester is refused on create, update and change-request approval (409, special faculties exempt); `GET /timetable/external-bookings`; UG gets no new validation · backend `pytest` 106 passed (83 existing, 23 new in `tests/test_ice_scheduling.py`; two fixtures in `tests/test_realm_isolation.py` moved onto ICE days, assertions unchanged); frontend untouched, so npm checks not re-run
 2026-10-09 · Phase 5 · `src/lib/realm.js` (UG config, window/day/date helpers, portal links) with tests; AuthContext exposes `realm`/`realmName`/`realmConfig` and `switchRealm`; `/realms` reads the API (static fallback), `/login` reads `?realm=`, shows it in the badge and sends it, `/register` returns to the invitation's portal, the 401 and sign-out redirects keep the realm; Sidebar names the realm and cross-realm roles get a `RealmSwitcher`; links carrying `?realm=` switch a cross-realm user; staff page has a Programme column; terms, courses, enrolment and export lists come from the realm config; Landing footer link points at `/realms` · `npm test` 19 passed (9 new in `realm.test.mjs`); `npm run lint` 0 errors (20 warnings, as before); `npm run build` OK; manual checks run in headless Edge against a local backend on the test database, 22/22 (UG editor sees only UG and is refused on the ICE login, super admin switches to an empty ICE workspace, `/realms` shows ICE as "Coming soon", `/login?realm=ICE` shows the ICE badge); backend untouched, so pytest not re-run
 2026-10-09 · Phase 6 · the timetable grid, schedule and change-request forms, conflict checks and PDF/CSV exports read days, hours, time steps and exam slots from the realm config; other realms' room bookings are fetched on the lectures, exams and CBT pages, drawn grey and read-only, and block saving on a same-type overlap (a lecture against an exam only warns); exports print Sunday and evening sessions, name non-UG realms in titles and file names, and widen instead of dropping anything outside the grid; `backend/scripts/seed_ice_qa.py` seeds local QA data · `npm test` 27 passed (8 new in `conflicts.test.mjs`); `npm run lint` 0 errors (20 warnings, as before); `npm run build` OK; old and new conflict engines agree on 400 random UG timetables; 64 UG PDF exports (A3/A4, lectures/exams, colour/mono) and the UG CSVs are byte-identical to the previous commit, and the ICE A3/A4 PDFs and CSV contain the Sunday and 19:00 items; manual checks in headless Edge against a local backend with the seed data, 37/37; backend untouched, so pytest not re-run
+2026-10-09 · Phase 7 (partial) · `/ice-audit` found no realm leak (no blockers); fixed its findings and the three left from the previous audit: a shared department can't be deleted while another realm has enrollments for it, an ADD change request stores no target item, only a super admin reads invitation tokens, a realm update is logged under the realm that changed, and a cross-realm requester's review notification names the realm; `.github/workflows/test.yml` runs pytest (Postgres 16 service), lint, unit tests and build on pull requests; README gains a realms section; SPEC.md brought in line with the build. Not done: the production-dump restore, smoke test and course-level check (no dump on this machine), and opening the PR (`gh` is not installed) · backend `pytest` 110 passed (106 existing, 4 new), also 110 passed on a fresh `postgres:16` container set up like the CI job; `npm test` 27 passed; `npm run lint` 0 errors (20 warnings, as before); `npm run build` OK; the workflow itself first runs when the PR is opened

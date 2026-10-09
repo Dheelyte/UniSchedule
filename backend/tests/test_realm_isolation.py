@@ -429,7 +429,7 @@ REALM_SCOPED_READS = {
         "disable_current_sessions", "disable_current_semesters",
     ],
     TimetableRepository: [
-        "get_courses", "get_course", "is_course_referenced_by_schedule",
+        "get_courses", "get_course", "is_course_referenced_by_schedule", "is_department_enrolled_outside_realm",
         "get_schedule_items", "get_schedule_item", "get_schedule_items_by_ids",
         "get_dismissals", "get_dismissal", "find_dismissal",
         "get_blocked_slots", "get_relevant_blocked_slots", "get_blocked_slot",
@@ -450,3 +450,54 @@ def test_realm_scoped_repository_methods_require_the_realm():
             assert parameter is not None, f"{repository.__name__}.{method} takes no realm_key"
             assert parameter.kind is inspect.Parameter.KEYWORD_ONLY, f"{repository.__name__}.{method}"
             assert parameter.default is inspect.Parameter.empty, f"{repository.__name__}.{method}"
+
+
+# --- Hardening (phase 7) ----------------------------------------------------
+
+async def test_a_shared_department_is_kept_while_another_realm_enrols_it(world):
+    ug, ice = world["UG"], world["ICE"]
+    department = await _ok(await ug["admin"].post(f"{API}/timetable/departments", json={"name": "Mining", "faculty_id": "ENG"}))
+    await _ok(await ice["admin"].post(f"{API}/timetable/enrollments", json={
+        "course_id": ice["course"]["id"], "department_id": department["id"], "level": 300,
+    }), 201)
+    before = await _ids(ice["admin"], "/timetable/enrollments")
+
+    response = await ug["admin"].delete(f"{API}/timetable/departments/{department['id']}")
+    assert response.status_code == 400, response.text
+    assert "another programme" in response.json()["detail"]
+    assert await _ids(ice["admin"], "/timetable/enrollments") == before
+
+    # Within the realm that enrolled it, the delete still takes the enrollments with it, as before realms.
+    await _ok(await ice["admin"].delete(f"{API}/timetable/departments/{department['id']}"))
+    assert await _ids(ice["admin"], "/timetable/enrollments") == {ice["enrollment"]["id"]}
+
+
+async def test_an_add_request_stores_no_target_item(world):
+    ug, ice = world["UG"], world["ICE"]
+    request = await _ok(await ug["editor"].post(f"{API}/timetable/change-requests", json=_lecture(
+        ug, timetable_type="lecture", action="ADD", start_time="16:00:00", end_time="18:00:00",
+        target_schedule_item_id=ice["item"]["id"],
+    )))
+    assert request["target_schedule_item_id"] is None
+
+
+async def test_a_cross_realm_requester_is_told_which_realm_was_reviewed(world, make_client, make_user, login):
+    ice = world["ICE"]
+    viewer = make_client()
+    await login(viewer, (await make_user(RoleEnum.SUPER_VIEWER))["email"], realm="ICE")
+    request = await _ok(await viewer.post(f"{API}/timetable/change-requests", json=_lecture(
+        ice, timetable_type="lecture", action="ADD", start_time="16:00:00", end_time="18:00:00",
+    )))
+    for request_id in (request["id"], ice["request"]["id"]):
+        await _ok(await ice["admin"].post(f"{API}/timetable/change-requests/{request_id}/review", json={"approve": False}))
+
+    def reviewed(notifications: list[dict]) -> set[tuple[str, str]]:
+        return {(n["title"], n["link"]) for n in notifications if "change request was" in n["title"]}
+
+    assert reviewed(await _ok(await viewer.get(f"{API}/notifications"))) == {
+        ("ICE: Your change request was rejected", "/timetable/lectures?realm=ICE"),
+    }
+    # A realm-bound requester is always in that realm, so theirs reads as before.
+    assert reviewed(await _ok(await ice["editor"].get(f"{API}/notifications"))) == {
+        ("Your change request was rejected", "/timetable/lectures"),
+    }

@@ -8,7 +8,7 @@ from modules.timetable.schemas import (
     FacultyUpdate, DepartmentUpdate, RoomUpdate, CourseUpdate, BlockedSlotCreate, RoomReorderRequest,
     ChangeRequestCreate, ConflictDismissalCreate, ConflictDismissalBulkCreate
 )
-from modules.auth.models import RoleEnum
+from modules.auth.models import RoleEnum, CROSS_REALM_ROLES
 from modules.auth.repository import AuthRepository
 from modules.realms.schemas import WEEKDAYS
 from modules.notifications.service import NotificationService
@@ -255,6 +255,8 @@ class TimetableService:
         if current_user.get("role") == RoleEnum.FACULTY_EDITOR.value:
             if current_user.get("faculty_id") != dept.faculty_id:
                 raise HTTPException(status_code=403, detail="Not authorized")
+        if await self.repo.is_department_enrolled_outside_realm(dept.id, realm_key=current_user["realm"]):
+            raise HTTPException(status_code=400, detail="Cannot delete department because another programme has courses enrolled for it.")
         try:
             await self.repo.delete_department(dept)
         except IntegrityError:
@@ -1135,7 +1137,8 @@ class TimetableService:
             realm_key=current_user["realm"],
             timetable_type=data.timetable_type,
             action=data.action,
-            target_schedule_item_id=data.target_schedule_item_id,
+            # An ADD has no target; whatever id it sent was never checked against the realm.
+            target_schedule_item_id=target.id if target else None,
             course_id=data.course_id,
             room_ids=data.room_ids,
             faculty_id=data.faculty_id,
@@ -1260,14 +1263,20 @@ class TimetableService:
         course_label = course.code if course else "the course"
         if cr.requested_by is not None:
             outcome = "approved and applied" if approve else "rejected"
+            title = f"Your change request was {('approved' if approve else 'rejected')}"
+            link = f"/timetable/{'lectures' if cr.timetable_type == 'lecture' else 'exams'}"
+            # A cross-realm requester (a super viewer) may be in another realm when this arrives.
+            requester = await self.auth_repo.get_user_by_id(cr.requested_by)
+            if requester and requester.role in CROSS_REALM_ROLES:
+                title, link = _for_super_admins(current_user, title, link)
             await self.notification_service.notify(
                 user_ids=[cr.requested_by],
-                title=f"Your change request was {('approved' if approve else 'rejected')}",
+                title=title,
                 message=(
                     f"Your request to {cr.action.lower()} a {cr.timetable_type} session for {course_label} "
                     f"was {outcome}.\n" + (f"Note: {note.strip()}" if note else "")
                 ),
-                link=f"/timetable/{'lectures' if cr.timetable_type == 'lecture' else 'exams'}",
+                link=link,
                 send_email=False,
             )
 

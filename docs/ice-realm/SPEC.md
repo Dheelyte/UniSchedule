@@ -154,7 +154,7 @@ Write one hand-written revision with `down_revision = "m3h4i5j6k7l8"` (the curre
 ### Accounts
 
 - **Invitations:** invites for realm-bound roles get `realm_key` = the active realm; invites for cross-realm roles get NULL. Registration copies the value to the new user. The invitation email names the portal, and its link is `/register?token=…&realm=KEY`.
-- **Listings:** `GET /auth/users` and `GET /auth/invitations` return accounts in the active realm plus cross-realm accounts. Deletes are limited to that same set.
+- **Listings:** `GET /auth/users` and `GET /auth/invitations` return accounts in the active realm plus cross-realm accounts. Deletes are limited to that same set. Only a SUPER_ADMIN gets each invitation's `token` in the listing; a SUPER_VIEWER gets `null`, because the token alone is enough to register the account.
 - **Seeded super admin** (`main.py` lifespan): set `realm_key = NULL` explicitly.
 - **Role list:** define `CROSS_REALM_ROLES` once in the backend, next to `RoleEnum`, and mirror it in `src/lib/roles.js`.
 
@@ -180,6 +180,9 @@ Every read or write of realm-scoped data filters by the active realm.
 | Conflict dismissals | The realm of `item_a` | `timetable/service.py:1166` returns every dismissal today |
 | Notifications to faculty editors | The editor's realm | `auth/repository.py:49` (`get_faculty_editors_in_faculties`), used for priority-override emails |
 | Notifications to super admins | They're cross-realm, so the message names the realm | `timetable/service.py:848` and `:970`: prefix the title with the realm name, and add `?realm=KEY` to the link |
+| Change-request review notification | The requester; named the same way when the requester is cross-realm (a super viewer) | `review_change_request` |
+| Realm settings | `PUT /realms/{key}` works from any portal; its audit entry is filed under the realm that changed | `realms/service.py` |
+| Deleting a shared department | Refused with 400 while another realm has enrollments for it, because the delete cascades to them | `delete_department` |
 | Audit log | `activity_logs.realm_key` | `AuditService.log` sets it from `current_user`; the list returns the active realm plus NULL rows |
 | Users, invitations | See §6 | |
 
@@ -198,6 +201,8 @@ When `config.strict` is true (ICE), these requests are rejected with 400: creati
 - an exam's date falls on a weekday that is not in `exam_days`;
 - start < `day_start`, end > `day_end`, or end ≤ start;
 - start or end is off the `slot_minutes` grid (for example 19:10 with 15-minute steps).
+
+An exam sent without a date is checked by its `day_of_week` against `exam_days` instead.
 
 Blocked slots in strict realms must also fit: a lecture block's day must be in `lecture_days`, and an exam block's date must fall on one of `exam_days`.
 
