@@ -12,6 +12,7 @@ class RoleEnum(str, enum.Enum):
     FACULTY_VIEWER = "FACULTY_VIEWER"
     GS_ADMIN = "GS_ADMIN"
     CITS_ADMIN = "CITS_ADMIN"
+    DEO = "DEO"
 
 
 class User(Base):

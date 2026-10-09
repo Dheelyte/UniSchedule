@@ -160,14 +160,20 @@ class AuthService:
         )
         return created_user
 
-    async def get_all_users(self) -> list[User]:
-        return await self.repo.get_all_users()
+    async def get_all_users(self, faculty_id: str | None = None) -> list[User]:
+        users = await self.repo.get_all_users()
+        if faculty_id:
+            users = [u for u in users if u.faculty_id == faculty_id]
+        return users
     
     async def get_user_by_email(self, email: str) -> User:
         return await self.repo.get_user_by_email(email)
 
-    async def get_all_invitations(self) -> list[Invitation]:
-        return await self.repo.get_all_invitations()
+    async def get_all_invitations(self, faculty_id: str | None = None) -> list[Invitation]:
+        invites = await self.repo.get_all_invitations()
+        if faculty_id:
+            invites = [i for i in invites if i.faculty_id == faculty_id]
+        return invites
 
     async def delete_user(self, user_id: int, current_user: dict | None = None) -> bool:
         user = await self.repo.get_user_by_id(user_id)

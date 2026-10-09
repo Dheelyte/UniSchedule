@@ -26,6 +26,7 @@ def _has_global_read_scope(user: dict) -> bool:
         RoleEnum.GS_ADMIN.value,
         RoleEnum.FACULTY_EDITOR.value,
         RoleEnum.FACULTY_VIEWER.value,
+        RoleEnum.DEO.value,
         RoleEnum.CITS_ADMIN.value,
     )
 
@@ -368,7 +369,8 @@ class TimetableService:
 
     async def get_courses(self, current_user: dict) -> list[Course]:
         faculty_id = None if _has_global_read_scope(current_user) else current_user.get('faculty_id')
-        return await self.repo.get_courses(faculty_id=faculty_id)
+        prioritize_faculty_id = current_user.get('faculty_id')
+        return await self.repo.get_courses(faculty_id=faculty_id, prioritize_faculty_id=prioritize_faculty_id)
 
     async def update_course(self, id: int, data: CourseUpdate, current_user: dict) -> Course:
         course = await self.repo.get_course(id)
