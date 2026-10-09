@@ -177,16 +177,16 @@ Prerequisites: Phase 4.
 
 Prerequisites: Phase 5.
 
-- [ ] `lib/conflicts.js`: realm config and external bookings (SPEC §9.4). Unit tests cover:
+- [x] `lib/conflicts.js`: realm config and external bookings (SPEC §9.4). Unit tests cover:
   - the ICE window;
   - a clash with an external room booking;
   - a cross-type warning;
   - UG output unchanged.
-- [ ] `TimetableGrid.js`: every grid row of SPEC §9.3, plus drawing external bookings.
-- [ ] The lectures, exams and CBT pages fetch external bookings, and the pre-export conflict check includes them.
-- [ ] `RequestChangeModal` reads days and times from the config.
-- [ ] `pdfExport.js` and `csvExport.js` (SPEC §9.5).
-- [ ] Local QA data: a script in `backend/scripts/` (this folder is git-ignored) that creates:
+- [x] `TimetableGrid.js`: every grid row of SPEC §9.3, plus drawing external bookings.
+- [x] The lectures, exams and CBT pages fetch external bookings, and the pre-export conflict check includes them.
+- [x] `RequestChangeModal` reads days and times from the config.
+- [x] `pdfExport.js` and `csvExport.js` (SPEC §9.5).
+- [x] Local QA data: a script in `backend/scripts/` (this folder is git-ignored) that creates:
   - an ICE session and semester, three ICE courses and an ICE faculty editor;
   - a UG Friday 10:00–12:00 lecture in a shared room;
   - ICE lectures on Friday 19:15–20:45 and Sunday 07:00–09:30;
@@ -257,6 +257,14 @@ Launch is for people, not Claude:
 - `src/app/terms/page.js`: the blocked-slot day list now comes from `lecture_days` (SPEC §9.3), so UG no longer offers Sunday there. UG has no Sunday tab in the grid, so such a block had no effect.
 - `src/components/ExportModal/ExportModal.js`: the level filter now lists the realm's levels (SPEC §9.3), so UG gains 600 and 700 next to 100–500.
 
+- `src/components/TimetableGrid/TimetableGrid.js`: an item that starts before the realm's `day_start` (or at or after `day_end`) is not drawn in the grid, as before this phase; it still shows in the exports and the conflict list. Only non-strict realms (UG) can hold such items.
+- `src/components/TimetableGrid/TimetableGrid.js`: another realm's booking is drawn only on the same kind of timetable and inside this realm's day window, so a UG editor doesn't see ICE's evening sessions (the API still answers 409 and names them). A lecture against another realm's exam only raises a warning (SPEC §8.3) and is not drawn.
+- `src/lib/timetableLayout.js` (`computeDayRange`): the A3/A4 lecture grid rounds to even hours, so ICE's 07:00–21:00 day prints as 06:00–22:00.
+- `src/lib/pdfExport.js` (`getExportFileName`): the lecture PDF's file name always ends `_a3`, even on A4 paper. Unchanged from before this phase.
+- `src/lib/pdfExport.js` (A3 exam weeks): exams without a date are left out as soon as one exam has a date. Unchanged from before this phase; ICE exams are always dated.
+- `src/app/timetable/*/page.js`: the conflict check before export now includes external bookings, but it is still switched off by `SHOW_CONFLICTS_BEFORE_EXPORT = false`, as before.
+- `backend/scripts/seed_ice_qa.py` is git-ignored with the rest of `backend/scripts/`, so it exists only on the machine that ran Phase 6. Copy it into the repo (for example under `backend/tests/`) if others need it.
+
 ## Progress log
 
 <!-- Claude appends one line per finished phase: YYYY-MM-DD · Phase N · what changed · test results -->
@@ -268,3 +276,4 @@ Launch is for people, not Claude:
 2026-10-09 · Phase 3 follow-up · another realm's id now behaves exactly like a missing id on every endpoint (course and schedule-item deletes answer 200 and do nothing; SPEC §7 updated, test added); test suite sped up: one event loop with pooled connections instead of a new connection per request, tables emptied with DELETE instead of TRUNCATE, `BCRYPT_ROUNDS` setting (default 12, 4 in tests), migration tests marked `slow`; Phase 7 gains a check for course levels outside the UG config · backend `pytest` 83 passed (the two 404 tests merged into one that compares against a missing id); full suite about 10.5 minutes before, 66–107 seconds after; `-m "not slow"` 37 seconds
 2026-10-09 · Phase 4 · strict realms (ICE) reject schedule items, ADD/MODIFY change requests and blocked slots outside the realm's days, day window or time grid (400); a same-type session in a room another realm holds at an overlapping time in its current semester is refused on create, update and change-request approval (409, special faculties exempt); `GET /timetable/external-bookings`; UG gets no new validation · backend `pytest` 106 passed (83 existing, 23 new in `tests/test_ice_scheduling.py`; two fixtures in `tests/test_realm_isolation.py` moved onto ICE days, assertions unchanged); frontend untouched, so npm checks not re-run
 2026-10-09 · Phase 5 · `src/lib/realm.js` (UG config, window/day/date helpers, portal links) with tests; AuthContext exposes `realm`/`realmName`/`realmConfig` and `switchRealm`; `/realms` reads the API (static fallback), `/login` reads `?realm=`, shows it in the badge and sends it, `/register` returns to the invitation's portal, the 401 and sign-out redirects keep the realm; Sidebar names the realm and cross-realm roles get a `RealmSwitcher`; links carrying `?realm=` switch a cross-realm user; staff page has a Programme column; terms, courses, enrolment and export lists come from the realm config; Landing footer link points at `/realms` · `npm test` 19 passed (9 new in `realm.test.mjs`); `npm run lint` 0 errors (20 warnings, as before); `npm run build` OK; manual checks run in headless Edge against a local backend on the test database, 22/22 (UG editor sees only UG and is refused on the ICE login, super admin switches to an empty ICE workspace, `/realms` shows ICE as "Coming soon", `/login?realm=ICE` shows the ICE badge); backend untouched, so pytest not re-run
+2026-10-09 · Phase 6 · the timetable grid, schedule and change-request forms, conflict checks and PDF/CSV exports read days, hours, time steps and exam slots from the realm config; other realms' room bookings are fetched on the lectures, exams and CBT pages, drawn grey and read-only, and block saving on a same-type overlap (a lecture against an exam only warns); exports print Sunday and evening sessions, name non-UG realms in titles and file names, and widen instead of dropping anything outside the grid; `backend/scripts/seed_ice_qa.py` seeds local QA data · `npm test` 27 passed (8 new in `conflicts.test.mjs`); `npm run lint` 0 errors (20 warnings, as before); `npm run build` OK; old and new conflict engines agree on 400 random UG timetables; 64 UG PDF exports (A3/A4, lectures/exams, colour/mono) and the UG CSVs are byte-identical to the previous commit, and the ICE A3/A4 PDFs and CSV contain the Sunday and 19:00 items; manual checks in headless Edge against a local backend with the seed data, 37/37; backend untouched, so pytest not re-run

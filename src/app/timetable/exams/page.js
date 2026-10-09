@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useApp, ACTION_TYPES } from "@/context/AppContext";
 import { useAuth } from "@/context/AuthContext";
 import { apiClient } from "@/lib/apiClient";
-import { detectAllConflicts, dismissalSignatureSet } from "@/lib/conflicts";
+import { detectAllConflicts, dismissalSignatureSet, toExternalBooking } from "@/lib/conflicts";
 import { exportTimetablePDF } from "@/lib/pdfExport";
 import { exportTimetableCSV } from "@/lib/csvExport";
 import { isGeneralStudiesCourse, GENERAL_STUDIES_FACULTY } from "@/lib/utils";
@@ -24,9 +24,11 @@ import styles from "./exams.module.css";
 // Set to false to skip showing conflict warning popups.
 const SHOW_CONFLICTS_BEFORE_EXPORT = false;
 
+const NO_EXTERNAL_BOOKINGS = [];
+
 export default function ExamTimetablePage() {
 	const { getSchedulesWithDetails, state, dispatch, isInitialized } = useApp();
-	const { user } = useAuth();
+	const { user, realm, realmName, realmConfig } = useAuth();
 	const { addToast } = useToast();
 	const confirm = useConfirm();
 
@@ -42,6 +44,8 @@ export default function ExamTimetablePage() {
 	const [isChangeModalOpen, setIsChangeModalOpen] = useState(false);
 	const [changeBusy, setChangeBusy] = useState(false);
 	const [enrollmentsByCourse, setEnrollmentsByCourse] = useState(new Map());
+	// Sessions other realms hold in the shared rooms (their current semesters).
+	const [externalBookings, setExternalBookings] = useState(NO_EXTERNAL_BOOKINGS);
 
 	const handleChangeRequestSubmit = async (payload) => {
 		if (selectedSemesterId === null || changeBusy) return;
@@ -127,6 +131,10 @@ export default function ExamTimetablePage() {
 		async (semId) => {
 			if (semId === null) return;
 			try {
+				apiClient
+					.get("/timetable/external-bookings")
+					.then((rows) => setExternalBookings((rows || []).map(toExternalBooking)))
+					.catch(() => setExternalBookings(NO_EXTERNAL_BOOKINGS));
 				if (isInitialized) {
 					const [
 						scheduleItems,
@@ -300,7 +308,7 @@ export default function ExamTimetablePage() {
 		if (SHOW_CONFLICTS_BEFORE_EXPORT) {
 			const schedules = getSchedulesWithDetails.filter((s) => s.type === "exam");
 			const dismissals = await apiClient.get("/timetable/conflict-dismissals").catch(() => []);
-			const conflictsMap = detectAllConflicts(schedules, null, null, dismissalSignatureSet(dismissals));
+			const conflictsMap = detectAllConflicts(schedules, null, null, dismissalSignatureSet(dismissals), { config: realmConfig, externalBookings });
 			const errorMessages = [
 				...new Set(
 					Array.from(conflictsMap.values())
@@ -412,6 +420,9 @@ export default function ExamTimetablePage() {
 				department: departmentInfo,
 				mode: "exam",
 				groupByFaculty,
+				config: realmConfig,
+				realmKey: realm,
+				realmName,
 			});
 			addToast({
 				type: "success",
@@ -447,6 +458,9 @@ export default function ExamTimetablePage() {
 				structured: true,
 				gstOnly,
 				isLocked,
+				config: realmConfig,
+				realmKey: realm,
+				realmName,
 			});
 
 			addToast({
@@ -481,6 +495,9 @@ export default function ExamTimetablePage() {
 			groupByFaculty,
 			gstOnly,
 			isLocked,
+			config: realmConfig,
+			realmKey: realm,
+			realmName,
 		});
 		addToast({
 			type: "success",
@@ -577,6 +594,7 @@ export default function ExamTimetablePage() {
 				readOnly={readOnly}
 				readOnlyReasons={readOnlyReasons}
 				enrollmentsByCourse={enrollmentsByCourse}
+				externalBookings={isCurrentSemester ? externalBookings : NO_EXTERNAL_BOOKINGS}
 			/>
 			<ExportModal
 				isOpen={isExportModalOpen}
