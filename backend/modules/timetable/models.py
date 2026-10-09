@@ -63,6 +63,7 @@ class ScheduleItem(Base):
     week: Mapped[int | None] = mapped_column(Integer, nullable=True)
     exam_date: Mapped[date_type | None] = mapped_column(Date, nullable=True)
     semester_id: Mapped[int | None] = mapped_column(ForeignKey("semesters.id"), nullable=True)
+    is_online: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
 
 class BlockedSlot(Base):
     __tablename__ = "blocked_slots"
@@ -120,6 +121,7 @@ class ChangeRequest(Base):
     end_time: Mapped[time | None] = mapped_column(Time, nullable=True)
     week: Mapped[int | None] = mapped_column(Integer, nullable=True)
     exam_date: Mapped[date_type | None] = mapped_column(Date, nullable=True)
+    is_online: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     reason: Mapped[str | None] = mapped_column(String, nullable=True)
     status: Mapped[str] = mapped_column(String, default=ChangeRequestStatus.PENDING.value, server_default="PENDING")
     requested_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)

@@ -163,6 +163,7 @@ class ScheduleItemCreate(BaseModel):
     week: int | None = None
     exam_date: date_type | None = None
     semester_id: int | None = None
+    is_online: bool = False
 
 class ScheduleItemUpdate(BaseModel):
     room_ids: list[int] | None = None
@@ -170,6 +171,7 @@ class ScheduleItemUpdate(BaseModel):
     exam_date: date_type | None = None
     start_time: time | None = None
     end_time: time | None = None
+    is_online: bool | None = None
 
 class ScheduleItemResponse(ScheduleItemCreate):
     id: int
@@ -247,6 +249,7 @@ class ChangeRequestCreate(BaseModel):
     end_time: time | None = None
     week: int | None = None
     exam_date: date_type | None = None
+    is_online: bool | None = None
     reason: str | None = None
     semester_id: int | None = None
 

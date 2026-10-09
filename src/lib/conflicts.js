@@ -211,6 +211,10 @@ export function detectConflicts(candidate, allSchedules, excludeId = null, enrol
             { startTime: s.startTime, endTime: s.endTime },
         );
         if (!overlap) return;
+        
+        // Online classes can be taken asynchronously or independently, so we bypass audience clashes
+        if (candidate.is_online || candidate.isOnline || s.is_online || s.isOnline) return;
+
         const clash = findAudienceClash(candidate, s, enrollmentsByCourse);
         if (clash) {
             const isUW = clash.deptId === 'university-wide';
@@ -389,6 +393,9 @@ export function detectAllConflicts(allSchedules, enrollmentsByCourse = null, dep
 
             // Audience conflict — same dept × level booked twice in the same time window
             if (a.courseId !== b.courseId) {
+                // Bypass audience clash if either course is fully online
+                if (a.is_online || a.isOnline || b.is_online || b.isOnline) continue;
+
                 const clash = findAudienceClash(a, b, enrollmentsByCourse);
                 if (clash) {
                     const isUW = clash.deptId === 'university-wide';
