@@ -170,6 +170,21 @@ class ScheduleItemResponse(ScheduleItemCreate):
     model_config = ConfigDict(from_attributes=True)
 
 
+class ExternalBookingResponse(BaseModel):
+    """Another realm's booking of a shared room: just enough to draw and check a clash."""
+    id: int
+    realm_key: str
+    realm_name: str
+    type: str
+    room_ids: list[int]
+    day_of_week: str | None
+    exam_date: date_type | None
+    start_time: time
+    end_time: time
+    course_code: str
+    is_special_faculty: bool
+
+
 class BlockedSlotCreate(BaseModel):
     name: str
     type: str | None = None  # Auto-derived; kept for backward compat

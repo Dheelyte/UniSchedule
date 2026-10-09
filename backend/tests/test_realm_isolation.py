@@ -18,6 +18,7 @@ from modules.timetable.repository import TimetableRepository
 API = "/api/v1"
 # A lecture day each realm really uses, so later scheduling rules don't disturb these tests.
 DAY = {"UG": "Monday", "ICE": "Friday"}
+BREAK_DAY = {"UG": "Wednesday", "ICE": "Sunday"}
 OTHER = {"UG": "ICE", "ICE": "UG"}
 
 
@@ -89,7 +90,7 @@ async def world(make_client, make_user, login, sent_emails) -> dict:
         }
         realm["item"] = await _ok(await admin.post(f"{API}/timetable/schedule-items", json=_lecture(realm)))
         realm["slot"] = await _ok(await admin.post(f"{API}/timetable/blocked-slots", json={
-            "name": f"{key} break", "day_of_week": "Wednesday", "start_time": "12:00:00", "end_time": "13:00:00",
+            "name": f"{key} break", "day_of_week": BREAK_DAY[key], "start_time": "12:00:00", "end_time": "13:00:00",
             "applies_to": "LECTURE_ONLY", "semester_id": semester["id"],
         }))
         realm["enrollment"] = await _ok(await admin.post(f"{API}/timetable/enrollments", json={
@@ -282,12 +283,13 @@ async def test_a_lock_holds_only_in_its_own_realm(world):
 async def test_a_blocked_slot_blocks_only_its_own_realm(world):
     ug, ice = world["UG"], world["ICE"]
     await _ok(await ug["admin"].post(f"{API}/timetable/blocked-slots", json={
-        "name": "UG assembly", "day_of_week": "Thursday", "applies_to": "LECTURE_ONLY", "semester_id": ug["semester"]["id"],
+        "name": "UG assembly", "day_of_week": "Saturday", "applies_to": "LECTURE_ONLY", "semester_id": ug["semester"]["id"],
     }))
 
-    response = await ug["admin"].post(f"{API}/timetable/schedule-items", json=_lecture(ug, day_of_week="Thursday"))
+    # Saturday is a lecture day in both realms.
+    response = await ug["admin"].post(f"{API}/timetable/schedule-items", json=_lecture(ug, day_of_week="Saturday"))
     assert response.status_code == 400, response.text
-    await _ok(await ice["admin"].post(f"{API}/timetable/schedule-items", json=_lecture(ice, day_of_week="Thursday")))
+    await _ok(await ice["admin"].post(f"{API}/timetable/schedule-items", json=_lecture(ice, day_of_week="Saturday")))
 
 
 # --- Calendar ---------------------------------------------------------------
