@@ -69,6 +69,15 @@ class TimetableRepository:
         await self.db.flush()
         return dept
 
+    async def is_department_enrolled_outside_realm(self, department_id: int, *, realm_key: str) -> bool:
+        # Departments are shared, and deleting one cascades to its enrollments in every realm.
+        query = select(CourseEnrollment.id).where(
+            CourseEnrollment.department_id == department_id,
+            CourseEnrollment.course_id.not_in(_realm_course_ids(realm_key)),
+        ).limit(1)
+        result = await self.db.execute(query)
+        return result.scalar() is not None
+
     async def delete_department(self, dept: Department) -> None:
         await self.db.delete(dept)
         await self.db.flush()

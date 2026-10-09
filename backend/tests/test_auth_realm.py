@@ -325,3 +325,16 @@ async def test_seeded_super_admin_has_no_realm():
     async with async_session_maker() as session:
         admins = (await session.execute(select(User).where(User.role == RoleEnum.SUPER_ADMIN))).scalars().all()
     assert [admin.realm_key for admin in admins] == [None]
+
+
+async def test_only_a_super_admin_reads_invitation_tokens(signed_in, sent_invites):
+    """The token alone registers the account, so a viewer must not be able to read it."""
+    admin, _ = await signed_in(RoleEnum.SUPER_ADMIN)
+    viewer, _ = await signed_in(RoleEnum.SUPER_VIEWER)
+    token = (await _ok(await admin.post(
+        f"{API}/auth/invite", json={"email": "new-admin@example.com", "target_role": "SUPER_ADMIN"}
+    )))["token"]
+
+    assert [row["token"] for row in await _ok(await admin.get(f"{API}/auth/invitations"))] == [token]
+    listed = await _ok(await viewer.get(f"{API}/auth/invitations"))
+    assert [(row["email"], row["token"]) for row in listed] == [("new-admin@example.com", None)]

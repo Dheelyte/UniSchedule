@@ -34,8 +34,9 @@ class RealmService:
             setattr(realm, field, value)
         await self.repo.save(realm)
 
+        # A super admin can update a realm from any portal; the entry belongs in that realm's log.
         await self.audit_service.log(
-            current_user=current_user,
+            current_user={**current_user, "realm": realm.key},
             action="realm.update",
             entity_type="realm",
             entity_id=realm.key,

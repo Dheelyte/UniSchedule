@@ -1,6 +1,6 @@
 # UniSchedule - University of Lagos Timetable Manager
 
-UniSchedule is a comprehensive timetable management application for the University of Lagos. It features a Next.js 15 React frontend and a FastAPI (Python) backend to handle complex scheduling logic, access control, and PDF exports.
+UniSchedule is a comprehensive timetable management application for the University of Lagos. It features a Next.js 16 React frontend and a FastAPI (Python) backend to handle complex scheduling logic, access control, and PDF exports.
 
 ## Project Structure
 
@@ -94,7 +94,25 @@ The frontend is a Next.js application located at the project root.
 
 4. Open [http://localhost:3000](http://localhost:3000) with your browser to launch the application.
 
+## Realms (programmes)
+
+The app serves more than one programme. Each one is a **realm** with its own academic calendar, courses, timetables, change requests, audit log and staff. Faculties, departments and rooms are shared by every realm.
+
+| Key | Programme | Week |
+|---|---|---|
+| `UG` | Undergraduate | Monday to Saturday, 08:00 to 18:00, 30-minute steps |
+| `ICE` | ICE (part-time) | Friday to Sunday, 07:00 to 21:00, 15-minute steps; the API rejects anything outside |
+| `PG`, `FOUNDATION` | Placeholders | Copies of the UG settings, not in use |
+
+- **Portals.** `/realms` lists the programmes and each one signs in at `/login?realm=KEY`. A realm whose `is_live` flag is off shows as "Coming soon" on `/realms`, but its login page still works, so staff can set it up before launch.
+- **Accounts.** Super Admin, Super Viewer and CITS Admin work across realms: they choose one at login and can switch from the top bar. Every other role belongs to one realm, the one its invitation was sent from. One email is one account.
+- **Settings.** A realm's days, hours, time step, exam slots, levels and semester names are stored in `realms.config`. `GET /api/v1/realms` returns them and a Super Admin changes them with `PUT /api/v1/realms/{key}`; there is no settings screen yet. The frontend reads them through `src/lib/realm.js`.
+- **Shared rooms.** Two lectures, or two exams, from different realms can't overlap in the same room. The API answers 409 and the grid shows the other realm's booking in grey.
+- **Design.** `docs/ice-realm/SPEC.md` has the full design and `docs/ice-realm/PLAN.md` the build log.
+
 ## Running the Tests
+
+Pull requests run all of the checks below in GitHub Actions (`.github/workflows/test.yml`).
 
 ### Backend
 
