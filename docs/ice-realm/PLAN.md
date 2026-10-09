@@ -150,20 +150,20 @@ Prerequisites: Phase 3.
 
 Prerequisites: Phase 4.
 
-- [ ] Add `src/lib/realm.js` (SPEC §9.1) and `src/lib/realm.test.mjs`, including a test that `UG_CONFIG` matches today's constants.
-- [ ] AuthContext exposes the realm fields and `switchRealm`.
-- [ ] Login flow:
+- [x] Add `src/lib/realm.js` (SPEC §9.1) and `src/lib/realm.test.mjs`, including a test that `UG_CONFIG` matches today's constants.
+- [x] AuthContext exposes the realm fields and `switchRealm`.
+- [x] Login flow:
   - `/realms` reads from the API;
   - `/login` reads the realm parameter, shows it in the badge, and remembers it;
   - `/register` redirects to the right portal;
   - the 401 redirect in `apiClient` keeps the realm.
-- [ ] Show the realm in the Sidebar. Add a `RealmSwitcher` to the TopBar for cross-realm roles.
-- [ ] Handle notification links that carry `?realm=`.
-- [ ] Read lists from the realm config:
+- [x] Show the realm in the Sidebar. Add a `RealmSwitcher` to the TopBar for cross-realm roles.
+- [x] Handle notification links that carry `?realm=`.
+- [x] Read lists from the realm config:
   - Staff page: realm column; invites go to the active realm.
   - Terms page: semester options and blocked-slot days.
   - Courses page, `CourseEnrollmentModal` and `ExportModal`: levels and semester names.
-- [ ] Point the Landing page's "Undergraduate portal" link at `/realms`.
+- [x] Point the Landing page's "Undergraduate portal" link at `/realms`.
 
 **Verify:** `npm test`, `npm run lint`, `npm run build`. Then, manually with the backend running:
 - A UG editor sees only UG.
@@ -236,11 +236,9 @@ Launch is for people, not Claude:
 - `backend/modules/auth/models.py:22`: a Python `None` for `realm_key` is left out of the INSERT, so the `'UG'` server default applies. New users and invitations must go through `stored_realm_key()`, which sends an explicit SQL NULL for cross-realm roles. The same trap applies to any other nullable `realm_key` column with a default.
 - `backend/api/dependencies/auth.py:21`: `get_current_user` now does one extra primary-key lookup on `realms` per request and validates the config each time. Cache the realms in-process if it shows up in latency.
 - `backend/modules/auth/service.py`: changing a user's role is not possible through the API today. If it is added, a move between a cross-realm and a realm-bound role must also set or clear `realm_key`.
-- `src/app/register/page.js`: ignores the `&realm=` now on invitation links (Phase 5 uses it to redirect to the right portal).
 
 - `backend/modules/timetable/service.py` (`review_change_request`): the "Your change request was approved/rejected" notification goes to the requester with a link that has no `?realm=`. A SUPER_VIEWER requester is cross-realm and may be in another realm when they open it.
 - `backend/modules/auth/service.py` (`generate_invite`): `semester_id` on an invitation isn't checked against the inviter's realm. Nothing reads it for scoping today.
-- `src/` (notifications): links to super admins now end in `?realm=KEY`, including UG ones. The pages ignore the parameter until Phase 5 handles it.
 - `backend/modules/audit/service.py`: activity logs written by the previous code version during a deploy have `realm_key` NULL, so they show in every realm's audit list. Harmless; backfill to `UG` if it matters.
 
 - `backend/modules/timetable/service.py:200` (`delete_department`): departments are shared, and `course_enrollments.department_id` cascades (`backend/modules/timetable/models.py:146`), so deleting a department with no home courses silently removes every realm's enrollments for it. Refuse with 400 while any enrollment or course in any realm references the department. (ice-audit 2026-10-09)
@@ -253,6 +251,12 @@ Launch is for people, not Claude:
 - `backend/modules/timetable/service.py` (`create_blocked_slot`): in a strict realm only the day or date is checked (SPEC §8.1), not the block's times. A block applying to both timetables may sit on a lecture day or an exam day.
 - `backend/modules/timetable/service.py` (`_assert_fits_window`): a strict realm rejects an exam with no `exam_date` unless its `day_of_week` is an exam day. ICE exams are always dated, so the Phase 6 UI should always send the date.
 
+- `src/components/RealmSwitcher/RealmSwitcher.js`: lists every realm, so a cross-realm user can enter the PG and Foundation placeholders (tagged "Not live", like ICE before launch). Hide them once there is a way to tell a placeholder from a realm being set up.
+- `src/components/ClientLayout/ClientLayout.js`: a signed-in user who opens `/login?realm=KEY` is sent to the dashboard in the realm they are already in; a cross-realm user then has to use the switcher.
+- `src/app/terms/page.js`: the blocked-slot form doesn't check an exam block's date against `exam_days` before sending. A strict realm's API rejects it and the page shows the API's message; `isAllowedExamDate` in `src/lib/realm.js` is ready for a client-side check.
+- `src/app/terms/page.js`: the blocked-slot day list now comes from `lecture_days` (SPEC §9.3), so UG no longer offers Sunday there. UG has no Sunday tab in the grid, so such a block had no effect.
+- `src/components/ExportModal/ExportModal.js`: the level filter now lists the realm's levels (SPEC §9.3), so UG gains 600 and 700 next to 100–500.
+
 ## Progress log
 
 <!-- Claude appends one line per finished phase: YYYY-MM-DD · Phase N · what changed · test results -->
@@ -263,3 +267,4 @@ Launch is for people, not Claude:
 2026-10-09 · Phase 3 · every realm-scoped query filters by the active realm (calendar, courses, schedule items, blocked slots, locks, edit requests, change requests, enrollments, conflict dismissals, audit log); repository reads take a required keyword-only `realm_key`; course level and semester checked against the realm config in the service; priority-override notifications reach only the same realm's editors and notifications to super admins name the realm; Phase 2 guard removed · backend `pytest` 84 passed (70 existing unchanged, the 2 guard tests removed, 14 new in `tests/test_realm_isolation.py`); frontend untouched, so npm checks not re-run
 2026-10-09 · Phase 3 follow-up · another realm's id now behaves exactly like a missing id on every endpoint (course and schedule-item deletes answer 200 and do nothing; SPEC §7 updated, test added); test suite sped up: one event loop with pooled connections instead of a new connection per request, tables emptied with DELETE instead of TRUNCATE, `BCRYPT_ROUNDS` setting (default 12, 4 in tests), migration tests marked `slow`; Phase 7 gains a check for course levels outside the UG config · backend `pytest` 83 passed (the two 404 tests merged into one that compares against a missing id); full suite about 10.5 minutes before, 66–107 seconds after; `-m "not slow"` 37 seconds
 2026-10-09 · Phase 4 · strict realms (ICE) reject schedule items, ADD/MODIFY change requests and blocked slots outside the realm's days, day window or time grid (400); a same-type session in a room another realm holds at an overlapping time in its current semester is refused on create, update and change-request approval (409, special faculties exempt); `GET /timetable/external-bookings`; UG gets no new validation · backend `pytest` 106 passed (83 existing, 23 new in `tests/test_ice_scheduling.py`; two fixtures in `tests/test_realm_isolation.py` moved onto ICE days, assertions unchanged); frontend untouched, so npm checks not re-run
+2026-10-09 · Phase 5 · `src/lib/realm.js` (UG config, window/day/date helpers, portal links) with tests; AuthContext exposes `realm`/`realmName`/`realmConfig` and `switchRealm`; `/realms` reads the API (static fallback), `/login` reads `?realm=`, shows it in the badge and sends it, `/register` returns to the invitation's portal, the 401 and sign-out redirects keep the realm; Sidebar names the realm and cross-realm roles get a `RealmSwitcher`; links carrying `?realm=` switch a cross-realm user; staff page has a Programme column; terms, courses, enrolment and export lists come from the realm config; Landing footer link points at `/realms` · `npm test` 19 passed (9 new in `realm.test.mjs`); `npm run lint` 0 errors (20 warnings, as before); `npm run build` OK; manual checks run in headless Edge against a local backend on the test database, 22/22 (UG editor sees only UG and is refused on the ICE login, super admin switches to an empty ICE workspace, `/realms` shows ICE as "Coming soon", `/login?realm=ICE` shows the ICE badge); backend untouched, so pytest not re-run

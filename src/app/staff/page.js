@@ -8,9 +8,12 @@ import { useToast } from '@/components/Toast/Toast';
 import { useConfirm } from '@/components/ConfirmModal/ConfirmContext';
 import styles from './staff.module.css';
 import { TablePageSkeleton } from '@/components/Skeleton/Skeleton';
+import { isCrossRealmRole } from '@/lib/roles';
 
 export default function StaffManagementPage() {
-    const { user, loading: authLoading } = useAuth();
+    const { user, loading: authLoading, realmName } = useAuth();
+    // The listing holds this realm's accounts plus the cross-realm ones (no realm).
+    const programmeLabel = (realmKey) => (realmKey ? realmName || realmKey : 'All programmes');
     const router = useRouter();
     const { addToast } = useToast();
     const confirm = useConfirm();
@@ -166,6 +169,7 @@ export default function StaffManagementPage() {
                                 <tr>
                                     <th>Target Email</th>
                                     <th>Assigned Role</th>
+                                    <th>Programme</th>
                                     <th>Restriction</th>
                                     <th>Actions</th>
                                 </tr>
@@ -179,6 +183,7 @@ export default function StaffManagementPage() {
                                                 {inv.target_role === 'CITS_ADMIN' ? 'SUPER ADMINISTRATOR (CITS)' : inv.target_role.replace('_', ' ')}
                                             </span>
                                         </td>
+                                        <td>{programmeLabel(inv.realm_key)}</td>
                                         <td>{inv.faculty_id ? (faculties.find(f => f.id === inv.faculty_id)?.name || inv.faculty_id) : 'Global'}</td>
                                         <td>
                                             <button className={styles.btnDangerOutlined} onClick={() => handleDeleteInvite(inv.id)}>Revoke</button>
@@ -207,6 +212,7 @@ export default function StaffManagementPage() {
                                 <tr>
                                     <th>Authorized User</th>
                                     <th>Role</th>
+                                    <th>Programme</th>
                                     <th>Restriction</th>
                                     <th>Access Date</th>
                                     <th>Actions</th>
@@ -221,6 +227,7 @@ export default function StaffManagementPage() {
                                                 {u.role === 'GS_ADMIN' ? 'GENERAL STUDIES' : u.role === 'CITS_ADMIN' ? 'SUPER ADMINISTRATOR (CITS)' : u.role.replace('_', ' ')}
                                             </span>
                                         </td>
+                                        <td>{programmeLabel(u.realm_key)}</td>
                                         <td>{u.faculty_id ? (faculties.find(f => f.id === u.faculty_id)?.name || u.faculty_id) : 'Global'}</td>
                                         <td style={{ color: '#64748b' }}>{new Date(u.created_at).toLocaleDateString()}</td>
                                         <td>
@@ -299,6 +306,12 @@ export default function StaffManagementPage() {
                                     {availableSemesters.map(s => <option key={s.id} value={s.id}>{s.name} ({s.sessionName})</option>)}
                                 </select>
                             </div>
+
+                            <p style={{ fontSize: '0.8rem', color: '#64748b', margin: 0 }}>
+                                {isCrossRealmRole(inviteForm.role)
+                                    ? 'This role works across all programmes.'
+                                    : `This account will belong to the ${realmName} portal.`}
+                            </p>
 
                         </div>
                         <div className="modal-footer">
