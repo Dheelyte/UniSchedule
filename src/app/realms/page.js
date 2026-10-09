@@ -1,17 +1,29 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import styles from './realms.module.css';
 import { unilagLogoBase64 } from '@/lib/logo';
-
-const REALMS = [
-	{ key: 'undergrad', label: 'Undergraduate', href: '/login', active: true },
-	{ key: 'pg', label: 'Postgraduate', href: null, active: false },
-	{ key: 'ice', label: 'ICE', href: null, active: false },
-	{ key: 'foundation', label: 'Foundation', href: null, active: false },
-];
+import { apiClient } from '@/lib/apiClient';
+import { FALLBACK_REALMS, loginPath } from '@/lib/realm';
 
 export default function RealmSelectPage() {
+	// The static list shows until the API answers, and stays if it can't.
+	const [realms, setRealms] = useState(FALLBACK_REALMS);
+
+	useEffect(() => {
+		let mounted = true;
+		apiClient
+			.get('/realms')
+			.then((res) => {
+				if (mounted && Array.isArray(res) && res.length > 0) setRealms(res);
+			})
+			.catch(() => {});
+		return () => {
+			mounted = false;
+		};
+	}, []);
+
 	return (
 		<div className={styles.container}>
 			<div className={styles.card}>
@@ -36,14 +48,14 @@ export default function RealmSelectPage() {
 				</p>
 
 				<div className={styles.realmList}>
-					{REALMS.map((realm) =>
-						realm.active ? (
-							<Link key={realm.key} href={realm.href} className={styles.button}>
-								Sign in as {realm.label}
+					{realms.map((realm) =>
+						realm.is_live ? (
+							<Link key={realm.key} href={loginPath(realm.key)} className={styles.button}>
+								Sign in as {realm.name}
 							</Link>
 						) : (
 							<button key={realm.key} type="button" className={styles.buttonDisabled} disabled>
-								{realm.label}
+								{realm.name}
 								<span className={styles.comingSoon}>Coming soon</span>
 							</button>
 						)

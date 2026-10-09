@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useApp } from "@/context/AppContext";
+import { useAuth } from "@/context/AuthContext";
 import styles from "./ExportModal.module.css";
 
 export default function ExportModal({
@@ -11,10 +12,12 @@ export default function ExportModal({
 	semesters = [],
 }) {
 	const { state } = useApp();
+	const { realmConfig } = useAuth();
+	const fallbackSemester = realmConfig.semester_names[0];
 
 	// Default values
 	const [session, setSession] = useState("");
-	const [semester, setSemester] = useState("1st Semester");
+	const [semester, setSemester] = useState(fallbackSemester);
 	const [facultyId, setFacultyId] = useState("ALL");
 	const [departmentId, setDepartmentId] = useState("ALL");
 	const [level, setLevel] = useState("ALL");
@@ -32,7 +35,7 @@ export default function ExportModal({
 			
 			// Find current semester from database and set as default
 			const currentSem = semesters.find((s) => s.is_current) || semesters[0];
-			setSemester(currentSem ? currentSem.name : "1st Semester");
+			setSemester(currentSem ? currentSem.name : fallbackSemester);
 			
 			setFacultyId("ALL");
 			setDepartmentId("ALL");
@@ -43,7 +46,7 @@ export default function ExportModal({
 			setGstOnly(false);
 			/* eslint-enable react-hooks/set-state-in-effect */
 		}
-	}, [isOpen, sessions, semesters]);
+	}, [isOpen, sessions, semesters, fallbackSemester]);
 
 	if (!isOpen) return null;
 
@@ -132,10 +135,11 @@ export default function ExportModal({
 										</option>
 									))
 							) : (
-								<>
-									<option value="1st Semester">1st Semester</option>
-									<option value="2nd Semester">2nd Semester</option>
-								</>
+								realmConfig.semester_names.map((name) => (
+									<option key={name} value={name}>
+										{name}
+									</option>
+								))
 							)}
 						</select>
 					</div>
@@ -180,7 +184,7 @@ export default function ExportModal({
 							value={level}
 							onChange={(e) => setLevel(e.target.value)}>
 							<option value="ALL">All Levels</option>
-							{[100, 200, 300, 400, 500].map((lvl) => (
+							{realmConfig.levels.map((lvl) => (
 								<option key={lvl} value={lvl}>
 									Level {lvl}
 								</option>

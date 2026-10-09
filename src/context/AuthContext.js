@@ -1,7 +1,8 @@
 "use client";
 
-import { createContext, useContext, useState, useEffect } from "react";
+import { createContext, useContext, useState, useEffect, useMemo } from "react";
 import { apiClient } from "@/lib/apiClient";
+import { getRealmConfig, loginPath, rememberRealm } from "@/lib/realm";
 import { useRouter } from "next/navigation";
 
 const AuthContext = createContext(null);
@@ -17,6 +18,7 @@ export function AuthProvider({ children }) {
 			.get("/auth/me")
 			.then((res) => {
 				if (mounted) {
+					rememberRealm(res?.realm);
 					setUser(res);
 					setLoading(false);
 				}
@@ -32,17 +34,19 @@ export function AuthProvider({ children }) {
 		};
 	}, []);
 
-	const login = async (email, password) => {
-		await apiClient.post("/auth/login", { email, password });
+	const login = async (email, password, realm) => {
+		await apiClient.post("/auth/login", { email, password, realm });
 		const user = await apiClient.get("/auth/me");
+		rememberRealm(user?.realm);
 		setUser(user);
 		router.push("/");
 	};
 
 	const logout = async () => {
+		const realm = user?.realm;
 		await apiClient.post("/auth/logout", {});
 		setUser(null);
-		router.push("/login");
+		router.push(loginPath(realm));
 	};
 
 	// Super-admin impersonation. A hard navigation to the dashboard resets all
@@ -57,9 +61,30 @@ export function AuthProvider({ children }) {
 		window.location.href = "/";
 	};
 
+	// Cross-realm roles only. Like assumeRole, a hard navigation drops every
+	// client-side cache so nothing from the previous realm stays on screen.
+	const switchRealm = async (key, redirectTo = "/") => {
+		await apiClient.post("/auth/switch-realm", { realm: key });
+		rememberRealm(key);
+		window.location.href = redirectTo;
+	};
+
+	const realmConfig = useMemo(() => getRealmConfig(user), [user]);
+
 	return (
 		<AuthContext.Provider
-			value={{ user, loading, login, logout, assumeRole, stopImpersonating }}>
+			value={{
+				user,
+				loading,
+				realm: user?.realm ?? null,
+				realmName: user?.realm_name ?? null,
+				realmConfig,
+				login,
+				logout,
+				assumeRole,
+				stopImpersonating,
+				switchRealm,
+			}}>
 			{children}
 		</AuthContext.Provider>
 	);

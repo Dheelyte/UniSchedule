@@ -11,9 +11,6 @@ import CourseEnrollmentModal from '@/components/CourseEnrollmentModal/CourseEnro
 import { useDebounce } from '@/hooks/useDebounce';
 import styles from './courses.module.css';
 
-const LEVELS = [100, 200, 300, 400, 500, 600, 700];
-const SEMESTERS = ['First Semester', 'Second Semester'];
-
 const SCOPES = {
     DEPARTMENTAL: 'DEPARTMENTAL',
     INTERFACULTY: 'INTERFACULTY',
@@ -24,8 +21,11 @@ export default function CoursesPage() {
     const { state, dispatch, getCoursesWithDetails, isInitialized } = useApp();
     const { faculties, departments } = state;
     const { addToast } = useToast();
-    const { user } = useAuth();
+    const { user, realmConfig } = useAuth();
     const role = user?.role;
+    // Levels and semester names are the realm's, not constants.
+    const levels = realmConfig.levels;
+    const semesterNames = realmConfig.semester_names;
 
     // Filters
     const [filterFaculty, setFilterFaculty] = useState('');
@@ -40,7 +40,7 @@ export default function CoursesPage() {
     const [deleteConfirm, setDeleteConfirm] = useState(null);
 
     // Form state
-    const [form, setForm] = useState({ code: '', title: '', creditLoad: 3, lecturers: '', departmentId: '', scope: SCOPES.DEPARTMENTAL, level: 100, semester: '', isCbtExam: false });
+    const [form, setForm] = useState({ code: '', title: '', creditLoad: 3, lecturers: '', departmentId: '', scope: SCOPES.DEPARTMENTAL, level: levels[0], semester: '', isCbtExam: false });
     const [loading, setLoading] = useState(true);
     // course_id -> [{ id, course_id, department_id, level }]
     const [enrollmentsByCourse, setEnrollmentsByCourse] = useState(new Map());
@@ -160,7 +160,7 @@ export default function CoursesPage() {
             code: '', title: '', creditLoad: 3, lecturers: '',
             departmentId: '',
             scope: isGsAdmin(role) ? SCOPES.UNIVERSITY_WIDE : SCOPES.DEPARTMENTAL,
-            level: isGsAdmin(role) ? null : 100,
+            level: isGsAdmin(role) ? null : levels[0],
             semester: '',
             isCbtExam: false,
         });
@@ -179,7 +179,7 @@ export default function CoursesPage() {
             lecturers: course.lecturers.join(', '),
             departmentId: course.departmentId || '',
             scope: course.scope || SCOPES.DEPARTMENTAL,
-            level: course.level ?? 100,
+            level: course.level ?? levels[0],
             semester: course.semester || '',
             isCbtExam: course.isCbtExam || false,
         });
@@ -581,7 +581,7 @@ export default function CoursesPage() {
                                         onChange={(e) => setForm({ ...form, level: e.target.value === '' ? null : parseInt(e.target.value, 10) })}
                                     >
                                         {form.scope === SCOPES.UNIVERSITY_WIDE && <option value="">All levels</option>}
-                                        {LEVELS.map((l) => (
+                                        {levels.map((l) => (
                                             <option key={l} value={l}>{l} Level</option>
                                         ))}
                                     </select>
@@ -596,7 +596,7 @@ export default function CoursesPage() {
                                         onChange={(e) => setForm({ ...form, semester: e.target.value })}
                                     >
                                         <option value="">- Select -</option>
-                                        {SEMESTERS.map((s) => (
+                                        {semesterNames.map((s) => (
                                             <option key={s} value={s}>{s}</option>
                                         ))}
                                     </select>
