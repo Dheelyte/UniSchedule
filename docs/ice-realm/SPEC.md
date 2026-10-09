@@ -277,7 +277,7 @@ This must be a pure module, with no `@/` imports and explicit `.js` extensions, 
 | `TimetableGrid.js:48-51` | `timeToCol` counts half-hours from 08:00 | Position by minutes from `day_start` |
 | `TimetableGrid.js:177-184`, `:482` | Default day `'Monday'`, default time 08:00–10:00 | The first lecture day, and `day_start` plus 2 hours, clamped to the window |
 | `TimetableGrid.js:452-456` | Clicking a cell sets end = `min(hour + 2, 18)` | Clamp to `day_end` |
-| `TimetableGrid.js:710-726` | Drops past 18:00 are blocked with a "6:00 PM" message | Clamp to the window; build the message from the config |
+| `TimetableGrid.js:710-726` | Drops past 18:00 are blocked with a "6:00 PM" message | Still blocked, at the realm's `day_end`; build the message from the config |
 | `TimetableGrid.js:814-818` | Time options 08–18 in 30-minute steps | `timeOptions(config)` |
 | `TimetableGrid.js:934-960` | "+ Add Date" accepts any date | In strict realms, only dates on `exam_days`; show a toast otherwise |
 | `TimetableGrid.js:984-1000`, `:1018-1026`, `:1107-1125` | 20 half-hour columns, positions counted in half-hours | Columns from `hourRange`; left and width from minutes (the blocked-slot overlay at `:1060-1078` already works this way) |
@@ -291,7 +291,7 @@ This must be a pure module, with no `@/` imports and explicit `.js` extensions, 
 ### 9.4 Timetable grid and external bookings
 
 - The lectures, exams and CBT pages fetch `/timetable/external-bookings` along with the schedule items. They pass the result to `TimetableGrid` and to the conflict check that runs before export.
-- Draw external items in their rooms as grey, hatched, read-only blocks labelled "{realm} · {code}". They are not draggable or clickable, and they don't count towards conflict totals or the day chips.
+- Draw external items of the page's own type (lectures on the lectures page, exams on the exam pages) in their rooms as grey, hatched, read-only blocks labelled "{realm} · {code}", clipped to the realm's day window. They are not draggable or clickable, and they don't count towards conflict totals or the day chips.
 - `detectConflicts` and `detectAllConflicts` take an options object `{config, externalBookings}`.
   - A same-type overlap with an external item is an error with `{type: 'room', external: true}`. The priority rule never downgrades it, it can't be dismissed, and the save modal shows it without "Ignore & schedule".
   - The cases in §8.3 are warnings.
@@ -299,13 +299,13 @@ This must be a pure module, with no `@/` imports and explicit `.js` extensions, 
 
 ### 9.5 Exports: today they silently drop ICE data
 
-- **A3 lecture days.** `pdfExport.js:596-600` pushes Monday–Friday (plus Saturday when used), so Sunday classes never appear. Use `lecture_days`, and show a day only when it has items, as Saturday works today.
+- **A3 lecture days.** `pdfExport.js:596-600` pushes Monday–Friday (plus Saturday when used), so Sunday classes never appear. Use `lecture_days`. Monday–Friday days in the list always get a column, as today; Saturday and Sunday get one only when they have items, as Saturday works today. (Hiding an empty weekday would change UG exports.)
 - **A3 lecture hours.** `:371-374` uses an 8–18 grid that `computeDayRange` widens. Start from the realm's window instead.
 - **A3 exam weeks.** `:577-594` builds each week as a Monday plus 6 days, so Sunday exams never appear; the legacy fallback lists Monday–Saturday. Build weeks from `exam_days`.
 - **A3 exam slots.** `:555-566` fixes the slots at 9–12, 12–3 and 3–6, and cells are matched with `GRID_START_H + i * SLOT_HOURS` (`:1312-1316`), so exams outside 09–18 vanish. Use `config.exam_slots`, matching on each slot's own start and end.
 - **A4 layout.** `START_H` and `END_H` are fixed at 8 and 18 (`:1607-1609`), and the filters at `:1647` and `:2000` drop items that start outside that range, so evening ICE classes vanish. Use the realm window. The day list at `:191` should come from the config.
 - **Titles and filenames.** Prefix titles with the realm name for non-UG realms, e.g. "ICE Lecture Timetable", and include the realm key in file names.
-- **Nothing is dropped silently.** Anything outside the grid widens it and logs `console.warn`, as the A3 lecture path already does.
+- **Nothing is dropped silently.** Anything outside the grid widens it and logs `console.warn`, as the A3 lecture path already does: a day outside the realm's days gets a column, the A4 hour grid grows, and an A3 exam that touches none of the exam slots gets an extra slot before the first or after the last.
 
 ## 10. Acceptance criteria
 
