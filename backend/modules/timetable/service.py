@@ -10,6 +10,7 @@ from modules.timetable.schemas import (
 )
 from modules.auth.models import RoleEnum
 from modules.auth.repository import AuthRepository
+from modules.realms.schemas import WEEKDAYS
 from modules.notifications.service import NotificationService
 from modules.audit.service import AuditService
 from sqlalchemy.exc import IntegrityError
@@ -75,6 +76,57 @@ def _assert_course_fits_realm(current_user: dict, level: int | None, semester: s
         raise HTTPException(status_code=400, detail=f"level must be one of: {', '.join(str(l) for l in config['levels'])}")
     if semester is not None and semester not in config["semester_names"]:
         raise HTTPException(status_code=400, detail=f"semester must be one of: {', '.join(config['semester_names'])}")
+
+
+def _clock_minutes(value) -> int:
+    return value.hour * 60 + value.minute
+
+
+def _config_minutes(value: str) -> int:
+    hours, minutes = value.split(":")
+    return int(hours) * 60 + int(minutes)
+
+
+def _assert_day_allowed(current_user: dict, kind: str, day: str | None) -> None:
+    """In a strict realm, `day` must be one of the realm's lecture or exam days."""
+    config = current_user["realm_config"]
+    if not config["strict"]:
+        return
+    allowed = config["exam_days"] if kind == "exam" else config["lecture_days"]
+    if day not in allowed:
+        raise HTTPException(
+            status_code=400,
+            detail=f"{current_user['realm_name']} {kind}s run on {', '.join(allowed)} only",
+        )
+
+
+def _assert_fits_window(current_user: dict, item_type: str, day_of_week: str | None, exam_date: date | None, start_time, end_time) -> None:
+    """In a strict realm, a session must sit on the realm's days, inside its day
+    window and on its time grid. Other realms are only flagged in the UI."""
+    config = current_user["realm_config"]
+    if not config["strict"]:
+        return
+    if item_type == "exam":
+        day = WEEKDAYS[exam_date.weekday()] if exam_date else day_of_week
+        _assert_day_allowed(current_user, "exam", day)
+    else:
+        _assert_day_allowed(current_user, "lecture", day_of_week)
+
+    if end_time <= start_time:
+        raise HTTPException(status_code=400, detail="End time must be after start time")
+    day_start, day_end = _config_minutes(config["day_start"]), _config_minutes(config["day_end"])
+    start, end = _clock_minutes(start_time), _clock_minutes(end_time)
+    if start < day_start or end > day_end:
+        raise HTTPException(
+            status_code=400,
+            detail=f"{current_user['realm_name']} sessions must be within {config['day_start']}–{config['day_end']}",
+        )
+    step = config["slot_minutes"]
+    off_grid = any(
+        (_clock_minutes(t) - day_start) % step or t.second or t.microsecond for t in (start_time, end_time)
+    )
+    if off_grid:
+        raise HTTPException(status_code=400, detail=f"Start and end times must be in {step}-minute steps")
 
 
 class TimetableService:
@@ -644,6 +696,62 @@ class TimetableService:
         if inactive:
             raise HTTPException(status_code=400, detail=f"Cannot schedule into inactive room(s): {', '.join(inactive)}")
 
+    async def _assert_no_cross_realm_clash(
+        self,
+        *,
+        realm_key: str,
+        semester_id: int | None,
+        item_type: str,
+        day_of_week: str | None,
+        exam_date: date | None,
+        start_time,
+        end_time,
+        room_ids: list[int] | None,
+        faculty_id: str | None,
+    ) -> None:
+        """Rooms are shared: 409 when another realm already holds one of these
+        rooms for a same-type session at an overlapping time. It can't be
+        dismissed - one of the two sessions has to move."""
+        slot = exam_date if item_type == "exam" else day_of_week
+        if not room_ids or slot is None:
+            return
+        # Only sessions in each realm's current semester hold a room.
+        current_sem = await self.cal_repo.get_current_semester(realm_key=realm_key)
+        if not current_sem or semester_id != current_sem.id:
+            return
+        # Special faculties are exempt, as they are within a realm.
+        if faculty_id:
+            faculty = await self.repo.get_faculty(faculty_id)
+            if faculty and faculty.is_special:
+                return
+
+        others = await self.repo.get_other_realms_current_items(
+            exclude_realm_key=realm_key,
+            item_type=item_type,
+            day_of_week=day_of_week if item_type != "exam" else None,
+            exam_date=exam_date if item_type == "exam" else None,
+        )
+        for other in others:
+            if other["is_special_faculty"]:
+                continue
+            shared = sorted(set(room_ids) & set(other["room_ids"]))
+            if not shared or not _times_overlap(start_time, end_time, other["start_time"], other["end_time"]):
+                continue
+            rooms = await self.repo.get_rooms_by_ids(shared)
+            room_names = ", ".join(r.name for r in rooms) or f"#{shared[0]}"
+            when = other["exam_date"].strftime("%d %b %Y") if item_type == "exam" else other["day_of_week"]
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"Room {room_names} is already booked by {other['realm_name']} for {other['course_code']} "
+                    f"on {when} {other['start_time'].strftime('%H:%M')}–{other['end_time'].strftime('%H:%M')}. "
+                    f"One of the two sessions has to move."
+                ),
+            )
+
+    async def get_external_bookings(self, current_user: dict) -> list[dict]:
+        return await self.repo.get_other_realms_current_items(exclude_realm_key=current_user["realm"])
+
     async def create_schedule_item(self, data: ScheduleItemCreate, current_user: dict) -> ScheduleItem:
         if current_user.get("role") == RoleEnum.FACULTY_EDITOR.value:
             if current_user.get("faculty_id") != data.faculty_id:
@@ -666,8 +774,15 @@ class TimetableService:
             raise HTTPException(status_code=404, detail="Course not found")
         await self._assert_not_locked(sem_id, data.type, current_user["realm"])
         exam_date_val = getattr(data, 'exam_date', None)
+        _assert_fits_window(current_user, data.type, data.day_of_week, exam_date_val, data.start_time, data.end_time)
         await self._check_blocked_slots(data.type, data.day_of_week, exam_date_val, data.start_time, data.end_time, sem_id, current_user["realm"])
         await self._assert_rooms_active(data.room_ids)
+        await self._assert_no_cross_realm_clash(
+            realm_key=current_user["realm"], semester_id=sem_id, item_type=data.type,
+            day_of_week=data.day_of_week, exam_date=exam_date_val,
+            start_time=data.start_time, end_time=data.end_time,
+            room_ids=data.room_ids, faculty_id=data.faculty_id,
+        )
 
         item = ScheduleItem(
             course_id=data.course_id,
@@ -727,8 +842,15 @@ class TimetableService:
         new_exam_date = getattr(data, 'exam_date', None) if getattr(data, 'exam_date', None) is not None else getattr(item, 'exam_date', None)
         new_start = data.start_time or item.start_time
         new_end = data.end_time or item.end_time
+        _assert_fits_window(current_user, item.type, new_day, new_exam_date, new_start, new_end)
         if item.semester_id:
             await self._check_blocked_slots(item.type, new_day, new_exam_date, new_start, new_end, item.semester_id, current_user["realm"])
+        await self._assert_no_cross_realm_clash(
+            realm_key=current_user["realm"], semester_id=item.semester_id, item_type=item.type,
+            day_of_week=new_day, exam_date=new_exam_date, start_time=new_start, end_time=new_end,
+            room_ids=data.room_ids if data.room_ids is not None else item.room_ids,
+            faculty_id=item.faculty_id,
+        )
         if data.room_ids is not None:
             await self._assert_rooms_active(data.room_ids, already_assigned_ids=item.room_ids or [])
             item.room_ids = data.room_ids
@@ -775,6 +897,13 @@ class TimetableService:
 
     async def create_blocked_slot(self, data: BlockedSlotCreate, current_user: dict) -> BlockedSlot:
         await self._semester_in_realm(data.semester_id, current_user)
+        config = current_user["realm_config"]
+        if config["strict"]:
+            if data.applies_to == "EXAM_ONLY":
+                _assert_day_allowed(current_user, "exam", WEEKDAYS[data.date.weekday()])
+            elif data.applies_to == "LECTURE_ONLY" or data.day_of_week not in config["exam_days"]:
+                # A block for both timetables may sit on a day either of them uses.
+                _assert_day_allowed(current_user, "lecture", data.day_of_week)
         slot = BlockedSlot(
             name=data.name,
             type=data.type,
@@ -984,6 +1113,17 @@ class TimetableService:
                 raise HTTPException(status_code=404, detail="The schedule item to change no longer exists")
             if target.semester_id != sem_id or target.type != data.timetable_type:
                 raise HTTPException(status_code=400, detail="Target schedule item does not match this timetable")
+
+        if data.action != ChangeRequestAction.REMOVE.value:
+            # A MODIFY leaves out what it doesn't change, so the target fills the gaps.
+            _assert_fits_window(
+                current_user,
+                data.timetable_type,
+                data.day_of_week if data.day_of_week is not None or target is None else target.day_of_week,
+                data.exam_date if data.exam_date is not None or target is None else target.exam_date,
+                data.start_time,
+                data.end_time,
+            )
 
         await self._assert_request_scope(data.action, data.course_id, target, current_user)
 

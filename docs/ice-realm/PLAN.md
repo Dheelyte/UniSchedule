@@ -135,9 +135,9 @@ Prerequisites: Phase 2.
 
 Prerequisites: Phase 3.
 
-- [ ] Strict window validation (SPEC §8.1) for schedule items, change requests and blocked slots.
-- [ ] The cross-realm room clash check (SPEC §8.2) on create, update and change-request approval, returning 409.
-- [ ] `GET /timetable/external-bookings` (SPEC §8.4).
+- [x] Strict window validation (SPEC §8.1) for schedule items, change requests and blocked slots.
+- [x] The cross-realm room clash check (SPEC §8.2) on create, update and change-request approval, returning 409.
+- [x] `GET /timetable/external-bookings` (SPEC §8.4).
 
 **Verify** with tests:
 - SPEC §10 acceptance criteria 5 and 6.
@@ -243,6 +243,16 @@ Launch is for people, not Claude:
 - `src/` (notifications): links to super admins now end in `?realm=KEY`, including UG ones. The pages ignore the parameter until Phase 5 handles it.
 - `backend/modules/audit/service.py`: activity logs written by the previous code version during a deploy have `realm_key` NULL, so they show in every realm's audit list. Harmless; backfill to `UG` if it matters.
 
+- `backend/modules/timetable/service.py:200` (`delete_department`): departments are shared, and `course_enrollments.department_id` cascades (`backend/modules/timetable/models.py:146`), so deleting a department with no home courses silently removes every realm's enrollments for it. Refuse with 400 while any enrollment or course in any realm references the department. (ice-audit 2026-10-09)
+- `backend/modules/timetable/service.py:998` (`create_change_request`): `target_schedule_item_id` is realm-checked only for MODIFY and REMOVE, so an ADD can store another realm's item id. Set it to `None` for ADD. (ice-audit 2026-10-09)
+- `backend/api/v1/auth.py:116` (`GET /auth/invitations`): SUPER_VIEWER receives each open invitation's `token` (`backend/modules/auth/schemas.py:43`), and `POST /auth/register/{token}` needs no login, so a viewer can register any pending account, including a SUPER_ADMIN one, with their own password. Not a realm issue. Drop `token` from the list response or limit the route to SUPER_ADMIN. (ice-audit 2026-10-09)
+
+- `backend/modules/timetable/service.py` (`_assert_no_cross_realm_clash`): nothing in the database enforces the rule, so two saves in different realms at the same moment can both pass. Take a per-room advisory lock (`pg_advisory_xact_lock`) if it ever happens.
+- `backend/modules/timetable/service.py` (`_assert_no_cross_realm_clash`): schedule items with `semester_id` NULL (legacy UG rows) count as outside the current semester, so they hold no room across realms and are missing from `external-bookings`. Check on the production dump in Phase 7 whether any are still in use.
+- `backend/modules/timetable/service.py` (`_assert_no_cross_realm_clash`): two exams from different realms can never share a room, although two same-faculty exams within a realm can (`src/lib/conflicts.js:148`). This follows SPEC §8.2; relax it there first if ICE and UG need to share exam halls.
+- `backend/modules/timetable/service.py` (`create_blocked_slot`): in a strict realm only the day or date is checked (SPEC §8.1), not the block's times. A block applying to both timetables may sit on a lecture day or an exam day.
+- `backend/modules/timetable/service.py` (`_assert_fits_window`): a strict realm rejects an exam with no `exam_date` unless its `day_of_week` is an exam day. ICE exams are always dated, so the Phase 6 UI should always send the date.
+
 ## Progress log
 
 <!-- Claude appends one line per finished phase: YYYY-MM-DD · Phase N · what changed · test results -->
@@ -252,3 +262,4 @@ Launch is for people, not Claude:
 2026-10-08 · Phase 2 · login takes a realm, tokens carry `realm`, `get_current_user` returns `realm`/`realm_name`/`realm_config`, `POST /auth/switch-realm`, impersonation keeps the realm, invitations and registration carry the realm (email and link name the portal), staff listings and deletes per realm, seeded super admin has no realm, temporary UG-only guard on the unscoped routers · backend `pytest` 72 passed (42 existing unchanged, 30 new in `tests/test_auth_realm.py`)
 2026-10-09 · Phase 3 · every realm-scoped query filters by the active realm (calendar, courses, schedule items, blocked slots, locks, edit requests, change requests, enrollments, conflict dismissals, audit log); repository reads take a required keyword-only `realm_key`; course level and semester checked against the realm config in the service; priority-override notifications reach only the same realm's editors and notifications to super admins name the realm; Phase 2 guard removed · backend `pytest` 84 passed (70 existing unchanged, the 2 guard tests removed, 14 new in `tests/test_realm_isolation.py`); frontend untouched, so npm checks not re-run
 2026-10-09 · Phase 3 follow-up · another realm's id now behaves exactly like a missing id on every endpoint (course and schedule-item deletes answer 200 and do nothing; SPEC §7 updated, test added); test suite sped up: one event loop with pooled connections instead of a new connection per request, tables emptied with DELETE instead of TRUNCATE, `BCRYPT_ROUNDS` setting (default 12, 4 in tests), migration tests marked `slow`; Phase 7 gains a check for course levels outside the UG config · backend `pytest` 83 passed (the two 404 tests merged into one that compares against a missing id); full suite about 10.5 minutes before, 66–107 seconds after; `-m "not slow"` 37 seconds
+2026-10-09 · Phase 4 · strict realms (ICE) reject schedule items, ADD/MODIFY change requests and blocked slots outside the realm's days, day window or time grid (400); a same-type session in a room another realm holds at an overlapping time in its current semester is refused on create, update and change-request approval (409, special faculties exempt); `GET /timetable/external-bookings`; UG gets no new validation · backend `pytest` 106 passed (83 existing, 23 new in `tests/test_ice_scheduling.py`; two fixtures in `tests/test_realm_isolation.py` moved onto ICE days, assertions unchanged); frontend untouched, so npm checks not re-run

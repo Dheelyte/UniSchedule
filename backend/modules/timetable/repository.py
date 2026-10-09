@@ -3,7 +3,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, or_, any_
 from datetime import date, datetime, timezone
 from core.database import get_db
+from modules.calendar.models import AcademicSession, Semester
 from modules.calendar.repository import realm_semester_ids
+from modules.realms.models import Realm
 from modules.timetable.models import Faculty, Room, Course, ScheduleItem, Department, TimetableLock, CourseEnrollment, ChangeRequest, ConflictDismissal
 
 
@@ -197,6 +199,57 @@ class TimetableRepository:
             select(ScheduleItem).where(ScheduleItem.id.in_(ids), ScheduleItem.realm_key == realm_key)
         )
         return list(result.scalars().all())
+
+    async def get_other_realms_current_items(
+        self,
+        *,
+        exclude_realm_key: str,
+        item_type: str | None = None,
+        day_of_week: str | None = None,
+        exam_date: date | None = None,
+    ) -> list[dict]:
+        """Room bookings held by the other realms in their current semesters.
+
+        Rooms are shared, so this is the one read that deliberately crosses
+        realms. It returns only what a room clash needs, never the item itself.
+        """
+        query = (
+            select(ScheduleItem, Course.code, Realm.name, Faculty.is_special)
+            .join(Semester, Semester.id == ScheduleItem.semester_id)
+            .join(AcademicSession, AcademicSession.id == Semester.session_id)
+            .join(Realm, Realm.key == ScheduleItem.realm_key)
+            .join(Course, Course.id == ScheduleItem.course_id)
+            .outerjoin(Faculty, Faculty.id == ScheduleItem.faculty_id)
+            .where(
+                ScheduleItem.realm_key != exclude_realm_key,
+                Semester.is_current == True,
+                AcademicSession.realm_key == ScheduleItem.realm_key,
+            )
+            .order_by(ScheduleItem.id)
+        )
+        if item_type is not None:
+            query = query.where(ScheduleItem.type == item_type)
+        if day_of_week is not None:
+            query = query.where(ScheduleItem.day_of_week == day_of_week)
+        if exam_date is not None:
+            query = query.where(ScheduleItem.exam_date == exam_date)
+        result = await self.db.execute(query)
+        return [
+            {
+                "id": item.id,
+                "realm_key": item.realm_key,
+                "realm_name": realm_name,
+                "type": item.type,
+                "room_ids": list(item.room_ids or []),
+                "day_of_week": item.day_of_week,
+                "exam_date": item.exam_date,
+                "start_time": item.start_time,
+                "end_time": item.end_time,
+                "course_code": course_code,
+                "is_special_faculty": bool(is_special),
+            }
+            for item, course_code, realm_name, is_special in result.all()
+        ]
 
     # ---------- Conflict Dismissals ----------
 
