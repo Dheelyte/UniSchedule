@@ -42,6 +42,7 @@ export default function RequestChangeModal({
     const [startTime, setStartTime] = useState('08:00');
     const [endTime, setEndTime] = useState('10:00');
     const [roomIds, setRoomIds] = useState([]);
+    const [isOnline, setIsOnline] = useState(false);
     const [reason, setReason] = useState('');
     const [error, setError] = useState('');
 
@@ -73,6 +74,7 @@ export default function RequestChangeModal({
         setStartTime(hhmm(item.startTime) || '08:00');
         setEndTime(hhmm(item.endTime) || '10:00');
         setRoomIds((item.roomIds || []).map(String));
+        setIsOnline(item.isOnline || item.is_online || false);
     };
 
     const roomRows = roomIds.length ? roomIds : [''];
@@ -138,6 +140,7 @@ export default function RequestChangeModal({
             exam_date: action === 'REMOVE' || !isExam ? null : examDate,
             start_time: action === 'REMOVE' ? null : startTime,
             end_time: action === 'REMOVE' ? null : endTime,
+            is_online: action === 'REMOVE' ? null : isOnline,
             reason: reason.trim() || null,
         };
         onSubmit(payload);
@@ -230,8 +233,26 @@ export default function RequestChangeModal({
                                     </select>
                                 </div>
                             </div>
-                            <div className={styles.formGroup}>
-                                <label className={styles.label}>Room{roomIds.filter(Boolean).length > 1 ? 's' : ''}</label>
+                            <div className={styles.formGroup} style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
+                                <label className={styles.switch}>
+                                    <input
+                                        type="checkbox"
+                                        checked={isOnline}
+                                        onChange={(e) => {
+                                            setIsOnline(e.target.checked);
+                                            if (e.target.checked) setRoomIds([]);
+                                            else setRoomIds(['']);
+                                        }}
+                                        disabled={busy}
+                                    />
+                                    <span className={`${styles.slider} ${styles.round}`}></span>
+                                </label>
+                                <label style={{ margin: 0, fontWeight: 'bold' }}>🌐 Fully Online Class</label>
+                            </div>
+                            
+                            {!isOnline && (
+                                <div className={styles.formGroup}>
+                                    <label className={styles.label}>Room{roomIds.filter(Boolean).length > 1 ? 's' : ''}</label>
                                 {selectableRoomCount === 0 ? (
                                     <span className={styles.muted}>No rooms available</span>
                                 ) : (
@@ -255,7 +276,8 @@ export default function RequestChangeModal({
                                         )}
                                     </div>
                                 )}
-                            </div>
+                                </div>
+                            )}
                         </>
                     )}
 

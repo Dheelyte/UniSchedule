@@ -181,6 +181,7 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
         examDate: '',
         startTime: '08:00',
         endTime: '10:00',
+        isOnline: false,
     });
 
     const [isSaving, setIsSaving] = useState(false);
@@ -463,6 +464,7 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
             examDate: currentDate,
             startTime,
             endTime,
+            isOnline: false,
         });
         setShowModal(true);
     };
@@ -483,6 +485,7 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
             examDate: schedule.examDate || currentDate,
             startTime: trimSec(schedule.startTime),
             endTime: trimSec(schedule.endTime),
+            isOnline: schedule.isOnline || schedule.is_online || false,
         });
         setShowModal(true);
     };
@@ -500,11 +503,12 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
             courseScope: c?.scope ?? null,
             facultyId: dept?.facultyId ?? null,
             isSpecialFaculty: !!(fac?.is_special ?? fac?.isSpecial),
+            is_online: formData.isOnline,
         };
     };
 
     const validateForm = (formData) => {
-        if (!formData.courseId || !formData.roomIds?.some((r) => r)) return;
+        if (!formData.courseId || (!formData.isOnline && !formData.roomIds?.some((r) => r))) return;
         const result = detectConflicts(
             enrichCandidate(formData),
             allModeSchedules,
@@ -539,7 +543,7 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
 
     const handleSave = async () => {
         const validRoomIds = modalForm.roomIds.filter((r) => r);
-        if (!modalForm.courseId || validRoomIds.length === 0) return;
+        if (!modalForm.courseId || (!modalForm.isOnline && validRoomIds.length === 0)) return;
 
         const formWithCleanRooms = { ...modalForm, roomIds: validRoomIds };
 
@@ -594,7 +598,7 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
             }
         }
 
-        const payload = { ...formWithCleanRooms, type: mode };
+        const payload = { ...formWithCleanRooms, is_online: modalForm.isOnline, type: mode };
 
         let savedItemId = null;
         setIsSaving(true);
@@ -605,10 +609,11 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
                     day_of_week: mode === 'exam' ? null : payload.day,
                     exam_date: mode === 'exam' ? payload.examDate : null,
                     start_time: payload.startTime,
-                    end_time: payload.endTime
+                    end_time: payload.endTime,
+                    is_online: payload.is_online
                 };
                 await apiClient.put(`/timetable/schedule-items/${editing.id}`, apiPayload);
-                dispatch({ type: ACTION_TYPES.UPDATE_SCHEDULE, payload: { id: editing.id, ...payload, examDate: payload.examDate } });
+                dispatch({ type: ACTION_TYPES.UPDATE_SCHEDULE, payload: { id: editing.id, ...payload, isOnline: payload.is_online, is_online: payload.is_online, examDate: payload.examDate } });
                 savedItemId = editing.id;
                 addToast({ type: 'success', title: 'Schedule Updated', message: `${courses.find(c => c.id === modalForm.courseId)?.code || 'Course'} updated successfully.` });
             } else {
@@ -623,6 +628,7 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
                     start_time: payload.startTime,
                     end_time: payload.endTime,
                     type: payload.type,
+                    is_online: payload.is_online,
                 };
                 const res = await apiClient.post('/timetable/schedule-items', { ...apiPayload, semester_id: semesterId });
                 dispatch({
@@ -637,6 +643,8 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
                         endTime: payload.endTime,
                         type: payload.type,
                         semester_id: semesterId,
+                        isOnline: payload.is_online,
+                        is_online: payload.is_online,
                     }
                 });
                 savedItemId = res.id;
@@ -1199,8 +1207,23 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
                                 />
                             </div>
 
-                            <div className="form-group">
-                                <label className="form-label">Room{modalForm.roomIds.length > 1 ? 's' : ''}</label>
+                            <div className="form-group" style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
+                                <label className={styles.switch}>
+                                    <input
+                                        type="checkbox"
+                                        checked={modalForm.isOnline}
+                                        onChange={(e) => {
+                                            updateForm({ isOnline: e.target.checked, roomIds: e.target.checked ? [] : [''] });
+                                        }}
+                                    />
+                                    <span className={`${styles.slider} ${styles.round}`}></span>
+                                </label>
+                                <label style={{ margin: 0, fontWeight: 'bold' }}>🌐 Fully Online Class</label>
+                            </div>
+
+                            {!modalForm.isOnline && (
+                                <div className="form-group">
+                                    <label className="form-label">Room{modalForm.roomIds.length > 1 ? 's' : ''}</label>
                                 <div className={styles.locationList}>
                                     {modalForm.roomIds.map((rid, idx) => (
                                         <div key={idx} className={styles.locationRow}>
@@ -1231,6 +1254,7 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
                                     </button>
                                 </div>
                             </div>
+                            )}
 
                             {mode === 'exam' ? (
                                 <div className="form-group">
@@ -1293,7 +1317,7 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
                             <button
                                 className="btn btn-primary"
                                 onClick={handleSave}
-                                disabled={!modalForm.courseId || !modalForm.roomIds.some((r) => r) || isSaving}
+                                disabled={!modalForm.courseId || (!modalForm.isOnline && !modalForm.roomIds.some((r) => r)) || isSaving}
                             >
                                 {isSaving ? 'Saving...' : (editing ? 'Save Changes' : 'Add to Timetable')}
                             </button>

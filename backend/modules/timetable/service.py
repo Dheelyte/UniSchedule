@@ -652,6 +652,7 @@ class TimetableService:
             week=data.week,
             exam_date=getattr(data, 'exam_date', None),
             semester_id=sem_id,
+            is_online=data.is_online,
         )
         created = await self.repo.create_schedule_item(item)
         await self._notify_priority_overrides(created)
@@ -707,6 +708,7 @@ class TimetableService:
         if data.exam_date is not None: item.exam_date = data.exam_date
         if data.start_time is not None: item.start_time = data.start_time
         if data.end_time is not None: item.end_time = data.end_time
+        if data.is_online is not None: item.is_online = data.is_online
         updated = await self.repo.update_schedule_item(item)
         await self._notify_priority_overrides(updated)
         course = await self.repo.get_course(updated.course_id)
@@ -961,6 +963,7 @@ class TimetableService:
             end_time=data.end_time,
             week=data.week,
             exam_date=data.exam_date,
+            is_online=data.is_online,
             reason=data.reason,
             status=ChangeRequestStatus.PENDING.value,
             requested_by=requester_id,
@@ -1041,6 +1044,7 @@ class TimetableService:
                     week=cr.week,
                     exam_date=cr.exam_date,
                     semester_id=cr.semester_id,
+                    is_online=cr.is_online,
                 )
                 created_item = await self.create_schedule_item(payload, current_user)
                 cr.resulting_schedule_item_id = created_item.id
@@ -1053,6 +1057,7 @@ class TimetableService:
                     exam_date=cr.exam_date,
                     start_time=cr.start_time,
                     end_time=cr.end_time,
+                    is_online=cr.is_online,
                 )
                 updated_item = await self.update_schedule_item(cr.target_schedule_item_id, payload, current_user)
                 cr.resulting_schedule_item_id = updated_item.id
