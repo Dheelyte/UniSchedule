@@ -38,10 +38,13 @@ export default function StaffManagementPage() {
                 router.push('/login');
                 return;
             }
-            if (user.role !== 'SUPER_ADMIN') {
+            if (user.role !== 'SUPER_ADMIN' && user.role !== 'FACULTY_EDITOR') {
                 router.push('/');
-                addToast({ type: 'error', title: 'Unauthorized', message: 'You need Super Admin access to manage staff.' });
+                addToast({ type: 'error', title: 'Unauthorized', message: 'You need Super Admin or Faculty Editor access to manage staff.' });
                 return;
+            }
+            if (user.role === 'FACULTY_EDITOR') {
+                setInviteForm(prev => ({ ...prev, role: 'DEO' }));
             }
             fetchData();
         }
@@ -89,7 +92,7 @@ export default function StaffManagementPage() {
         }
         setIsInviting(true);
         try {
-            const facultyScoped = inviteForm.role === 'FACULTY_EDITOR' || inviteForm.role === 'FACULTY_VIEWER';
+            const facultyScoped = inviteForm.role === 'FACULTY_EDITOR' || inviteForm.role === 'FACULTY_VIEWER' || inviteForm.role === 'DEO';
             const payload = {
                 email: inviteForm.email,
                 target_role: inviteForm.role,
@@ -99,7 +102,7 @@ export default function StaffManagementPage() {
             const response = await apiClient.post('/auth/invite', payload);
             addToast({ type: 'success', title: 'Invitation Generated', message: 'Invitation email sent successfully.' });
             setIsInviteModalOpen(false);
-            setInviteForm({ email: '', role: 'FACULTY_EDITOR', facultyId: '', semesterId: '' });
+            setInviteForm({ email: '', role: user?.role === 'FACULTY_EDITOR' ? 'DEO' : 'FACULTY_EDITOR', facultyId: '', semesterId: '' });
             fetchData(); // Reload constraints
         } catch (e) {
             console.error(e);
@@ -265,16 +268,23 @@ export default function StaffManagementPage() {
                                     value={inviteForm.role}
                                     onChange={e => setInviteForm({ ...inviteForm, role: e.target.value })}
                                 >
-                                    <option value="FACULTY_EDITOR">Faculty Editor</option>
-                                    <option value="FACULTY_VIEWER">Faculty Viewer</option>
-                                    <option value="GS_ADMIN">General Studies Admin</option>
-                                    <option value="SUPER_ADMIN">Super Administrator</option>
-                                    <option value="SUPER_VIEWER">Super Administrator (View only)</option>
-                                    <option value="CITS_ADMIN">Super Administrator (CITS)</option>
+                                    {user?.role === 'FACULTY_EDITOR' ? (
+                                        <option value="DEO">Departmental Examination Officer</option>
+                                    ) : (
+                                        <>
+                                            <option value="FACULTY_EDITOR">Faculty Editor</option>
+                                            <option value="FACULTY_VIEWER">Faculty Viewer</option>
+                                            <option value="GS_ADMIN">General Studies Admin</option>
+                                            <option value="SUPER_ADMIN">Super Administrator</option>
+                                            <option value="SUPER_VIEWER">Super Administrator (View only)</option>
+                                            <option value="CITS_ADMIN">Super Administrator (CITS)</option>
+                                            <option value="DEO">Departmental Examination Officer</option>
+                                        </>
+                                    )}
                                 </select>
                             </div>
 
-                            {(inviteForm.role === 'FACULTY_EDITOR' || inviteForm.role === 'FACULTY_VIEWER') && (
+                            {(inviteForm.role === 'FACULTY_EDITOR' || inviteForm.role === 'FACULTY_VIEWER' || inviteForm.role === 'DEO') && user?.role !== 'FACULTY_EDITOR' && (
                                 <div className={styles.modalFormGroup}>
                                     <label className={styles.modalFormLabel}>Assign Faculty Constraint</label>
                                     <select
@@ -303,7 +313,7 @@ export default function StaffManagementPage() {
                         </div>
                         <div className="modal-footer">
                             <button className="btn btn-secondary" onClick={() => setIsInviteModalOpen(false)} disabled={isInviting}>Cancel</button>
-                            <button className="btn btn-primary" onClick={handleInvite} disabled={!inviteForm.email || ((inviteForm.role === 'FACULTY_EDITOR' || inviteForm.role === 'FACULTY_VIEWER') && !inviteForm.facultyId) || isInviting}>
+                            <button className="btn btn-primary" onClick={handleInvite} disabled={!inviteForm.email || ((inviteForm.role === 'FACULTY_EDITOR' || inviteForm.role === 'FACULTY_VIEWER' || inviteForm.role === 'DEO') && user?.role !== 'FACULTY_EDITOR' && !inviteForm.facultyId) || isInviting}>
                                 {isInviting ? 'Sending...' : 'Send Invitation Email'}
                             </button>
                         </div>
