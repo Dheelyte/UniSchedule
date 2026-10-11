@@ -211,7 +211,7 @@ Prerequisites: Phase 6.
   - backend `pytest` with a `postgres:16` service;
   - `npm ci`, lint, test and build.
 - [x] Update the README with realms and how to run the tests. Make sure SPEC.md matches what was actually built.
-- [ ] Push `feature/ice-realm` and open a PR (`gh pr create` if available). **Don't merge it.**
+- [x] Push `feature/ice-realm` and open a PR (`gh pr create` if available). **Don't merge it.** (PR #76; the owner merged it on 2026-10-11 and the deploy succeeded. The two dump items above were not done before the merge.)
 
 Launch is for people, not Claude:
 1. Merge the PR. CI migrates the database and deploys.
@@ -220,6 +220,28 @@ Launch is for people, not Claude:
 4. ICE staff enter courses and timetables.
 5. Set ICE live with `PUT /api/v1/realms/ICE {"is_live": true}`.
 6. Announce it.
+
+---
+
+## Phase 8 — Separate faculties, departments and rooms [review-first]
+
+Prerequisites: Phase 7's PR merged (production is at revision `n4i5j6k7l8m9`). Branch: `feature/ice-realm-separate`, cut from `main`. Design: SPEC §5.1.
+
+- [x] One new revision on top of `n4i5j6k7l8m9` (no existing revision edited): `realm_key` on `faculties` and `rooms`, `hall_groups`, per-realm name constraints, and the move of any data another realm entered while these were shared.
+- [x] Faculties, departments and rooms scoped by realm in the repository, the service and every place that takes one of their ids. UG's faculty ids don't change; another realm's ids are generated as `<REALM>-…`.
+- [x] Hall groups: cross-realm clashes and `external-bookings` come only from rooms in one group; super admins link and unlink by hand.
+- [x] "Add from Undergraduate" on the Rooms page for every realm but UG, next to "Create new room".
+- [x] One shared guard, `tests/db_guard.py`, in front of everything in the suite that deletes data.
+- [x] SPEC.md, CLAUDE.md, README.md and this plan updated.
+- [ ] Push the branch and open a PR. **Don't merge it.**
+
+**Verify** with tests:
+- Each realm lists and changes only its own faculties, departments and rooms; the other realm's ids behave like missing ids.
+- Linked rooms clash (409) and show in `external-bookings`; unlinked rooms of the same name don't; unlinking ends the clash.
+- Deleting or editing a room never changes the other realm's room, and a delete is blocked only by the room's own realm's sessions.
+- Adding from Undergraduate: fields kept, chosen faculty applied, one hall group with the original, added once, creation rules per role.
+- The revision: upgrade and downgrade round trip; existing UG rows untouched; interim ICE data moved onto ICE's own faculties, departments and rooms.
+- UG unchanged: the baseline tests, and no file under `src/` other than the Rooms page differs from `main`.
 
 ---
 
@@ -261,12 +283,18 @@ Launch is for people, not Claude:
 
 - `backend/modules/timetable/service.py` (`create_change_request`): a MODIFY or REMOVE request doesn't check that the target item's course is the `course_id` it names, so a faculty user can name one of their own courses to pass the scope check while targeting another faculty's item in the same realm. A super admin still has to approve it. Reject with 400 when the two differ. (ice-audit 2026-10-09)
 - `backend/modules/auth/repository.py` (`get_user_by_id`, `get_invitation_by_id`): the delete paths look the account up without a realm and check it afterwards in the service. Correct today; give them realm-scoped lookups so a new caller can't skip the check. (ice-audit 2026-10-09)
-- `backend/modules/timetable/service.py` (`delete_room`, `delete_faculty`): a shared room or faculty that only another realm uses can't be deleted, and the message doesn't say another programme is the reason. (ice-audit 2026-10-09)
 - `.github/workflows/test.yml` runs only on pull requests, and `deploy.yml` doesn't wait for it: a direct push to `main` deploys untested. Protect `main` and require the two test jobs.
 
 - `backend/docker-compose.yml:14` (from main): the database container mounts a folder from another developer's machine (`/c/Users/hp/Documents/programming/...`). On any other machine Docker creates it empty. Move it to a local override file.
 - `backend/migrations/versions/82ca6bc93b96_add_deo_role.py` (from main): the downgrade does nothing, so the `DEO` enum value stays after a downgrade.
 - `src/lib/pdfExport.js`, `src/components/TimetableGrid/TimetableGrid.js`: online sessions (from main) were merged with the realm-driven grid and exports and are covered by the unit tests and build, but not yet checked by hand in an ICE timetable or an ICE PDF.
+
+- `backend/modules/timetable/service.py` (`ROOM_CATALOGUE_REALM`): realms add rooms from Undergraduate only. If a realm should pick from another realm's list, make the source a parameter and decide who may see which list.
+- `src/app/rooms/page.js`: the "Add from Undergraduate" picker and the hall link controls are covered by API tests, lint and the build, but have not been clicked through in a browser.
+- `backend/migrations/versions/o5j6k7l8m9n0_separate_faculties_and_rooms.py`: a faculty, department or room that ICE staff created between the two revisions is stored as UG's and stays in UG's lists (anything ICE uses is copied). Check UG's lists after the deploy if ICE was set up in that window.
+- `backend/modules/timetable/service.py` (`add_rooms_from_catalogue`, `set_room_hall`): a room that leaves a hall group, or is deleted, leaves the others in a group that may hold one room. Harmless; such groups can be cleared if they pile up.
+- `backend/tests/test_realm_migration.py`: on the development PC used for this phase, a child Python that imports SQLAlchemy with piped output crashes at random (exit code 3221227274), so these tests were run there with Alembic in-process. CI runs them as written.
+- `backend/scripts/seed_ice_qa.py` (git-ignored): updated for separate faculties and rooms; it exists only on the machine that ran it.
 
 ## Progress log
 
@@ -282,3 +310,4 @@ Launch is for people, not Claude:
 2026-10-09 · Phase 6 · the timetable grid, schedule and change-request forms, conflict checks and PDF/CSV exports read days, hours, time steps and exam slots from the realm config; other realms' room bookings are fetched on the lectures, exams and CBT pages, drawn grey and read-only, and block saving on a same-type overlap (a lecture against an exam only warns); exports print Sunday and evening sessions, name non-UG realms in titles and file names, and widen instead of dropping anything outside the grid; `backend/scripts/seed_ice_qa.py` seeds local QA data · `npm test` 27 passed (8 new in `conflicts.test.mjs`); `npm run lint` 0 errors (20 warnings, as before); `npm run build` OK; old and new conflict engines agree on 400 random UG timetables; 64 UG PDF exports (A3/A4, lectures/exams, colour/mono) and the UG CSVs are byte-identical to the previous commit, and the ICE A3/A4 PDFs and CSV contain the Sunday and 19:00 items; manual checks in headless Edge against a local backend with the seed data, 37/37; backend untouched, so pytest not re-run
 2026-10-09 · Phase 7 (partial) · `/ice-audit` found no realm leak (no blockers); fixed its findings and the three left from the previous audit: a shared department can't be deleted while another realm has enrollments for it, an ADD change request stores no target item, only a super admin reads invitation tokens, a realm update is logged under the realm that changed, and a cross-realm requester's review notification names the realm; `.github/workflows/test.yml` runs pytest (Postgres 16 service), lint, unit tests and build on pull requests; README gains a realms section; SPEC.md brought in line with the build. Not done: the production-dump restore, smoke test and course-level check (no dump on this machine), and opening the PR (`gh` is not installed) · backend `pytest` 110 passed (106 existing, 4 new), also 110 passed on a fresh `postgres:16` container set up like the CI job; `npm test` 27 passed; `npm run lint` 0 errors (20 warnings, as before); `npm run build` OK; the workflow itself first runs when the PR is opened
 2026-10-11 · Merge of `main` · brought in main's DEO role, online sessions, faster conflict engine and layout fix; the realms revision now follows main's two revisions (`down_revision = "2f166d445031"`); DEO is a realm-bound role, and a faculty editor's staff and invitation lists are limited to their own realm and faculty; an online session holds no room, so it neither causes nor suffers a cross-realm clash and is left out of `external-bookings`; the realm window and other realms' bookings were re-applied on top of main's conflict engine; the blocked-slot overlay follows the realm's hours; approving an ADD change request that has no online flag no longer fails (500 on main) · backend `pytest` 112 passed (110 existing, 2 new); `npm test` 30 passed; `npm run lint` 0 errors (20 warnings, as before); `npm run build` OK; not re-checked by hand in a browser
+2026-10-12 · Phase 8 · faculties, departments and rooms belong to a realm (revision `o5j6k7l8m9n0` on top of the deployed `n4i5j6k7l8m9`; every existing row stays UG with its id; any interim ICE data is moved onto ICE's own copies); hall groups replace shared rooms, so only rooms in one group clash across realms and show in `external-bookings`; realms other than UG add rooms from Undergraduate on the Rooms page (own room, chosen faculty, one group with the original, once) or create rooms of their own; super admins link and unlink by hand; a shared guard refuses any test-suite delete outside a localhost `*_test` database (added after a faulty local helper emptied the local development database) · backend `pytest -m "not slow"` 134 passed; the 4 migration tests passed with Alembic in-process (see Follow-ups); `npm test` 30 passed; `npm run lint` 0 errors (20 warnings, as before); `npm run build` OK; only the Rooms page differs from `main` under `src/`; not checked by hand in a browser

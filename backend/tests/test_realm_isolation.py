@@ -12,7 +12,7 @@ from modules.audit.repository import AuditRepository
 from modules.auth.models import RoleEnum
 from modules.auth.repository import AuthRepository
 from modules.calendar.repository import CalendarRepository
-from modules.timetable.models import ChangeRequest, Course, ScheduleItem
+from modules.timetable.models import ChangeRequest, Course, Faculty, Room, ScheduleItem
 from modules.timetable.repository import TimetableRepository
 
 API = "/api/v1"
@@ -35,7 +35,7 @@ def _lecture(realm: dict, **overrides) -> dict:
     return {
         "course_id": realm["course"]["id"],
         "room_ids": [realm["room"]["id"]],
-        "faculty_id": "ENG",
+        "faculty_id": realm["faculty"]["id"],
         "day_of_week": DAY[realm["key"]],
         "start_time": "10:00:00",
         "end_time": "12:00:00",
@@ -60,19 +60,17 @@ def sent_emails(monkeypatch):
 async def world(make_client, make_user, login, sent_emails) -> dict:
     """UG and ICE, each with one of every realm-scoped resource, built through the API.
 
-    Faculty, department and room are shared. Both realms use the same course code.
+    Each realm has its own faculty, department and room, with the same names, and
+    the same course code. The two rooms are linked as one physical hall.
     """
-    setup = make_client()
-    await login(setup, (await make_user(RoleEnum.SUPER_ADMIN))["email"])
-    await _ok(await setup.post(f"{API}/timetable/faculties", json={"id": "ENG", "name": "Engineering"}))
-    department = await _ok(await setup.post(f"{API}/timetable/departments", json={"name": "Civil", "faculty_id": "ENG"}))
-    room = await _ok(await setup.post(f"{API}/timetable/rooms", json={"name": "ENG 101", "faculty_id": "ENG"}))
-
     realms = {}
     for key in ("UG", "ICE"):
         admin = make_client()
         await login(admin, (await make_user(RoleEnum.SUPER_ADMIN))["email"], realm=key)
-        editor_user = await make_user(RoleEnum.FACULTY_EDITOR, faculty_id="ENG", realm=key)
+        faculty = await _ok(await admin.post(f"{API}/timetable/faculties", json={"id": "ENG", "name": "Engineering"}))
+        department = await _ok(await admin.post(f"{API}/timetable/departments", json={"name": "Civil", "faculty_id": faculty["id"]}))
+        room = await _ok(await admin.post(f"{API}/timetable/rooms", json={"name": "ENG 101", "faculty_id": faculty["id"]}))
+        editor_user = await make_user(RoleEnum.FACULTY_EDITOR, faculty_id=faculty["id"], realm=key)
         editor = make_client()
         await login(editor, editor_user["email"])
 
@@ -86,7 +84,8 @@ async def world(make_client, make_user, login, sent_emails) -> dict:
         }))
         realm = {
             "key": key, "admin": admin, "editor": editor, "editor_user": editor_user,
-            "department": department, "room": room, "session": session, "semester": semester, "course": course,
+            "faculty": faculty, "department": department, "room": room,
+            "session": session, "semester": semester, "course": course,
         }
         realm["item"] = await _ok(await admin.post(f"{API}/timetable/schedule-items", json=_lecture(realm)))
         realm["slot"] = await _ok(await admin.post(f"{API}/timetable/blocked-slots", json={
@@ -103,6 +102,9 @@ async def world(make_client, make_user, login, sent_emails) -> dict:
             realm, timetable_type="lecture", action="ADD", start_time="14:00:00", end_time="16:00:00", reason="extra class",
         )))
         realms[key] = realm
+    await _ok(await realms["UG"]["admin"].put(
+        f"{API}/timetable/rooms/{realms['UG']['room']['id']}/hall", json={"room_id": realms["ICE"]["room"]["id"]}
+    ))
     return realms
 
 
@@ -110,6 +112,12 @@ async def _snapshot(client, realm: dict, *, admin: bool) -> dict:
     """What a signed-in user can list. `realm` only supplies the ids to ask about."""
     semester_id = realm["semester"]["id"]
     seen = {
+        "faculties": await _ids(client, "/timetable/faculties", all="true"),
+        "departments": await _ids(client, "/timetable/departments", all="true"),
+        "rooms": await _ids(client, "/timetable/rooms", all="true"),
+        "own_faculties": await _ids(client, "/timetable/faculties"),
+        "own_departments": await _ids(client, "/timetable/departments"),
+        "own_rooms": await _ids(client, "/timetable/rooms"),
         "sessions": await _ids(client, "/calendar/sessions"),
         "semesters": await _ids(client, f"/calendar/sessions/{realm['session']['id']}/semesters"),
         "current": (await _ok(await client.get(f"{API}/calendar/semesters/current")) or {}).get("id"),
@@ -133,6 +141,12 @@ async def _snapshot(client, realm: dict, *, admin: bool) -> dict:
 def _own(realm: dict, *, admin: bool) -> dict:
     """The snapshot a user of `realm` should get when asking about their own realm's ids."""
     expected = {
+        "faculties": {realm["faculty"]["id"]},
+        "departments": {realm["department"]["id"]},
+        "rooms": {realm["room"]["id"]},
+        "own_faculties": {realm["faculty"]["id"]},
+        "own_departments": {realm["department"]["id"]},
+        "own_rooms": {realm["room"]["id"]},
         "sessions": {realm["session"]["id"]},
         "semesters": {realm["semester"]["id"]},
         "current": realm["semester"]["id"],
@@ -165,7 +179,7 @@ async def test_each_realm_lists_only_its_own_data(world):
             foreign = await _snapshot(client, theirs, admin=False)
             for name in ("semesters", "items_in_semester", "slots_in_semester", "course_enrollments", "requests_in_semester"):
                 assert foreign[name] == set(), f"{key} {role} {name}"
-            for name in ("sessions", "courses", "items", "slots", "enrollments", "dismissals", "requests"):
+            for name in ("faculties", "departments", "rooms", "sessions", "courses", "items", "slots", "enrollments", "dismissals", "requests"):
                 assert foreign[name] == _own(mine, admin=False)[name], f"{key} {role} {name}"
 
 
@@ -188,9 +202,16 @@ async def test_new_rows_are_stored_in_the_callers_realm(world):
 
     by_course = {log.entity_id: log.realm_key for log in logs if log.action == "course.create"}
     assert by_course == {str(world[key]["course"]["id"]): key for key in ("UG", "ICE")}
-    # Three super admins signed in to UG (one of them for setup) and one to ICE, plus an editor each.
+    # A super admin and an editor signed in to each realm.
     logins = sorted(log.realm_key for log in logs if log.action == "auth.login")
-    assert logins == ["ICE", "ICE", "UG", "UG", "UG"]
+    assert logins == ["ICE", "ICE", "UG", "UG"]
+
+    # Faculties and rooms carry their realm; UG keeps the id it sent, ICE's is prefixed with its key.
+    assert (world["UG"]["faculty"]["id"], world["ICE"]["faculty"]["id"]) == ("ENG", "ICE-ENG")
+    async with async_session_maker() as session:
+        for key in ("UG", "ICE"):
+            assert (await session.get(Faculty, world[key]["faculty"]["id"])).realm_key == key
+            assert (await session.get(Room, world[key]["room"]["id"])).realm_key == key
 
 
 # --- Another realm's ids are not found --------------------------------------
@@ -206,10 +227,47 @@ async def test_another_realms_id_behaves_exactly_like_a_missing_id(world):
         admin, editor = mine["admin"], mine["editor"]
         before = await _snapshot(theirs["admin"], theirs, admin=False)
 
-        def attempts(course_id, item_id, slot_id, semester_id, session_id, dismissal_id, request_id) -> dict:
+        def attempts(
+            course_id, item_id, slot_id, semester_id, session_id, dismissal_id, request_id,
+            faculty_id, department_id, room_id,
+        ) -> dict:
             semester = {"semester_id": semester_id}
             enrollment = {"course_id": course_id, "department_id": mine["department"]["id"], "level": 200}
+            rooms, departments, faculties = (f"{API}/timetable/{name}" for name in ("rooms", "departments", "faculties"))
             return {
+                "update faculty": (admin.put(f"{faculties}/{faculty_id}", json={"name": "Taken"}), 404),
+                "delete faculty": (admin.delete(f"{faculties}/{faculty_id}"), 200),
+                "department in faculty": (admin.post(departments, json={"name": "Mine now", "faculty_id": faculty_id}), 404),
+                "move department": (admin.put(f"{departments}/{mine['department']['id']}", json={"faculty_id": faculty_id}), 404),
+                "update department": (admin.put(f"{departments}/{department_id}", json={"name": "Taken"}), 404),
+                "delete department": (admin.delete(f"{departments}/{department_id}"), 200),
+                "course in department": (admin.post(f"{API}/timetable/courses", json={
+                    "code": "NEW101", "title": "New", "department_id": department_id, "level": 100,
+                }), 400),
+                "move course": (admin.put(f"{API}/timetable/courses/{mine['course']['id']}", json={"department_id": department_id}), 400),
+                "enroll department": (admin.post(f"{API}/timetable/enrollments", json={
+                    "course_id": mine["course"]["id"], "department_id": department_id, "level": 300,
+                }), 404),
+                "room in faculty": (admin.post(rooms, json={"name": "Mine now", "faculty_id": faculty_id}), 404),
+                "move room": (admin.put(f"{rooms}/{mine['room']['id']}", json={"faculty_id": faculty_id}), 404),
+                "update room": (admin.put(f"{rooms}/{room_id}", json={"name": "Taken", "is_active": False}), 404),
+                "delete room": (admin.delete(f"{rooms}/{room_id}"), 200),
+                "unlink room": (admin.delete(f"{rooms}/{room_id}/hall"), 404),
+                "link room": (admin.put(f"{rooms}/{room_id}/hall", json={"room_id": mine["room"]["id"]}), 404),
+                "schedule in room": (admin.post(f"{API}/timetable/schedule-items", json=_lecture(
+                    mine, room_ids=[room_id], start_time="16:00:00", end_time="17:00:00",
+                )), 400),
+                "move item to room": (admin.put(f"{API}/timetable/schedule-items/{mine['item']['id']}", json={"room_ids": [room_id]}), 400),
+                "schedule for faculty": (admin.post(f"{API}/timetable/schedule-items", json=_lecture(
+                    mine, faculty_id=faculty_id, start_time="16:00:00", end_time="17:00:00",
+                )), 404),
+                "request room": (editor.post(f"{API}/timetable/change-requests", json=_lecture(
+                    mine, timetable_type="lecture", action="ADD", room_ids=[room_id],
+                )), 400),
+                "invite to faculty": (admin.post(f"{API}/auth/invite", json={
+                    "email": "new-viewer@example.com", "target_role": "FACULTY_VIEWER", "faculty_id": faculty_id,
+                }), 404),
+                "act as faculty": (admin.post(f"{API}/auth/impersonate", json={"role": "FACULTY_EDITOR", "faculty_id": faculty_id}), 404),
                 "update course": (admin.put(f"{API}/timetable/courses/{course_id}", json={"title": "Taken"}), 404),
                 "delete course": (admin.delete(f"{API}/timetable/courses/{course_id}"), 200),
                 "update item": (admin.put(f"{API}/timetable/schedule-items/{item_id}", json={"start_time": "09:00:00"}), 404),
@@ -247,8 +305,9 @@ async def test_another_realms_id_behaves_exactly_like_a_missing_id(world):
         foreign = attempts(
             theirs["course"]["id"], theirs["item"]["id"], theirs["slot"]["id"], theirs["semester"]["id"],
             theirs["session"]["id"], theirs["dismissal"]["id"], theirs["request"]["id"],
+            theirs["faculty"]["id"], theirs["department"]["id"], theirs["room"]["id"],
         )
-        absent = attempts(*[missing] * 7)
+        absent = attempts(*[missing] * 7, "NOPE", missing, missing)
         for name, (attempt, status) in foreign.items():
             theirs_response, missing_response = await attempt, await absent[name][0]
             # One message echoes the id ("Schedule item 7 not found"), so compare with numbers masked.
@@ -429,7 +488,11 @@ REALM_SCOPED_READS = {
         "disable_current_sessions", "disable_current_semesters",
     ],
     TimetableRepository: [
-        "get_courses", "get_course", "is_course_referenced_by_schedule", "is_department_enrolled_outside_realm",
+        "get_faculties", "get_faculty", "get_departments", "get_department",
+        "get_rooms", "get_room", "get_rooms_by_ids", "is_room_referenced_by_schedule",
+        "get_linked_rooms", "get_other_realm_rooms", "get_room_outside_realm", "get_room_in_hall_group",
+        "get_other_realms_current_items",
+        "get_courses", "get_course", "is_course_referenced_by_schedule",
         "get_schedule_items", "get_schedule_item", "get_schedule_items_by_ids",
         "get_dismissals", "get_dismissal", "find_dismissal",
         "get_blocked_slots", "get_relevant_blocked_slots", "get_blocked_slot",
@@ -437,7 +500,7 @@ REALM_SCOPED_READS = {
         "list_enrollments", "get_enrollment",
         "get_change_request", "list_change_requests",
     ],
-    AuthRepository: ["get_users", "get_invitations", "get_faculty_editors_in_faculties"],
+    AuthRepository: ["get_users", "get_invitations", "get_faculty_editors_in_faculties", "faculty_exists"],
     AuditRepository: ["list"],
 }
 
@@ -454,22 +517,45 @@ def test_realm_scoped_repository_methods_require_the_realm():
 
 # --- Hardening (phase 7) ----------------------------------------------------
 
-async def test_a_shared_department_is_kept_while_another_realm_enrols_it(world):
+async def test_each_realm_names_its_own_faculties_departments_and_rooms(world):
     ug, ice = world["UG"], world["ICE"]
-    department = await _ok(await ug["admin"].post(f"{API}/timetable/departments", json={"name": "Mining", "faculty_id": "ENG"}))
+    # The same names exist in both realms already (the fixture made them). Inside a realm they still collide.
+    for realm in (ug, ice):
+        again = await realm["admin"].post(f"{API}/timetable/faculties", json={"id": "ENG2", "name": "Engineering"})
+        assert again.status_code == 400, again.text
+        taken = await realm["admin"].post(f"{API}/timetable/faculties", json={"id": "ENG", "name": "Another"})
+        assert taken.status_code == 400, taken.text
+
+    # Deleting a department takes only its own realm's enrollments with it, as it did before realms.
+    mining = await _ok(await ice["admin"].post(
+        f"{API}/timetable/departments", json={"name": "Mining", "faculty_id": ice["faculty"]["id"]}
+    ))
     await _ok(await ice["admin"].post(f"{API}/timetable/enrollments", json={
-        "course_id": ice["course"]["id"], "department_id": department["id"], "level": 300,
+        "course_id": ice["course"]["id"], "department_id": mining["id"], "level": 300,
     }), 201)
-    before = await _ids(ice["admin"], "/timetable/enrollments")
-
-    response = await ug["admin"].delete(f"{API}/timetable/departments/{department['id']}")
-    assert response.status_code == 400, response.text
-    assert "another programme" in response.json()["detail"]
-    assert await _ids(ice["admin"], "/timetable/enrollments") == before
-
-    # Within the realm that enrolled it, the delete still takes the enrollments with it, as before realms.
-    await _ok(await ice["admin"].delete(f"{API}/timetable/departments/{department['id']}"))
+    before = await _snapshot(ug["admin"], ug, admin=False)
+    await _ok(await ice["admin"].delete(f"{API}/timetable/departments/{mining['id']}"))
     assert await _ids(ice["admin"], "/timetable/enrollments") == {ice["enrollment"]["id"]}
+    assert await _snapshot(ug["admin"], ug, admin=False) == before
+
+    # Renaming in one realm leaves the other realm's rows as they were.
+    await _ok(await ice["admin"].put(f"{API}/timetable/faculties/{ice['faculty']['id']}", json={"name": "ICE Engineering", "is_special": True}))
+    await _ok(await ice["admin"].put(f"{API}/timetable/departments/{ice['department']['id']}", json={"name": "ICE Civil"}))
+    [ug_faculty] = await _ok(await ug["admin"].get(f"{API}/timetable/faculties"))
+    [ug_department] = await _ok(await ug["admin"].get(f"{API}/timetable/departments"))
+    assert (ug_faculty, ug_department) == (ug["faculty"], ug["department"])
+
+
+async def test_a_faculty_in_use_is_kept_and_an_unused_one_goes(world):
+    ug, ice = world["UG"], world["ICE"]
+    # ICE's faculty has a department, a room and a session: the delete is refused and nothing changes.
+    response = await ice["admin"].delete(f"{API}/timetable/faculties/{ice['faculty']['id']}")
+    assert response.status_code == 400, response.text
+    spare = await _ok(await ice["admin"].post(f"{API}/timetable/faculties", json={"id": "LAW", "name": "Law"}))
+    assert spare["id"] == "ICE-LAW"
+    await _ok(await ice["admin"].delete(f"{API}/timetable/faculties/{spare['id']}"))
+    assert await _ids(ice["admin"], "/timetable/faculties") == {ice["faculty"]["id"]}
+    assert await _ids(ug["admin"], "/timetable/faculties") == {"ENG"}
 
 
 async def test_an_add_request_stores_no_target_item(world):
@@ -510,10 +596,10 @@ async def test_a_faculty_editor_manages_deos_in_their_own_realm_only(world, make
         return None
     monkeypatch.setattr(mail.EmailService, "send_invitation_email", no_email)
     ug, ice = world["UG"], world["ICE"]
-    ug_deo = await make_user(RoleEnum.DEO, faculty_id="ENG", realm="UG")
-    ice_deo = await make_user(RoleEnum.DEO, faculty_id="ENG", realm="ICE")
+    ug_deo = await make_user(RoleEnum.DEO, faculty_id=ug["faculty"]["id"], realm="UG")
+    ice_deo = await make_user(RoleEnum.DEO, faculty_id=ice["faculty"]["id"], realm="ICE")
 
-    # Same faculty in both realms, but each editor lists only their own realm's staff.
+    # Each editor lists only their own realm's and faculty's staff.
     for realm, own, other in ((ug, ug_deo, ice_deo), (ice, ice_deo, ug_deo)):
         emails = {row["email"] for row in await _ok(await realm["editor"].get(f"{API}/auth/users"))}
         assert own["email"] in emails and realm["editor_user"]["email"] in emails
@@ -524,7 +610,7 @@ async def test_a_faculty_editor_manages_deos_in_their_own_realm_only(world, make
     async with async_session_maker() as session:
         from modules.auth.models import Invitation
         invite = (await session.execute(select(Invitation).where(Invitation.email == "new-deo@example.com"))).scalar_one()
-    assert (invite.realm_key, invite.faculty_id) == ("ICE", "ENG")
+    assert (invite.realm_key, invite.faculty_id) == ("ICE", ice["faculty"]["id"])
     listed = await _ok(await ice["editor"].get(f"{API}/auth/invitations"))
     assert [(row["email"], row["token"]) for row in listed] == [("new-deo@example.com", None)]
     assert await _ok(await ug["editor"].get(f"{API}/auth/invitations")) == []
@@ -532,8 +618,7 @@ async def test_a_faculty_editor_manages_deos_in_their_own_realm_only(world, make
 
 async def test_an_online_session_holds_no_room_across_realms(world):
     ug, ice = world["UG"], world["ICE"]
-    # UG holds the shared room on Monday 10:00-12:00 (the fixture's lecture). Monday isn't an ICE day,
-    # so the clash is set up the other way round: ICE holds Friday 10:00-12:00.
+    # The two realms' rooms are one hall. ICE holds it on Friday 10:00-12:00 (the fixture's lecture).
     clash = _lecture(ug, day_of_week="Friday", start_time="11:00:00", end_time="13:00:00")
     assert (await ug["admin"].post(f"{API}/timetable/schedule-items", json=clash)).status_code == 409
 

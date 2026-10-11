@@ -12,22 +12,41 @@ class CourseScope(str, enum.Enum):
 
 class Faculty(Base):
     __tablename__ = "faculties"
+    __table_args__ = (UniqueConstraint("realm_key", "name", name="uq_faculties_realm_name"),)
+    # Unique across realms: another realm's faculty gets its own id, never a UG id.
     id: Mapped[str] = mapped_column(String, primary_key=True) # e.g. "ENG"
-    name: Mapped[str] = mapped_column(String, unique=True)
+    # Unique per realm: UG and ICE can each have a "Faculty of Engineering".
+    name: Mapped[str] = mapped_column(String)
+    realm_key: Mapped[str] = mapped_column(ForeignKey("realms.key"), server_default="UG", index=True)
     # Special faculties are exempt from timetable conflict detection.
     is_special: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
 
 class Department(Base):
+    # A department belongs to its faculty's realm.
     __tablename__ = "departments"
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String)
     faculty_id: Mapped[str] = mapped_column(ForeignKey("faculties.id"))
 
+class HallGroup(Base):
+    """Rooms in one group are the same physical hall, one room per realm."""
+    __tablename__ = "hall_groups"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
 class Room(Base):
     __tablename__ = "rooms"
-    __table_args__ = (UniqueConstraint("name", "faculty_id", name="uq_room_name_faculty"),)
+    __table_args__ = (
+        UniqueConstraint("realm_key", "name", "faculty_id", name="uq_room_realm_name_faculty"),
+        UniqueConstraint("hall_group_id", "realm_key", name="uq_room_hall_group_realm"),
+    )
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String, index=True)
+    realm_key: Mapped[str] = mapped_column(ForeignKey("realms.key"), server_default="UG", index=True)
+    # Set when this room is the same physical hall as a room in another realm.
+    hall_group_id: Mapped[int | None] = mapped_column(ForeignKey("hall_groups.id", ondelete="SET NULL"), nullable=True, index=True)
+    # The other realms' rooms in this room's hall group; filled in by the service for responses.
+    linked_rooms = ()
     capacity: Mapped[int] = mapped_column(Integer)
     faculty_id: Mapped[str | None] = mapped_column(ForeignKey("faculties.id"), nullable=True)
     display_order: Mapped[int] = mapped_column(Integer, default=0, server_default="0")

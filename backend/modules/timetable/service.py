@@ -6,14 +6,19 @@ from modules.timetable.models import Faculty, Room, Course, ScheduleItem, Depart
 from modules.timetable.schemas import (
     FacultyCreate, RoomCreate, CourseCreate, ScheduleItemCreate, DepartmentCreate, ScheduleItemUpdate,
     FacultyUpdate, DepartmentUpdate, RoomUpdate, CourseUpdate, BlockedSlotCreate, RoomReorderRequest,
-    ChangeRequestCreate, ConflictDismissalCreate, ConflictDismissalBulkCreate
+    ChangeRequestCreate, ConflictDismissalCreate, ConflictDismissalBulkCreate, RoomCatalogueAddRequest,
 )
 from modules.auth.models import RoleEnum, CROSS_REALM_ROLES
 from modules.auth.repository import AuthRepository
+from modules.realms.defaults import DEFAULT_REALM_KEY
 from modules.realms.schemas import WEEKDAYS
 from modules.notifications.service import NotificationService
 from modules.audit.service import AuditService
 from sqlalchemy.exc import IntegrityError
+
+
+# The realm whose rooms the other realms pick their halls from ("Add from Undergraduate").
+ROOM_CATALOGUE_REALM = DEFAULT_REALM_KEY
 
 
 def _has_global_scope(user: dict) -> bool:
@@ -152,9 +157,25 @@ class TimetableService:
             raise HTTPException(status_code=404, detail="Semester not found")
         return semester
 
-    async def create_faculty(self, data: FacultyCreate, current_user: dict | None = None) -> Faculty:
-        faculty = Faculty(id=data.id, name=data.name, is_special=data.is_special)
-        created = await self.repo.create_faculty(faculty)
+    async def _faculty_in_realm(self, faculty_id: str, current_user: dict) -> Faculty:
+        """The faculty, or 404 when it isn't one of the active realm's."""
+        faculty = await self.repo.get_faculty(faculty_id, realm_key=current_user["realm"])
+        if not faculty:
+            raise HTTPException(status_code=404, detail="Faculty not found")
+        return faculty
+
+    async def create_faculty(self, data: FacultyCreate, current_user: dict) -> Faculty:
+        realm_key = current_user["realm"]
+        # Faculty ids are unique across realms. UG keeps the id it sends, as it
+        # always has; another realm's ids carry its key, so they never take a UG id.
+        faculty_id = data.id if realm_key == DEFAULT_REALM_KEY else f"{realm_key}-{data.id}"
+        if await self.repo.faculty_id_exists(faculty_id):
+            raise HTTPException(status_code=400, detail="A faculty with this id already exists. Please try again.")
+        faculty = Faculty(id=faculty_id, name=data.name, is_special=data.is_special, realm_key=realm_key)
+        try:
+            created = await self.repo.create_faculty(faculty)
+        except IntegrityError:
+            raise HTTPException(status_code=400, detail=f"Faculty '{data.name}' already exists.")
         await self.audit_service.log(
             current_user=current_user,
             action="faculty.create",
@@ -167,18 +188,20 @@ class TimetableService:
 
     async def get_faculties(self, current_user: dict, all: bool = False) -> list[Faculty]:
         if all:
-            return await self.repo.get_faculties(faculty_id=None)
+            return await self.repo.get_faculties(realm_key=current_user["realm"])
         faculty_id = None if _has_global_scope(current_user) else current_user.get('faculty_id')
-        return await self.repo.get_faculties(faculty_id=faculty_id)
+        return await self.repo.get_faculties(realm_key=current_user["realm"], faculty_id=faculty_id)
 
     async def update_faculty(self, id: str, data: FacultyUpdate, current_user: dict) -> Faculty:
         if current_user.get("role") != RoleEnum.SUPER_ADMIN.value:
             raise HTTPException(status_code=403, detail="Not authorized")
-        faculty = await self.repo.get_faculty(id)
-        if not faculty: raise HTTPException(status_code=404, detail="Faculty not found")
+        faculty = await self._faculty_in_realm(id, current_user)
         if data.name is not None: faculty.name = data.name
         if data.is_special is not None: faculty.is_special = data.is_special
-        updated = await self.repo.update_faculty(faculty)
+        try:
+            updated = await self.repo.update_faculty(faculty)
+        except IntegrityError:
+            raise HTTPException(status_code=400, detail=f"Faculty '{data.name}' already exists.")
         await self.audit_service.log(
             current_user=current_user,
             action="faculty.update",
@@ -192,7 +215,7 @@ class TimetableService:
     async def delete_faculty(self, id: str, current_user: dict) -> None:
         if current_user.get("role") != RoleEnum.SUPER_ADMIN.value:
             raise HTTPException(status_code=403, detail="Not authorized")
-        faculty = await self.repo.get_faculty(id)
+        faculty = await self.repo.get_faculty(id, realm_key=current_user["realm"])
         if faculty:
             try:
                 await self.repo.delete_faculty(faculty)
@@ -210,6 +233,7 @@ class TimetableService:
         if current_user.get("role") == RoleEnum.FACULTY_EDITOR.value:
             if current_user.get("faculty_id") != data.faculty_id:
                 raise HTTPException(status_code=403, detail="Not authorized")
+        await self._faculty_in_realm(data.faculty_id, current_user)
         dept = Department(name=data.name, faculty_id=data.faculty_id)
         created = await self.repo.create_department(dept)
         await self.audit_service.log(
@@ -224,12 +248,12 @@ class TimetableService:
 
     async def get_departments(self, current_user: dict, all: bool = False) -> list[Department]:
         if all:
-            return await self.repo.get_departments(faculty_id=None)
+            return await self.repo.get_departments(realm_key=current_user["realm"])
         faculty_id = None if _has_global_scope(current_user) else current_user.get('faculty_id')
-        return await self.repo.get_departments(faculty_id=faculty_id)
+        return await self.repo.get_departments(realm_key=current_user["realm"], faculty_id=faculty_id)
 
     async def update_department(self, id: int, data: DepartmentUpdate, current_user: dict) -> Department:
-        dept = await self.repo.get_department(id)
+        dept = await self.repo.get_department(id, realm_key=current_user["realm"])
         if not dept: raise HTTPException(status_code=404, detail="Not found")
         if current_user.get("role") == RoleEnum.FACULTY_EDITOR.value:
             if current_user.get("faculty_id") != dept.faculty_id:
@@ -238,6 +262,7 @@ class TimetableService:
         if data.faculty_id is not None:
             if current_user.get("role") == RoleEnum.FACULTY_EDITOR.value and current_user.get("faculty_id") != data.faculty_id:
                 raise HTTPException(status_code=403, detail="Not authorized")
+            await self._faculty_in_realm(data.faculty_id, current_user)
             dept.faculty_id = data.faculty_id
         updated = await self.repo.update_department(dept)
         await self.audit_service.log(
@@ -251,13 +276,11 @@ class TimetableService:
         return updated
 
     async def delete_department(self, id: int, current_user: dict) -> None:
-        dept = await self.repo.get_department(id)
+        dept = await self.repo.get_department(id, realm_key=current_user["realm"])
         if not dept: return
         if current_user.get("role") == RoleEnum.FACULTY_EDITOR.value:
             if current_user.get("faculty_id") != dept.faculty_id:
                 raise HTTPException(status_code=403, detail="Not authorized")
-        if await self.repo.is_department_enrolled_outside_realm(dept.id, realm_key=current_user["realm"]):
-            raise HTTPException(status_code=400, detail="Cannot delete department because another programme has courses enrolled for it.")
         try:
             await self.repo.delete_department(dept)
         except IntegrityError:
@@ -277,10 +300,14 @@ class TimetableService:
         if _is_gs_admin(current_user):
             if data.faculty_id is not None:
                 raise HTTPException(status_code=403, detail="General Studies admins can only create rooms not bound to a faculty")
+        # A faculty room is bound to a faculty of its own realm.
+        if data.faculty_id is not None:
+            await self._faculty_in_realm(data.faculty_id, current_user)
         active_seats = max(0, data.active_seats or 0)
         inactive_seats = max(0, data.inactive_seats or 0)
         room = Room(
             name=data.name,
+            realm_key=current_user["realm"],
             capacity=active_seats + inactive_seats,
             active_seats=active_seats,
             inactive_seats=inactive_seats,
@@ -304,12 +331,29 @@ class TimetableService:
 
     async def get_rooms(self, current_user: dict, all: bool = False) -> list[Room]:
         if all:
-            return await self.repo.get_rooms(faculty_id=None)
-        faculty_id = None if _has_global_scope(current_user) else current_user.get('faculty_id')
-        return await self.repo.get_rooms(faculty_id=faculty_id)
+            rooms = await self.repo.get_rooms(realm_key=current_user["realm"])
+        else:
+            faculty_id = None if _has_global_scope(current_user) else current_user.get('faculty_id')
+            rooms = await self.repo.get_rooms(realm_key=current_user["realm"], faculty_id=faculty_id)
+        return await self._with_linked_rooms(rooms, current_user)
+
+    async def _with_linked_rooms(self, rooms: list[Room], current_user: dict) -> list[Room]:
+        """Attach, for each room in a hall group, the other realms' rooms that are the same hall."""
+        grouped = [room.id for room in rooms if room.hall_group_id is not None]
+        if not grouped:
+            return rooms
+        by_room: dict[int, list[dict]] = {}
+        for link in await self.repo.get_linked_rooms(realm_key=current_user["realm"], room_ids=grouped):
+            by_room.setdefault(link["room_id"], []).append({
+                "room_id": link["linked_room_id"], "name": link["name"],
+                "realm_key": link["realm_key"], "realm_name": link["realm_name"],
+            })
+        for room in rooms:
+            room.linked_rooms = by_room.get(room.id, [])
+        return rooms
 
     async def update_room(self, id: int, data: RoomUpdate, current_user: dict) -> Room:
-        room = await self.repo.get_room(id)
+        room = await self.repo.get_room(id, realm_key=current_user["realm"])
         if not room: raise HTTPException(status_code=404, detail="Not found")
         if current_user.get("role") == RoleEnum.FACULTY_EDITOR.value:
             if current_user.get("faculty_id") != room.faculty_id:
@@ -331,6 +375,7 @@ class TimetableService:
         if data.faculty_id is not None:
             if current_user.get("role") == RoleEnum.FACULTY_EDITOR.value and current_user.get("faculty_id") != data.faculty_id:
                 raise HTTPException(status_code=403, detail="Not authorized")
+            await self._faculty_in_realm(data.faculty_id, current_user)
             room.faculty_id = data.faculty_id
         if data.is_active is not None:
             if current_user.get("role") != RoleEnum.SUPER_ADMIN.value:
@@ -348,10 +393,10 @@ class TimetableService:
             description=f"Updated room {updated.id} ({updated.name})",
             extra=data.model_dump(exclude_unset=True),
         )
-        return updated
+        return (await self._with_linked_rooms([updated], current_user))[0]
 
     async def delete_room(self, id: int, current_user: dict) -> None:
-        room = await self.repo.get_room(id)
+        room = await self.repo.get_room(id, realm_key=current_user["realm"])
         if not room: return
         if current_user.get("role") == RoleEnum.FACULTY_EDITOR.value:
             if current_user.get("faculty_id") != room.faculty_id:
@@ -359,7 +404,9 @@ class TimetableService:
         if _is_gs_admin(current_user) and room.faculty_id is not None:
             raise HTTPException(status_code=403, detail="General Studies admins cannot delete rooms bound to a faculty")
 
-        is_referenced = await self.repo.is_room_referenced_by_schedule(id)
+        # Only this realm's sessions use the room. A room in the same hall group
+        # in another realm is a separate room and is left as it is.
+        is_referenced = await self.repo.is_room_referenced_by_schedule(id, realm_key=current_user["realm"])
         if is_referenced:
             raise HTTPException(status_code=400, detail="Cannot delete room because it is currently assigned to scheduled items. Please remove it from all timetables first.")
 
@@ -384,7 +431,7 @@ class TimetableService:
         updated_rooms = []
         
         for room_id, new_order in order_map.items():
-            room = await self.repo.get_room(room_id)
+            room = await self.repo.get_room(room_id, realm_key=current_user["realm"])
             if room:
                 if current_user.get("role") == RoleEnum.FACULTY_EDITOR.value and current_user.get("faculty_id") != room.faculty_id:
                     continue # Skip rooms outside their faculty natively
@@ -396,6 +443,166 @@ class TimetableService:
         await self.repo.db.flush()
         return updated_rooms
 
+    # ---------- Hall groups: the same physical hall in more than one realm ----------
+
+    async def get_other_realm_rooms(self, source_realm_key: str, current_user: dict) -> list[dict]:
+        """Another realm's rooms, each with this realm's room for the same hall, if any."""
+        realm_key = current_user["realm"]
+        rooms = await self.repo.get_other_realm_rooms(realm_key=realm_key, source_realm_key=source_realm_key)
+        own_room_of = {
+            link["linked_room_id"]: link["room_id"] for link in await self.repo.get_linked_rooms(realm_key=realm_key)
+        }
+        return [
+            {
+                "id": room.id, "name": room.name, "realm_key": room.realm_key,
+                "capacity": room.capacity, "active_seats": room.active_seats, "inactive_seats": room.inactive_seats,
+                "is_lab": room.is_lab, "is_active": room.is_active,
+                "linked_room_id": own_room_of.get(room.id),
+            }
+            for room in rooms
+        ]
+
+    async def get_room_catalogue(self, current_user: dict) -> dict:
+        """The catalogue realm's rooms, read-only, for a realm choosing which of
+        those halls it also uses. Each says whether this realm already added it.
+        The catalogue realm itself has nothing to pick from."""
+        realm_key = current_user["realm"]
+        catalogue = {
+            "realm_key": ROOM_CATALOGUE_REALM,
+            "realm_name": await self.repo.get_realm_name(ROOM_CATALOGUE_REALM) or ROOM_CATALOGUE_REALM,
+            "rooms": [],
+        }
+        if realm_key == ROOM_CATALOGUE_REALM:
+            return catalogue
+        faculty_names = {f.id: f.name for f in await self.repo.get_faculties(realm_key=ROOM_CATALOGUE_REALM)}
+        added = {
+            link["linked_room_id"]: link for link in await self.repo.get_linked_rooms(realm_key=realm_key)
+            if link["realm_key"] == ROOM_CATALOGUE_REALM
+        }
+        own_names = {room.id: room.name for room in await self.repo.get_rooms(realm_key=realm_key)}
+        for room in await self.repo.get_other_realm_rooms(realm_key=realm_key, source_realm_key=ROOM_CATALOGUE_REALM):
+            link = added.get(room.id)
+            catalogue["rooms"].append({
+                "id": room.id, "name": room.name, "faculty_name": faculty_names.get(room.faculty_id),
+                "capacity": room.capacity, "active_seats": room.active_seats, "inactive_seats": room.inactive_seats,
+                "is_lab": room.is_lab, "is_active": room.is_active,
+                "added_room_id": link["room_id"] if link else None,
+                "added_room_name": own_names.get(link["room_id"]) if link else None,
+            })
+        return catalogue
+
+    async def add_rooms_from_catalogue(self, data: RoomCatalogueAddRequest, current_user: dict) -> dict:
+        """Add catalogue rooms to this realm as rooms of its own. Each new room
+        keeps the name, seats and lab flag, takes the faculty chosen for it
+        (one of this realm's, or none) and joins its original's hall group, so
+        the two realms' bookings of that hall are checked against each other.
+        A hall this realm already has a room for is skipped: it is added once."""
+        realm_key = current_user["realm"]
+        if realm_key == ROOM_CATALOGUE_REALM:
+            raise HTTPException(status_code=400, detail="This programme's rooms are the catalogue; there is nothing to add from.")
+        role = current_user.get("role")
+        for item in data.rooms:
+            # The same rules as creating a room by hand.
+            if role == RoleEnum.FACULTY_EDITOR.value and current_user.get("faculty_id") != item.faculty_id:
+                raise HTTPException(status_code=403, detail="Not authorized to bind this resource off-scope")
+            if _is_gs_admin(current_user) and item.faculty_id is not None:
+                raise HTTPException(status_code=403, detail="General Studies admins can only create rooms not bound to a faculty")
+            if item.faculty_id is not None:
+                await self._faculty_in_realm(item.faculty_id, current_user)
+
+        sources = {
+            room.id: room
+            for room in await self.repo.get_other_realm_rooms(realm_key=realm_key, source_realm_key=ROOM_CATALOGUE_REALM)
+        }
+        added, skipped = [], []
+        for item in {item.room_id: item for item in data.rooms}.values():
+            source = sources.get(item.room_id)
+            if source is None:
+                skipped.append({"room_id": item.room_id, "name": None, "reason": "Room not found"})
+                continue
+            if source.hall_group_id is not None:
+                existing = await self.repo.get_room_in_hall_group(source.hall_group_id, realm_key=realm_key)
+                if existing:
+                    skipped.append({"room_id": source.id, "name": source.name, "reason": f"Already added as '{existing.name}'"})
+                    continue
+            if item.faculty_id is not None and await self.repo.is_room_name_taken(source.name, item.faculty_id, realm_key=realm_key):
+                skipped.append({"room_id": source.id, "name": source.name, "reason": "A room with this name already exists in that faculty"})
+                continue
+            if source.hall_group_id is None:
+                # Joining a hall group is the one thing this does to the original room.
+                source.hall_group_id = (await self.repo.create_hall_group()).id
+            added.append(await self.repo.create_room(Room(
+                name=source.name,
+                realm_key=realm_key,
+                faculty_id=item.faculty_id,
+                hall_group_id=source.hall_group_id,
+                capacity=source.capacity,
+                active_seats=source.active_seats,
+                inactive_seats=source.inactive_seats,
+                is_lab=source.is_lab,
+                display_order=source.display_order,
+                is_active=True,
+            )))
+        if added:
+            await self.audit_service.log(
+                current_user=current_user,
+                action="room.add_from_catalogue",
+                entity_type="room",
+                description=f"Added {len(added)} room(s) from {ROOM_CATALOGUE_REALM}: {', '.join(room.name for room in added)}",
+                extra={"source_realm": ROOM_CATALOGUE_REALM, "room_ids": [room.id for room in added]},
+            )
+        return {"added": await self._with_linked_rooms(added, current_user), "skipped": skipped}
+
+    async def set_room_hall(self, id: int, other_room_id: int, current_user: dict) -> Room:
+        """Mark this realm's room as the same physical hall as another realm's room."""
+        realm_key = current_user["realm"]
+        room = await self.repo.get_room(id, realm_key=realm_key)
+        if not room: raise HTTPException(status_code=404, detail="Not found")
+        other = await self.repo.get_room_outside_realm(other_room_id, realm_key=realm_key)
+        if not other: raise HTTPException(status_code=404, detail="Room not found")
+
+        if other.hall_group_id is None:
+            # A group holds one room per realm: if this room's group already has
+            # one of that realm's, this room leaves it for a new group of two.
+            if room.hall_group_id is None or await self.repo.get_room_in_hall_group(room.hall_group_id, realm_key=other.realm_key):
+                room.hall_group_id = (await self.repo.create_hall_group()).id
+            other.hall_group_id = room.hall_group_id
+        else:
+            occupant = await self.repo.get_room_in_hall_group(other.hall_group_id, realm_key=realm_key)
+            if occupant and occupant.id != room.id:
+                raise HTTPException(status_code=409, detail=f"'{other.name}' is already linked to '{occupant.name}'. Unlink that room first.")
+            # Leaving its previous group, if it had one, changes nothing for the rooms that stay.
+            room.hall_group_id = other.hall_group_id
+        await self.repo.db.flush()
+        await self.audit_service.log(
+            current_user=current_user,
+            action="room.hall.link",
+            entity_type="room",
+            entity_id=room.id,
+            description=f"Linked room {room.id} ({room.name}) to {other.realm_key} room {other.id} ({other.name}) as one hall",
+            extra={"other_room_id": other.id, "other_realm": other.realm_key, "hall_group_id": room.hall_group_id},
+        )
+        return (await self._with_linked_rooms([room], current_user))[0]
+
+    async def clear_room_hall(self, id: int, current_user: dict) -> Room:
+        """Take this realm's room out of its hall group. The other rooms stay in it."""
+        room = await self.repo.get_room(id, realm_key=current_user["realm"])
+        if not room: raise HTTPException(status_code=404, detail="Not found")
+        if room.hall_group_id is not None:
+            hall_group_id = room.hall_group_id
+            room.hall_group_id = None
+            room.linked_rooms = []
+            await self.repo.db.flush()
+            await self.audit_service.log(
+                current_user=current_user,
+                action="room.hall.unlink",
+                entity_type="room",
+                entity_id=room.id,
+                description=f"Unlinked room {room.id} ({room.name}) from its hall",
+                extra={"hall_group_id": hall_group_id},
+            )
+        return room
+
     async def create_course(self, data: CourseCreate, current_user: dict) -> Course:
         # GS admins can ONLY create university-wide courses
         if _is_gs_admin(current_user) and data.scope != CourseScope.UNIVERSITY_WIDE.value:
@@ -405,11 +612,11 @@ class TimetableService:
             if current_user.get("role") not in (RoleEnum.SUPER_ADMIN.value, RoleEnum.GS_ADMIN.value):
                 raise HTTPException(status_code=403, detail="Only Super Admins or General Studies admins can create university-wide courses")
         # Faculty editors may only add courses to departments within their own faculty
-        if current_user.get("role") == RoleEnum.FACULTY_EDITOR.value and data.department_id is not None:
-            dept = await self.repo.get_department(data.department_id)
+        if data.department_id is not None:
+            dept = await self.repo.get_department(data.department_id, realm_key=current_user["realm"])
             if not dept:
                 raise HTTPException(status_code=400, detail="Department not found")
-            if dept.faculty_id != current_user.get("faculty_id"):
+            if current_user.get("role") == RoleEnum.FACULTY_EDITOR.value and dept.faculty_id != current_user.get("faculty_id"):
                 raise HTTPException(status_code=403, detail="Faculty editors can only add courses to departments in their own faculty")
         _assert_course_fits_realm(current_user, data.level, data.semester)
         course = Course(
@@ -476,15 +683,15 @@ class TimetableService:
         # Faculty editors may only edit courses in their own faculty, and cannot move them out.
         if current_user.get("role") == RoleEnum.FACULTY_EDITOR.value:
             user_faculty = current_user.get("faculty_id")
-            current_dept = await self.repo.get_department(course.department_id) if course.department_id else None
+            current_dept = await self.repo.get_department(course.department_id, realm_key=current_user["realm"]) if course.department_id else None
             if current_dept and current_dept.faculty_id != user_faculty:
                 raise HTTPException(status_code=403, detail="Faculty editors can only edit courses in their own faculty")
-            if data.department_id is not None:
-                target_dept = await self.repo.get_department(data.department_id)
-                if not target_dept:
-                    raise HTTPException(status_code=400, detail="Department not found")
-                if target_dept.faculty_id != user_faculty:
-                    raise HTTPException(status_code=403, detail="Faculty editors can only assign courses to departments in their own faculty")
+        if data.department_id is not None:
+            target_dept = await self.repo.get_department(data.department_id, realm_key=current_user["realm"])
+            if not target_dept:
+                raise HTTPException(status_code=400, detail="Department not found")
+            if current_user.get("role") == RoleEnum.FACULTY_EDITOR.value and target_dept.faculty_id != current_user.get("faculty_id"):
+                raise HTTPException(status_code=403, detail="Faculty editors can only assign courses to departments in their own faculty")
         _assert_course_fits_realm(current_user, data.level, data.semester)
         if data.code is not None: course.code = data.code
         if data.title is not None: course.title = data.title
@@ -652,7 +859,7 @@ class TimetableService:
             if s.faculty_id:
                 faculty_ids.add(s.faculty_id)
             elif c.department_id:
-                dept = await self.repo.get_department(c.department_id)
+                dept = await self.repo.get_department(c.department_id, realm_key=realm_key)
                 if dept and dept.faculty_id:
                     faculty_ids.add(dept.faculty_id)
 
@@ -690,12 +897,16 @@ class TimetableService:
         if lock and lock.is_locked:
             raise HTTPException(status_code=423, detail=f"This {item_type} timetable is locked.")
 
-    async def _assert_rooms_active(self, room_ids: list[int] | None, already_assigned_ids: list[int] | None = None) -> None:
+    async def _assert_rooms_active(self, room_ids: list[int] | None, realm_key: str, already_assigned_ids: list[int] | None = None) -> None:
+        """Newly assigned rooms must be active rooms of the realm."""
         already_assigned_ids = already_assigned_ids or []
         new_ids = [rid for rid in (room_ids or []) if rid not in already_assigned_ids]
         if not new_ids:
             return
-        rooms = await self.repo.get_rooms_by_ids(new_ids)
+        rooms = await self.repo.get_rooms_by_ids(new_ids, realm_key=realm_key)
+        # Another realm's room is not a room here, even when it is the same hall.
+        if len(rooms) < len(set(new_ids)):
+            raise HTTPException(status_code=400, detail="Room not found")
         inactive = [r.name for r in rooms if r.is_active is False]
         if inactive:
             raise HTTPException(status_code=400, detail=f"Cannot schedule into inactive room(s): {', '.join(inactive)}")
@@ -713,9 +924,10 @@ class TimetableService:
         room_ids: list[int] | None,
         faculty_id: str | None,
     ) -> None:
-        """Rooms are shared: 409 when another realm already holds one of these
-        rooms for a same-type session at an overlapping time. It can't be
-        dismissed - one of the two sessions has to move."""
+        """409 when another realm already holds the same physical hall (a room
+        in the same hall group as one of these) for a same-type session at an
+        overlapping time. It can't be dismissed - one of the two sessions has
+        to move. Rooms that are in no hall group never clash across realms."""
         slot = exam_date if item_type == "exam" else day_of_week
         if not room_ids or slot is None:
             return
@@ -725,12 +937,12 @@ class TimetableService:
             return
         # Special faculties are exempt, as they are within a realm.
         if faculty_id:
-            faculty = await self.repo.get_faculty(faculty_id)
+            faculty = await self.repo.get_faculty(faculty_id, realm_key=realm_key)
             if faculty and faculty.is_special:
                 return
 
         others = await self.repo.get_other_realms_current_items(
-            exclude_realm_key=realm_key,
+            realm_key=realm_key,
             item_type=item_type,
             day_of_week=day_of_week if item_type != "exam" else None,
             exam_date=exam_date if item_type == "exam" else None,
@@ -741,7 +953,7 @@ class TimetableService:
             shared = sorted(set(room_ids) & set(other["room_ids"]))
             if not shared or not _times_overlap(start_time, end_time, other["start_time"], other["end_time"]):
                 continue
-            rooms = await self.repo.get_rooms_by_ids(shared)
+            rooms = await self.repo.get_rooms_by_ids(shared, realm_key=realm_key)
             room_names = ", ".join(r.name for r in rooms) or f"#{shared[0]}"
             when = other["exam_date"].strftime("%d %b %Y") if item_type == "exam" else other["day_of_week"]
             raise HTTPException(
@@ -754,7 +966,7 @@ class TimetableService:
             )
 
     async def get_external_bookings(self, current_user: dict) -> list[dict]:
-        return await self.repo.get_other_realms_current_items(exclude_realm_key=current_user["realm"])
+        return await self.repo.get_other_realms_current_items(realm_key=current_user["realm"])
 
     async def create_schedule_item(self, data: ScheduleItemCreate, current_user: dict) -> ScheduleItem:
         if current_user.get("role") == RoleEnum.FACULTY_EDITOR.value:
@@ -780,7 +992,9 @@ class TimetableService:
         exam_date_val = getattr(data, 'exam_date', None)
         _assert_fits_window(current_user, data.type, data.day_of_week, exam_date_val, data.start_time, data.end_time)
         await self._check_blocked_slots(data.type, data.day_of_week, exam_date_val, data.start_time, data.end_time, sem_id, current_user["realm"])
-        await self._assert_rooms_active(data.room_ids)
+        if data.faculty_id is not None:
+            await self._faculty_in_realm(data.faculty_id, current_user)
+        await self._assert_rooms_active(data.room_ids, current_user["realm"])
         await self._assert_no_cross_realm_clash(
             realm_key=current_user["realm"], semester_id=sem_id, item_type=data.type,
             day_of_week=data.day_of_week, exam_date=exam_date_val,
@@ -859,7 +1073,7 @@ class TimetableService:
             faculty_id=item.faculty_id,
         )
         if data.room_ids is not None:
-            await self._assert_rooms_active(data.room_ids, already_assigned_ids=item.room_ids or [])
+            await self._assert_rooms_active(data.room_ids, current_user["realm"], already_assigned_ids=item.room_ids or [])
             item.room_ids = data.room_ids
         if data.day_of_week is not None: item.day_of_week = data.day_of_week
         if data.exam_date is not None: item.exam_date = data.exam_date
@@ -1086,7 +1300,7 @@ class TimetableService:
         # A course whose home department belongs to the user's faculty is in scope.
         course = await self.repo.get_course(course_id, realm_key=current_user["realm"]) if course_id is not None else None
         if course is not None and course.department_id is not None:
-            dept = await self.repo.get_department(course.department_id)
+            dept = await self.repo.get_department(course.department_id, realm_key=current_user["realm"])
             if dept is not None and dept.faculty_id == faculty_id:
                 return
         # Otherwise the course must be enrolled to a department in the user's faculty (cross-listed).
@@ -1121,6 +1335,14 @@ class TimetableService:
                 raise HTTPException(status_code=404, detail="The schedule item to change no longer exists")
             if target.semester_id != sem_id or target.type != data.timetable_type:
                 raise HTTPException(status_code=400, detail="Target schedule item does not match this timetable")
+
+        # A request can only name the realm's own faculty and rooms.
+        if data.faculty_id is not None:
+            await self._faculty_in_realm(data.faculty_id, current_user)
+        if data.room_ids:
+            found = await self.repo.get_rooms_by_ids(data.room_ids, realm_key=current_user["realm"])
+            if len(found) < len(set(data.room_ids)):
+                raise HTTPException(status_code=400, detail="Room not found")
 
         if data.action != ChangeRequestAction.REMOVE.value:
             # A MODIFY leaves out what it doesn't change, so the target fills the gaps.
@@ -1311,7 +1533,7 @@ class TimetableService:
         return await self.repo.list_enrollments(realm_key=current_user["realm"], faculty_id=faculty_id, course_id=course_id)
 
     async def _check_dept_belongs_to_user_faculty(self, department_id: int, current_user: dict) -> Department:
-        dept = await self.repo.get_department(department_id)
+        dept = await self.repo.get_department(department_id, realm_key=current_user["realm"])
         if not dept:
             raise HTTPException(status_code=404, detail="Department not found")
         if current_user.get("role") == RoleEnum.FACULTY_EDITOR.value:
@@ -1410,7 +1632,7 @@ class TimetableService:
         return created
 
     async def bulk_dismiss(self, data: ConflictDismissalBulkCreate, current_user: dict) -> list[ConflictDismissal]:
-        dept = await self.repo.get_department(data.department_id)
+        dept = await self.repo.get_department(data.department_id, realm_key=current_user["realm"])
         if not dept:
             raise HTTPException(status_code=404, detail="Department not found")
         if not _has_global_scope(current_user):

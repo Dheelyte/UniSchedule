@@ -8,13 +8,14 @@ import { useAuth } from '@/context/AuthContext';
 import { TablePageSkeleton } from '@/components/Skeleton/Skeleton';
 import { isViewerRole, isGsAdmin, isSuperAdmin } from '@/lib/roles';
 import { isRoomActive } from '@/lib/utils';
+import { DEFAULT_REALM } from '@/lib/realm';
 import styles from './rooms.module.css';
 
 export default function RoomsPage() {
     const { state, dispatch, isInitialized } = useApp();
     const { rooms, faculties } = state;
     const { addToast } = useToast();
-    const { user } = useAuth();
+    const { user, realm } = useAuth();
     const role = user?.role;
 
     // Search & sort
@@ -43,6 +44,22 @@ export default function RoomsPage() {
     // Form state
     const [form, setForm] = useState({ name: '', activeSeats: 100, inactiveSeats: 0, facultyId: '', isLab: false, isActive: true });
     const [loading, setLoading] = useState(true);
+
+    // Each programme has its own rooms; two rooms in one hall group are the same
+    // physical hall. Every programme but Undergraduate can add rooms from
+    // Undergraduate's list (the catalogue); each one joins its original's group.
+    const usesCatalogue = !!realm && realm !== DEFAULT_REALM && !isViewerRole(role);
+    const [catalogue, setCatalogue] = useState({ realm_name: 'Undergraduate', rooms: [] });
+    const [showPicker, setShowPicker] = useState(false);
+    const [pickerSearch, setPickerSearch] = useState('');
+    // Catalogue room id -> the faculty chosen for it here ('' is no faculty).
+    const [picked, setPicked] = useState(new Map());
+    // Linking two existing rooms by hand (super admins only).
+    const [otherRealms, setOtherRealms] = useState([]);
+    const [hallRealm, setHallRealm] = useState('');
+    const [hallRooms, setHallRooms] = useState([]);
+    const [linkRoomId, setLinkRoomId] = useState('');
+    const [hallBusy, setHallBusy] = useState(false);
 
     const normalizeRoom = (r) => ({
         ...r,
@@ -110,6 +127,119 @@ export default function RoomsPage() {
         loadRooms();
         return () => { mounted = false; };
     }, [dispatch, isInitialized]);
+
+    useEffect(() => {
+        if (!usesCatalogue) return;
+        let mounted = true;
+        apiClient.get('/timetable/rooms/catalogue')
+            .then((res) => { if (mounted && res) setCatalogue(res); })
+            .catch(() => {});
+        return () => { mounted = false; };
+    }, [usesCatalogue]);
+
+    useEffect(() => {
+        if (!isSuperAdmin(role) || !realm) return;
+        let mounted = true;
+        apiClient.get('/realms')
+            .then((rows) => { if (mounted) setOtherRealms((rows || []).filter((r) => r.key !== realm)); })
+            .catch(() => {});
+        return () => { mounted = false; };
+    }, [role, realm]);
+
+    const loadCatalogue = async () => {
+        try {
+            const res = await apiClient.get('/timetable/rooms/catalogue');
+            if (res) setCatalogue(res);
+        } catch (e) {
+            addToast({ type: 'error', title: 'Could not load rooms', message: e.message || 'Please try again.' });
+        }
+    };
+
+    // Faculty editors add rooms to their own faculty; General Studies admins to none.
+    const lockedFaculty = role === 'FACULTY_EDITOR' ? (user?.faculty_id || '') : (isGsAdmin(role) ? '' : null);
+
+    const openPicker = () => {
+        setPicked(new Map());
+        setPickerSearch('');
+        setShowPicker(true);
+        loadCatalogue();
+    };
+
+    const togglePick = (id) => {
+        setPicked((prev) => {
+            const next = new Map(prev);
+            if (next.has(id)) next.delete(id); else next.set(id, lockedFaculty ?? '');
+            return next;
+        });
+    };
+
+    const setPickFaculty = (id, facultyId) => {
+        setPicked((prev) => new Map(prev).set(id, facultyId));
+    };
+
+    const handleAddFromCatalogue = async () => {
+        if (picked.size === 0 || hallBusy) return;
+        setHallBusy(true);
+        try {
+            const res = await apiClient.post('/timetable/rooms/from-catalogue', {
+                rooms: [...picked].map(([room_id, facultyId]) => ({ room_id, faculty_id: facultyId || null })),
+            });
+            const added = res.added || [];
+            const skipped = res.skipped || [];
+            added.forEach((room) => dispatch({ type: ACTION_TYPES.ADD_ROOM, payload: normalizeRoom(room) }));
+            if (added.length > 0) {
+                addToast({
+                    type: 'success',
+                    title: 'Rooms Added',
+                    message: `${added.length} room${added.length === 1 ? '' : 's'} added from ${catalogue.realm_name}. Bookings there and here are now checked against each other.`,
+                });
+            }
+            if (skipped.length > 0) {
+                addToast({
+                    type: 'error',
+                    title: `${skipped.length} room${skipped.length === 1 ? '' : 's'} not added`,
+                    message: skipped.map((s) => `${s.name || `Room ${s.room_id}`}: ${s.reason}`).join('; '),
+                });
+            }
+            setShowPicker(false);
+        } catch (e) {
+            addToast({ type: 'error', title: 'Could not add rooms', message: e.message || 'An error occurred while adding the rooms.' });
+        } finally {
+            setHallBusy(false);
+        }
+    };
+
+    // Another programme's rooms, for linking two existing rooms as one hall.
+    const loadHallRooms = async (key) => {
+        setHallRealm(key);
+        setHallRooms([]);
+        setLinkRoomId('');
+        if (!key) return;
+        try {
+            setHallRooms(await apiClient.get(`/timetable/rooms/other-realm?realm=${encodeURIComponent(key)}`) || []);
+        } catch (e) {
+            addToast({ type: 'error', title: 'Could not load rooms', message: e.message || 'Please try again.' });
+        }
+    };
+
+    // Linking and unlinking save straight away; they are not part of the room form.
+    const applyHall = async (request) => {
+        if (!editing || hallBusy) return;
+        setHallBusy(true);
+        try {
+            const res = normalizeRoom(await request());
+            dispatch({ type: ACTION_TYPES.UPDATE_ROOM, payload: { id: res.id, hall_group_id: res.hall_group_id, linked_rooms: res.linked_rooms || [] } });
+            setEditing((prev) => (prev ? { ...prev, hall_group_id: res.hall_group_id, linked_rooms: res.linked_rooms || [] } : prev));
+            setLinkRoomId('');
+        } catch (e) {
+            addToast({ type: 'error', title: 'Could not update the hall link', message: e.message || 'Please try again.' });
+        } finally {
+            setHallBusy(false);
+        }
+    };
+
+    const handleLink = () => applyHall(() => apiClient.put(`/timetable/rooms/${editing.id}/hall`, { room_id: Number(linkRoomId) }));
+    const handleUnlink = () => applyHall(() => apiClient.delete(`/timetable/rooms/${editing.id}/hall`));
 
     const filteredRooms = [...rooms]
         .filter((r) => {
@@ -183,6 +313,9 @@ export default function RoomsPage() {
     const openEdit = (room) => {
         setEditing(room);
         setForm({ name: room.name, activeSeats: room.activeSeats ?? room.capacity ?? 0, inactiveSeats: room.inactiveSeats ?? 0, facultyId: room.facultyId || '', isLab: !!room.isLab, isActive: room.isActive !== false });
+        setHallRealm('');
+        setHallRooms([]);
+        setLinkRoomId('');
         setShowModal(true);
     };
 
@@ -269,7 +402,14 @@ export default function RoomsPage() {
                             const isActive = room.isActive !== false;
                             return (
                                 <tr key={room.id} style={{ opacity: isActive ? 1 : 0.62 }}>
-                                    <td style={{ fontWeight: 500, color: 'var(--color-text)' }}>{room.name}</td>
+                                    <td style={{ fontWeight: 500, color: 'var(--color-text)' }}>
+                                        {room.name}
+                                        {(room.linked_rooms || []).map((linked) => (
+                                            <div key={`${linked.realm_key}-${linked.room_id}`} className={styles.hallTag} title="The same physical hall: bookings there block this room at the same time">
+                                                Same hall as {linked.realm_name} · {linked.name}
+                                            </div>
+                                        ))}
+                                    </td>
                                     <td style={{ fontSize: '0.82rem', color: 'var(--color-text-muted)' }}>{fac?.name || '-'}</td>
                                     <td>
                                         <span className={`badge ${isActive ? 'badge-success' : 'badge-secondary'}`}>
@@ -368,10 +508,15 @@ export default function RoomsPage() {
             {/* Header */}
             <div className={styles.pageHeader}>
                 <div />
+                {usesCatalogue && (
+                    <button className="btn btn-secondary" onClick={openPicker} style={{ marginRight: 8 }}>
+                        Add from {catalogue.realm_name}
+                    </button>
+                )}
                 {!isViewerRole(role) && (
                     <button className="btn btn-primary" onClick={openAdd}>
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
-                        Add Room
+                        {usesCatalogue ? 'Create new room' : 'Add Room'}
                     </button>
                 )}
             </div>
@@ -545,6 +690,39 @@ export default function RoomsPage() {
                                     </label>
                                 </div>
                             )}
+                            {isSuperAdmin(role) && editing && otherRealms.length > 0 && (
+                                <div className="form-group">
+                                    <label className="form-label">Same physical hall</label>
+                                    <span className={styles.toggleHint}>
+                                        Link this room to another programme&apos;s room when both are the same hall. Linked rooms can&apos;t be booked at the same time; rooms that aren&apos;t linked never clash across programmes.
+                                    </span>
+                                    {(editing.linked_rooms || []).length > 0 ? (
+                                        <div className={styles.hallLinks}>
+                                            {editing.linked_rooms.map((linked) => (
+                                                <span key={`${linked.realm_key}-${linked.room_id}`} className={styles.hallTag}>{linked.realm_name} · {linked.name}</span>
+                                            ))}
+                                            <button type="button" className="btn btn-secondary" onClick={handleUnlink} disabled={hallBusy}>Unlink this room</button>
+                                        </div>
+                                    ) : (
+                                        <div className={styles.hallLinks}><span className={styles.toggleHint}>Not linked to any other programme&apos;s room.</span></div>
+                                    )}
+                                    <div className={styles.hallLinks}>
+                                        <select className="form-select form-input" value={hallRealm} onChange={(e) => loadHallRooms(e.target.value)}>
+                                            <option value="">Programme...</option>
+                                            {otherRealms.map((r) => <option key={r.key} value={r.key}>{r.name}</option>)}
+                                        </select>
+                                        <select className="form-select form-input" value={linkRoomId} onChange={(e) => setLinkRoomId(e.target.value)} disabled={!hallRealm}>
+                                            <option value="">Room...</option>
+                                            {hallRooms.map((r) => (
+                                                <option key={r.id} value={r.id} disabled={r.linked_room_id !== null && r.linked_room_id !== editing.id}>
+                                                    {r.name} ({r.capacity}){r.linked_room_id !== null ? ' · already linked' : ''}
+                                                </option>
+                                            ))}
+                                        </select>
+                                        <button type="button" className="btn btn-secondary" onClick={handleLink} disabled={!linkRoomId || hallBusy}>Link</button>
+                                    </div>
+                                </div>
+                            )}
                         </div>
                         <div className="modal-footer">
                             <button className="btn btn-secondary" onClick={() => setShowModal(false)}>Cancel</button>
@@ -555,6 +733,74 @@ export default function RoomsPage() {
                     </div>
                 </div>
             )}
+
+            {/* Add rooms from the catalogue programme (Undergraduate) */}
+            {showPicker && (() => {
+                const term = pickerSearch.trim().toLowerCase();
+                const shown = catalogue.rooms.filter((r) =>
+                    !term || r.name.toLowerCase().includes(term) || (r.faculty_name || '').toLowerCase().includes(term)
+                );
+                return (
+                    <div className="modal-overlay" onClick={() => setShowPicker(false)}>
+                        <div className="modal" onClick={(e) => e.stopPropagation()}>
+                            <div className="modal-header">
+                                <h3>Add from {catalogue.realm_name}</h3>
+                                <button className="modal-close" onClick={() => setShowPicker(false)}>✕</button>
+                            </div>
+                            <div className="modal-body">
+                                <p className={styles.toggleHint} style={{ marginBottom: 12 }}>
+                                    Pick the {catalogue.realm_name} rooms this programme also uses. Each one becomes a room of your own, which you can edit or delete without changing {catalogue.realm_name}&apos;s. Because it is the same hall, the two programmes can&apos;t book it at the same time.
+                                </p>
+                                <div className={styles.searchWrap} style={{ marginBottom: 10 }}>
+                                    <svg className={styles.searchIcon} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>
+                                    <input className={styles.searchInput} value={pickerSearch} onChange={(e) => setPickerSearch(e.target.value)} placeholder="Search by room or faculty..." autoFocus />
+                                </div>
+                                <div className={styles.copyList}>
+                                    {shown.length === 0 && <div className={styles.toggleHint} style={{ padding: '10px 0' }}>No rooms match.</div>}
+                                    {shown.map((r) => {
+                                        const added = r.added_room_id !== null;
+                                        const isPicked = picked.has(r.id);
+                                        return (
+                                            <div key={r.id} className={styles.copyRow} style={{ opacity: added ? 0.55 : 1 }}>
+                                                <label className={styles.copyPick}>
+                                                    <input type="checkbox" disabled={added} checked={isPicked} onChange={() => togglePick(r.id)} />
+                                                    <span className={styles.copyName}>
+                                                        {r.name}
+                                                        <span className={styles.toggleHint}>
+                                                            {r.faculty_name || 'No faculty'} · {r.capacity} seats{r.is_lab ? ' · Lab' : ''}
+                                                        </span>
+                                                    </span>
+                                                </label>
+                                                {added ? (
+                                                    <span className={styles.hallTag}>Already added{r.added_room_name && r.added_room_name !== r.name ? ` as ${r.added_room_name}` : ''}</span>
+                                                ) : isPicked && (
+                                                    <select
+                                                        className="form-select form-input"
+                                                        style={{ width: 190 }}
+                                                        value={picked.get(r.id)}
+                                                        disabled={lockedFaculty !== null}
+                                                        onChange={(e) => setPickFaculty(r.id, e.target.value)}
+                                                        title="The faculty this room belongs to in this programme"
+                                                    >
+                                                        <option value="">No faculty</option>
+                                                        {faculties.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
+                                                    </select>
+                                                )}
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                            <div className="modal-footer">
+                                <button className="btn btn-secondary" onClick={() => setShowPicker(false)}>Cancel</button>
+                                <button className="btn btn-primary" onClick={handleAddFromCatalogue} disabled={picked.size === 0 || hallBusy}>
+                                    {hallBusy ? 'Adding...' : `Add ${picked.size || ''} room${picked.size === 1 ? '' : 's'}`}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                );
+            })()}
 
             {/* Delete Confirmation */}
             {deleteConfirm && (

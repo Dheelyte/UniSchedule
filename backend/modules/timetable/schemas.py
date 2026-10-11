@@ -40,10 +40,73 @@ class RoomCreate(BaseModel):
     is_lab: bool = False
     is_active: bool = True
 
+class LinkedRoomResponse(BaseModel):
+    """Another realm's room that is the same physical hall (same hall group)."""
+    room_id: int
+    name: str
+    realm_key: str
+    realm_name: str
+
 class RoomResponse(RoomCreate):
     id: int
     is_active: bool | None = None
+    realm_key: str = "UG"
+    hall_group_id: int | None = None
+    linked_rooms: list[LinkedRoomResponse] = []
     model_config = ConfigDict(from_attributes=True)
+
+class OtherRealmRoomResponse(BaseModel):
+    """A room of another realm, as a super admin sees it when linking two rooms as one hall."""
+    id: int
+    name: str
+    realm_key: str
+    capacity: int
+    active_seats: int
+    inactive_seats: int
+    is_lab: bool
+    is_active: bool | None
+    # This realm's room for the same hall, if there is one.
+    linked_room_id: int | None
+
+class RoomCatalogueRoom(BaseModel):
+    """A room of the catalogue realm, read-only, as another realm sees it when adding halls."""
+    id: int
+    name: str
+    faculty_name: str | None
+    capacity: int
+    active_seats: int
+    inactive_seats: int
+    is_lab: bool
+    is_active: bool | None
+    # Set once this realm has added the room: its own room for that hall.
+    added_room_id: int | None
+    added_room_name: str | None
+
+class RoomCatalogueResponse(BaseModel):
+    realm_key: str
+    realm_name: str
+    rooms: list[RoomCatalogueRoom]
+
+class RoomCatalogueAddItem(BaseModel):
+    room_id: int
+    # One of the adding realm's own faculties, or none.
+    faculty_id: str | None = None
+
+class RoomCatalogueAddRequest(BaseModel):
+    rooms: list[RoomCatalogueAddItem] = Field(min_length=1)
+
+class RoomAddSkipped(BaseModel):
+    room_id: int
+    name: str | None
+    reason: str
+
+class RoomCatalogueAddResponse(BaseModel):
+    added: list[RoomResponse]
+    skipped: list[RoomAddSkipped]
+
+class RoomHallRequest(BaseModel):
+    # A room of another realm that is the same physical hall as this one.
+    room_id: int
 
 class RoomUpdate(BaseModel):
     name: str | None = None
@@ -173,11 +236,12 @@ class ScheduleItemResponse(ScheduleItemCreate):
 
 
 class ExternalBookingResponse(BaseModel):
-    """Another realm's booking of a shared room: just enough to draw and check a clash."""
+    """Another realm's booking of a hall this realm also has a room for: just enough to draw and check a clash."""
     id: int
     realm_key: str
     realm_name: str
     type: str
+    # This realm's rooms for the booked halls, not the other realm's room ids.
     room_ids: list[int]
     day_of_week: str | None
     exam_date: date_type | None

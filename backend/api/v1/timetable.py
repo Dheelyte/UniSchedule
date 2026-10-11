@@ -8,6 +8,7 @@ from modules.timetable.schemas import (
     CourseCreate, CourseResponse, CourseUpdate,
     ScheduleItemCreate, ScheduleItemResponse, ScheduleItemUpdate, ExternalBookingResponse,
     BlockedSlotCreate, BlockedSlotResponse, RoomReorderRequest,
+    OtherRealmRoomResponse, RoomCatalogueResponse, RoomCatalogueAddRequest, RoomCatalogueAddResponse, RoomHallRequest,
     TimetableLockResponse, TimetableLockUpdate, EditRequestCreate,
     CourseEnrollmentCreate, CourseEnrollmentResponse,
     ChangeRequestCreate, ChangeRequestResponse, ChangeRequestReview,
@@ -101,6 +102,47 @@ async def reorder_rooms(
     user: dict = Depends(RequireRole([RoleEnum.SUPER_ADMIN.value, RoleEnum.FACULTY_EDITOR.value, RoleEnum.GS_ADMIN.value]))
 ):
     return await service.reorder_rooms(data, user)
+
+@router.get("/rooms/other-realm", response_model=list[OtherRealmRoomResponse])
+async def get_other_realm_rooms(
+    realm: str = Query(...),
+    service: TimetableService = Depends(),
+    user: dict = Depends(RequireRole([RoleEnum.SUPER_ADMIN.value]))
+):
+    return await service.get_other_realm_rooms(realm, user)
+
+# Whoever can add a room can add one from the catalogue (Undergraduate's rooms).
+@router.get("/rooms/catalogue", response_model=RoomCatalogueResponse)
+async def get_room_catalogue(
+    service: TimetableService = Depends(),
+    user: dict = Depends(RequireRole([RoleEnum.SUPER_ADMIN.value, RoleEnum.FACULTY_EDITOR.value, RoleEnum.GS_ADMIN.value]))
+):
+    return await service.get_room_catalogue(user)
+
+@router.post("/rooms/from-catalogue", response_model=RoomCatalogueAddResponse)
+async def add_rooms_from_catalogue(
+    data: RoomCatalogueAddRequest,
+    service: TimetableService = Depends(),
+    user: dict = Depends(RequireRole([RoleEnum.SUPER_ADMIN.value, RoleEnum.FACULTY_EDITOR.value, RoleEnum.GS_ADMIN.value]))
+):
+    return await service.add_rooms_from_catalogue(data, user)
+
+@router.put("/rooms/{id}/hall", response_model=RoomResponse)
+async def set_room_hall(
+    id: int,
+    data: RoomHallRequest,
+    service: TimetableService = Depends(),
+    user: dict = Depends(RequireRole([RoleEnum.SUPER_ADMIN.value]))
+):
+    return await service.set_room_hall(id, data.room_id, user)
+
+@router.delete("/rooms/{id}/hall", response_model=RoomResponse)
+async def clear_room_hall(
+    id: int,
+    service: TimetableService = Depends(),
+    user: dict = Depends(RequireRole([RoleEnum.SUPER_ADMIN.value]))
+):
+    return await service.clear_room_hall(id, user)
 
 @router.get("/rooms", response_model=list[RoomResponse])
 async def get_rooms(

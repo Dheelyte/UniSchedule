@@ -95,7 +95,7 @@ async def invite_staff(
     
     faculty_name = None
     if data.faculty_id:
-        faculty = await timetable_repo.get_faculty(data.faculty_id)
+        faculty = await timetable_repo.get_faculty(data.faculty_id, realm_key=current_user["realm"])
         if faculty:
             faculty_name = faculty.name
             

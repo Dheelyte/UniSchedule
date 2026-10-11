@@ -93,9 +93,9 @@ class AuthRepository:
         result = await self.db.execute(select(User).where(User.id == id))
         return result.scalars().first()
 
-    async def faculty_exists(self, faculty_id: str) -> bool:
+    async def faculty_exists(self, faculty_id: str, *, realm_key: str) -> bool:
         result = await self.db.execute(
-            select(Faculty.id).where(Faculty.id == faculty_id)
+            select(Faculty.id).where(Faculty.id == faculty_id, Faculty.realm_key == realm_key)
         )
         return result.scalars().first() is not None
 
