@@ -21,6 +21,7 @@ from modules.calendar.models import AcademicSession, Semester
 from modules.timetable.models import Faculty, Room, Course, ScheduleItem, BlockedSlot
 from modules.notifications.models import Notification
 from modules.audit.models import ActivityLog
+from modules.realms.models import Realm
 
 DATABASE_URL = settings.DATABASE_URL
 

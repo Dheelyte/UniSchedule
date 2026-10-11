@@ -1,6 +1,7 @@
 import uuid
 from typing import AsyncGenerator
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+from sqlalchemy.pool import NullPool
 from core.config import settings
 
 engine = create_async_engine(
@@ -12,6 +13,7 @@ engine = create_async_engine(
     },
     echo=False,
     future=True,
+    **({"poolclass": NullPool} if settings.DB_NULL_POOL else {}),
 )
 async_session_maker = async_sessionmaker(
     engine, expire_on_commit=False, class_=AsyncSession

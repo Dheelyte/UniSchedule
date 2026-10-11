@@ -6,7 +6,7 @@ from modules.timetable.schemas import (
     DepartmentCreate, DepartmentResponse, DepartmentUpdate,
     RoomCreate, RoomResponse, RoomUpdate,
     CourseCreate, CourseResponse, CourseUpdate,
-    ScheduleItemCreate, ScheduleItemResponse, ScheduleItemUpdate,
+    ScheduleItemCreate, ScheduleItemResponse, ScheduleItemUpdate, ExternalBookingResponse,
     BlockedSlotCreate, BlockedSlotResponse, RoomReorderRequest,
     TimetableLockResponse, TimetableLockUpdate, EditRequestCreate,
     CourseEnrollmentCreate, CourseEnrollmentResponse,
@@ -182,6 +182,13 @@ async def get_schedule_items(
 ):
     return await service.get_schedule_items(user, semester_id=semester_id)
 
+@router.get("/external-bookings", response_model=list[ExternalBookingResponse])
+async def get_external_bookings(
+    service: TimetableService = Depends(),
+    user: dict = Depends(get_current_user)
+):
+    return await service.get_external_bookings(user)
+
 @router.put("/schedule-items/{item_id}", response_model=ScheduleItemResponse)
 async def update_schedule(
     item_id: int,
@@ -252,7 +259,7 @@ async def get_blocked_slots(
     service: TimetableService = Depends(),
     user: dict = Depends(get_current_user)
 ):
-    return await service.get_blocked_slots(semester_id=semester_id)
+    return await service.get_blocked_slots(user, semester_id=semester_id)
 
 @router.delete("/blocked-slots/{id}")
 async def delete_blocked_slot(
@@ -271,7 +278,7 @@ async def list_locks(
     service: TimetableService = Depends(),
     user: dict = Depends(get_current_user),
 ):
-    return await service.list_locks(semester_id)
+    return await service.list_locks(semester_id, user)
 
 @router.put("/locks/{timetable_type}", response_model=TimetableLockResponse)
 async def set_lock(

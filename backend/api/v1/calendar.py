@@ -16,14 +16,14 @@ async def create_sess(
     service: CalendarService = Depends(),
     user: dict = Depends(RequireRole([RoleEnum.SUPER_ADMIN.value]))
 ):
-    return await service.create_session(data)
+    return await service.create_session(data, user)
 
 @router.get("/sessions", response_model=list[SessionResponse])
 async def get_session_list(
     service: CalendarService = Depends(),
     user: dict = Depends(get_current_user)
 ):
-    return await service.get_sessions()
+    return await service.get_sessions(user)
 
 @router.post("/semesters", response_model=SemesterResponse)
 async def create_sem(
@@ -31,7 +31,7 @@ async def create_sem(
     service: CalendarService = Depends(),
     user: dict = Depends(RequireRole([RoleEnum.SUPER_ADMIN.value]))
 ):
-    return await service.create_semester(data)
+    return await service.create_semester(data, user)
 
 @router.get("/sessions/{sess_id}/semesters", response_model=list[SemesterResponse])
 async def get_semester_list(
@@ -39,11 +39,11 @@ async def get_semester_list(
     service: CalendarService = Depends(),
     user: dict = Depends(get_current_user)
 ):
-    return await service.get_semesters(sess_id)
+    return await service.get_semesters(sess_id, user)
 
 @router.get("/semesters/current", response_model=SemesterResponse | None)
 async def get_current_semester(
     service: CalendarService = Depends(),
     user: dict = Depends(get_current_user)
 ):
-    return await service.get_current_semester()
+    return await service.get_current_semester(user)

@@ -7,12 +7,15 @@ import { useToast } from '@/components/Toast/Toast';
 import { useAuth } from '@/context/AuthContext';
 import styles from '../login/login.module.css';
 import { unilagLogoBase64 } from '@/lib/logo';
+import { loginPath } from '@/lib/realm';
 
 
 export default function RegisterPage() {
     const router = useRouter();
     const searchParams = useSearchParams();
     const token = searchParams.get('token');
+    // Invitation links name the portal the account belongs to.
+    const realm = searchParams.get('realm');
 
     const { user, loading: authLoading } = useAuth();
     const { addToast } = useToast();
@@ -49,7 +52,7 @@ export default function RegisterPage() {
         try {
             await apiClient.post(`/auth/register/${token}`, { password });
             addToast({ type: 'success', title: 'Account Created', message: 'Your account has been successfully configured. You may now login.' });
-            router.push('/login');
+            router.push(loginPath(realm));
         } catch (e) {
             addToast({ type: 'error', title: 'Registration Failed', message: e.message || 'The invitation token is invalid or expired natively.' });
         } finally {

@@ -7,10 +7,11 @@ import { useToast } from '@/components/Toast/Toast';
 import styles from './terms.module.css';
 import { TermsSkeleton } from '@/components/Skeleton/Skeleton';
 
-const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
-
 export default function TermsPage() {
-    const { user, loading: authLoading } = useAuth();
+    const { user, loading: authLoading, realmConfig } = useAuth();
+    // Blocked-slot days and semester names are the realm's.
+    const lectureDays = realmConfig.lecture_days;
+    const emptyBlockedForm = { name: '', applies_to: 'LECTURE_ONLY', day_of_week: lectureDays[0], date: '', start_time: '', end_time: '', whole_day: false };
     const router = useRouter();
     const { addToast } = useToast();
 
@@ -26,7 +27,7 @@ export default function TermsPage() {
     // Blocked Slots state
     const [blockedSlots, setBlockedSlots] = useState([]);
     const [showBlockedModal, setShowBlockedModal] = useState(false);
-    const [blockedForm, setBlockedForm] = useState({ name: '', applies_to: 'LECTURE_ONLY', day_of_week: 'Monday', date: '', start_time: '', end_time: '', whole_day: false });
+    const [blockedForm, setBlockedForm] = useState(emptyBlockedForm);
     const [deleteBlockedConfirm, setDeleteBlockedConfirm] = useState(null);
 
     const currentYear = new Date().getFullYear();
@@ -154,7 +155,7 @@ export default function TermsPage() {
             const res = await apiClient.post('/timetable/blocked-slots', payload);
             setBlockedSlots(prev => [...prev, res]);
             setShowBlockedModal(false);
-            setBlockedForm({ name: '', applies_to: 'LECTURE_ONLY', day_of_week: 'Monday', date: '', start_time: '', end_time: '', whole_day: false });
+            setBlockedForm(emptyBlockedForm);
             addToast({ type: 'success', title: 'Created', message: `Blocked slot "${res.name}" added.` });
         } catch (e) {
             console.error(e);
@@ -203,7 +204,7 @@ export default function TermsPage() {
                     {sessions.map(s => {
                         const isOpen = expandedSessions.has(s.id);
                         const sems = semestersMap[s.id] || [];
-                        const availSemOpts = ['First Semester', 'Second Semester'].filter(
+                        const availSemOpts = realmConfig.semester_names.filter(
                             opt => !sems.some(sem => sem.name === opt)
                         );
 
@@ -398,7 +399,7 @@ export default function TermsPage() {
                                                 value={blockedForm.day_of_week}
                                                 onChange={(e) => setBlockedForm({ ...blockedForm, day_of_week: e.target.value })}
                                             >
-                                                {DAYS.map(d => <option key={d} value={d}>{d}</option>)}
+                                                {lectureDays.map(d => <option key={d} value={d}>{d}</option>)}
                                             </select>
                                         </>
                                     )}

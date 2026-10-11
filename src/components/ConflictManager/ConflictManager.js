@@ -42,6 +42,8 @@ export default function ConflictManager({
         const bySig = new Map();
         for (const [itemId, list] of conflictMap.entries()) {
             for (const c of list) {
+                // A clash with another realm's booking can't be dismissed.
+                if (c.external) continue;
                 const bId = c.relatedId ?? null;
                 const sig = conflictSignature(c.type, itemId, bId);
                 if (bySig.has(sig)) continue;

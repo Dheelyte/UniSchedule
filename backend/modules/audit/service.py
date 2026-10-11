@@ -33,7 +33,9 @@ class AuditService:
             user_email = None
             user_role = None
             user_faculty_id = None
+            realm_key = None
             if current_user:
+                realm_key = current_user.get("realm")
                 sub = current_user.get("sub")
                 if sub is not None:
                     try:
@@ -63,6 +65,7 @@ class AuditService:
                 user_email=user_email,
                 user_role=user_role,
                 user_faculty_id=user_faculty_id,
+                realm_key=realm_key,
                 action=action,
                 entity_type=entity_type,
                 entity_id=str(entity_id) if entity_id is not None else None,
@@ -75,9 +78,11 @@ class AuditService:
 
     async def list(
         self,
+        *,
+        realm_key: str,
         limit: int = 100,
         offset: int = 0,
         action_prefix: str | None = None,
         user_id: int | None = None,
     ) -> list[ActivityLog]:
-        return await self.repo.list(limit=limit, offset=offset, action_prefix=action_prefix, user_id=user_id)
+        return await self.repo.list(realm_key=realm_key, limit=limit, offset=offset, action_prefix=action_prefix, user_id=user_id)

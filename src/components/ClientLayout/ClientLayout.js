@@ -9,6 +9,8 @@ import { ToastProvider } from "@/components/Toast/Toast";
 import { ConfirmProvider } from "@/components/ConfirmModal/ConfirmContext";
 import { AuthProvider, useAuth } from "@/context/AuthContext";
 import { usePathname, useRouter } from "next/navigation";
+import { isCrossRealmRole } from "@/lib/roles";
+import { lastRealm, loginPath, splitRealmLink } from "@/lib/realm";
 import styles from "./ClientLayout.module.css";
 
 const MOBILE_QUERY = "(max-width: 768px)";
@@ -16,7 +18,7 @@ const MOBILE_QUERY = "(max-width: 768px)";
 function LayoutInner({ children }) {
 	const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 	const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-	const { user, loading } = useAuth();
+	const { user, loading, switchRealm } = useAuth();
 	const pathname = usePathname();
 	const router = useRouter();
 
@@ -30,11 +32,20 @@ function LayoutInner({ children }) {
 
     useEffect(() => {
         if (loading) return;
+        // Links in emails and notifications can name their realm (?realm=KEY).
+        // Read from the address bar: useSearchParams here would opt every
+        // page out of prerendering.
+        const { path, realm: linkRealm } = splitRealmLink(`${pathname}${window.location.search}`);
         if (!user && !publicPaths.includes(pathname)) {
-            router.push('/login');
+            router.push(loginPath(linkRealm || lastRealm()));
         }
         if (user && guestOnlyPaths.includes(pathname)) {
             router.push('/');
+            return;
+        }
+        // A cross-realm user working in another realm is moved to the link's.
+        if (user && linkRealm && linkRealm !== user.realm && isCrossRealmRole(user.real_role)) {
+            switchRealm(linkRealm, path).catch((err) => console.error('Failed to switch realm', err));
         }
     }, [user, loading, pathname, router]);
 

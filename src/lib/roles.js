@@ -8,6 +8,13 @@ export const isGsAdmin = (role) => role === 'GS_ADMIN';
 
 export const isSuperAdmin = (role) => role === 'SUPER_ADMIN';
 
+// Roles that aren't tied to one realm (programme): they pick a realm at login
+// and can switch. Mirrors CROSS_REALM_ROLES in backend/modules/auth/models.py.
+// Unrelated to hasGlobalScope, which is about faculties.
+export const CROSS_REALM_ROLES = ['SUPER_ADMIN', 'SUPER_VIEWER', 'CITS_ADMIN'];
+
+export const isCrossRealmRole = (role) => CROSS_REALM_ROLES.includes(role);
+
 // Roles that may submit (but not directly apply) course-schedule change requests
 // while a timetable is unlocked.
 export const CHANGE_REQUEST_ROLES = ['FACULTY_EDITOR', 'FACULTY_VIEWER', 'GS_ADMIN', 'SUPER_VIEWER'];

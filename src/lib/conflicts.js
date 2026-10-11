@@ -6,10 +6,14 @@
  * 2. Course Conflict - same course scheduled at overlapping times across different faculties
  * 3. Audience Conflict - same (dept x level) booked at overlapping times for different courses
  * 4. Duplicate Exam - same course scheduled across faculties in exam mode
- * 5. Time Warning - scheduling outside standard operating hours (8 AM – 6 PM)
+ * 5. Time Warning - scheduling outside the realm's day window (UG: 8 AM – 6 PM)
+ * 6. External Room Conflict - a room another realm (programme) already holds
+ *
+ * Kept free of path aliases so it can be unit-tested directly with `node --test`.
  */
 
-import { timesOverlap, isOutsideOperatingHours, timeToMinutes } from './utils';
+import { timesOverlap, timeToMinutes } from './utils.js';
+import { UG_CONFIG, isOutsideWindow, weekdayOf } from './realm.js';
 
 const UW_DEPT = 'university-wide';
 
@@ -38,6 +42,82 @@ function sharesRoom(a, b) {
 /** Get displayable room list from a schedule item. */
 function getRoomLabel(s) {
     return s.roomNames || s.roomName || 'Room';
+}
+
+const hhmm = (t) => String(t || '').slice(0, 5);
+
+/**
+ * Shape a row of `GET /timetable/external-bookings` (another realm's session)
+ * like a schedule item. The id is prefixed with `ext-` so it can never collide
+ * with one of the active realm's ids in a conflict map.
+ */
+export function toExternalBooking(row) {
+    return {
+        id: `ext-${row.id}`,
+        external: true,
+        realmKey: row.realm_key,
+        realmName: row.realm_name || row.realm_key,
+        type: row.type,
+        roomIds: row.room_ids || [],
+        day: row.day_of_week || null,
+        examDate: row.exam_date || null,
+        startTime: hhmm(row.start_time),
+        endTime: hhmm(row.end_time),
+        courseCode: row.course_code || 'a course',
+        isSpecialFaculty: !!row.is_special_faculty,
+    };
+}
+
+/**
+ * Conflicts between one of this realm's items and the other realms' bookings.
+ * Rooms are shared between realms, so a same-type overlap is an error that can
+ * be neither dismissed nor overridden by priority. A lecture against an exam
+ * is only a warning: semesters have no dates, so nothing confirms that the
+ * weekly lecture still runs on the exam's date.
+ */
+function externalConflicts(item, externalBookings) {
+    const out = [];
+    // An online session holds no room.
+    if (!externalBookings || externalBookings.length === 0 || item.isSpecialFaculty || item.is_online || item.isOnline) return out;
+    const itemRooms = (item.roomIds || (item.roomId ? [item.roomId] : [])).map(String);
+    const itemWeekday = item.type === 'exam' ? weekdayOf(item.examDate) : item.day;
+    externalBookings.forEach((ext) => {
+        if (ext.isSpecialFaculty) return;
+        if (!(ext.roomIds || []).some((rid) => itemRooms.includes(String(rid)))) return;
+        if (!timesOverlap(
+            { startTime: item.startTime, endTime: item.endTime },
+            { startTime: ext.startTime, endTime: ext.endTime },
+        )) return;
+        const who = `${ext.realmName} · ${ext.courseCode}`;
+        const when = `${hhmm(ext.startTime)}–${hhmm(ext.endTime)}`;
+        if (ext.type === item.type) {
+            const sameSlot = item.type === 'exam'
+                ? !!item.examDate && ext.examDate === item.examDate
+                : !!item.day && ext.day === item.day;
+            if (!sameSlot) return;
+            out.push({
+                type: 'room',
+                severity: 'error',
+                external: true,
+                relatedId: ext.id,
+                message: `Room conflict: "${getRoomLabel(item)}" is held by ${who} on ${ext.examDate || ext.day} ${when}. Rooms are shared between programmes, so one of the two sessions has to move.`,
+            });
+            return;
+        }
+        const extWeekday = ext.type === 'exam' ? weekdayOf(ext.examDate) : ext.day;
+        if (!itemWeekday || extWeekday !== itemWeekday) return;
+        out.push({
+            type: 'room',
+            severity: 'warning',
+            external: true,
+            crossType: true,
+            relatedId: ext.id,
+            message: ext.type === 'lecture'
+                ? `Room warning: "${getRoomLabel(item)}" has a weekly ${ext.realmName} lecture (${ext.courseCode}) on ${ext.day}s ${when}. Check that those lectures have ended by this exam.`
+                : `Room warning: "${getRoomLabel(item)}" has a ${ext.realmName} exam (${ext.courseCode}) on ${ext.examDate} ${when}. Check that this lecture is not running then.`,
+        });
+    });
+    return out;
 }
 
 /**
@@ -91,8 +171,11 @@ export function findAudienceClash(a, b, enrollmentsByCourse) {
 
 /**
  * Check all conflicts for a given candidate schedule item against existing schedules.
+ * @param {{config?: Object, externalBookings?: Array}} options - the realm config
+ *   (UG's when omitted) and the other realms' bookings (see `toExternalBooking`)
  */
-export function detectConflicts(candidate, allSchedules, excludeId = null, enrollmentsByCourse = null, departmentsById = null) {
+export function detectConflicts(candidate, allSchedules, excludeId = null, enrollmentsByCourse = null, departmentsById = null, options = {}) {
+    const { config = UG_CONFIG, externalBookings = [] } = options || {};
     const deptName = (id) => {
         if (id === UW_DEPT) return null;
         if (!departmentsById) return null;
@@ -209,19 +292,22 @@ export function detectConflicts(candidate, allSchedules, excludeId = null, enrol
     }
 
     // 4. Time conflict
-    if (isOutsideOperatingHours(candidate.startTime, candidate.endTime)) {
+    if (isOutsideWindow(candidate.startTime, candidate.endTime, config)) {
         conflicts.push({
             type: 'time',
             severity: 'warning',
-            message: `Time warning: This slot (${candidate.startTime}–${candidate.endTime}) falls outside standard operating hours (08:00–18:00).`,
+            message: `Time warning: This slot (${candidate.startTime}–${candidate.endTime}) falls outside standard operating hours (${config.day_start}–${config.day_end}).`,
         });
     }
+
+    // 5. Room held by another realm
+    conflicts.push(...externalConflicts(candidate, externalBookings));
 
     // Priority override
     const candidatePriority = scopePriority(candidate.courseScope);
     if (candidatePriority > 1) {
         conflicts.forEach((c) => {
-            if (c.severity !== 'error' || !c.otherScope) return;
+            if (c.severity !== 'error' || !c.otherScope || c.external) return;
             const otherPriority = scopePriority(c.otherScope);
             if (candidatePriority > otherPriority) {
                 c.severity = 'warning';
@@ -268,8 +354,10 @@ export function dismissalSignatureSet(dismissals) {
  * allowing large timetables (5,000+ items) to calculate in < 400ms.
  *
  * Returns a Map of scheduleId -> array of conflict objects.
+ * @param {{config?: Object, externalBookings?: Array}} options - as for `detectConflicts`
  */
-export function detectAllConflicts(allSchedules, enrollmentsByCourse = null, departmentsById = null, dismissedSignatures = null) {
+export function detectAllConflicts(allSchedules, enrollmentsByCourse = null, departmentsById = null, dismissedSignatures = null, options = {}) {
+    const { config = UG_CONFIG, externalBookings = [] } = options || {};
     if (!allSchedules || allSchedules.length === 0) return new Map();
 
     const deptName = (id) => {
@@ -323,11 +411,11 @@ export function detectAllConflicts(allSchedules, enrollmentsByCourse = null, dep
     // Step 2: Time warnings (outside operating hours)
     for (let i = 0; i < processed.length; i++) {
         const p = processed[i];
-        if (p.startMin < 8 * 60 || p.endMin > 18 * 60) {
+        if (isOutsideWindow(p.startTime, p.endTime, config)) {
             addConflict(p.id, {
                 type: 'time',
                 severity: 'warning',
-                message: 'Outside operating hours (08:00–18:00)',
+                message: `Outside operating hours (${config.day_start}–${config.day_end})`,
             });
         }
     }
@@ -495,19 +583,28 @@ export function detectAllConflicts(allSchedules, enrollmentsByCourse = null, dep
         }
     }
 
+    // Step 7: Rooms held by another realm. They can't be dismissed, so they are added after the filter.
+    if (externalBookings.length > 0) {
+        for (let i = 0; i < processed.length; i++) {
+            const found = externalConflicts(processed[i], externalBookings);
+            for (let j = 0; j < found.length; j++) addConflict(processed[i].id, found[j]);
+        }
+    }
+
     return conflictMap;
 }
 
 /**
  * Count total unique conflicts (not double-counting pairs).
  */
-export function countConflicts(allSchedules) {
+export function countConflicts(allSchedules, options = {}) {
+    const { config = UG_CONFIG } = options || {};
     const pairs = new Set();
     let warningCount = 0;
 
     for (let i = 0; i < allSchedules.length; i++) {
         const a = allSchedules[i];
-        if (isOutsideOperatingHours(a.startTime, a.endTime)) {
+        if (isOutsideWindow(a.startTime, a.endTime, config)) {
             warningCount++;
         }
         for (let j = i + 1; j < allSchedules.length; j++) {

@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useApp, ACTION_TYPES } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
 import { apiClient } from '@/lib/apiClient';
-import { detectAllConflicts, dismissalSignatureSet } from '@/lib/conflicts';
+import { detectAllConflicts, dismissalSignatureSet, toExternalBooking } from '@/lib/conflicts';
 import { exportTimetablePDF } from '@/lib/pdfExport';
 import { exportTimetableCSV } from '@/lib/csvExport';
 import { isGeneralStudiesCourse, GENERAL_STUDIES_FACULTY } from '@/lib/utils';
@@ -24,9 +24,11 @@ import styles from './lectures.module.css';
 // Set to false to skip showing conflict warning popups.
 const SHOW_CONFLICTS_BEFORE_EXPORT = false;
 
+const NO_EXTERNAL_BOOKINGS = [];
+
 export default function LectureTimetablePage() {
     const { getSchedulesWithDetails, state, dispatch, isInitialized } = useApp();
-    const { user } = useAuth();
+    const { user, realm, realmName, realmConfig } = useAuth();
     const { addToast } = useToast();
     const confirm = useConfirm();
 
@@ -42,6 +44,8 @@ export default function LectureTimetablePage() {
     const [requestBusy, setRequestBusy] = useState(false);
     const [isChangeModalOpen, setIsChangeModalOpen] = useState(false);
     const [changeBusy, setChangeBusy] = useState(false);
+    // Sessions other realms hold in the shared rooms (their current semesters).
+    const [externalBookings, setExternalBookings] = useState(NO_EXTERNAL_BOOKINGS);
 
     const enrollmentsByCourse = useMemo(() => {
         const map = new Map();
@@ -81,6 +85,9 @@ export default function LectureTimetablePage() {
     const loadSchedules = useCallback(async (semId) => {
         if (semId === null) return;
         try {
+            apiClient.get('/timetable/external-bookings')
+                .then((rows) => setExternalBookings((rows || []).map(toExternalBooking)))
+                .catch(() => setExternalBookings(NO_EXTERNAL_BOOKINGS));
             const [scheduleItems, blockedSlotsData, locks] = await Promise.all([
                 apiClient.get(`/timetable/schedule-items?semester_id=${semId}`).catch(() => []),
                 apiClient.get(`/timetable/blocked-slots?semester_id=${semId}`).catch(() => []),
@@ -209,7 +216,7 @@ export default function LectureTimetablePage() {
         if (SHOW_CONFLICTS_BEFORE_EXPORT) {
             const schedules = getSchedulesWithDetails.filter((s) => s.type === 'lecture');
             const dismissals = await apiClient.get('/timetable/conflict-dismissals').catch(() => []);
-            const conflictsMap = detectAllConflicts(schedules, null, null, dismissalSignatureSet(dismissals));
+            const conflictsMap = detectAllConflicts(schedules, null, null, dismissalSignatureSet(dismissals), { config: realmConfig, externalBookings });
             const errorMessages = [...new Set(
                 Array.from(conflictsMap.values())
                     .flat()
@@ -286,6 +293,9 @@ export default function LectureTimetablePage() {
                 department: departmentInfo,
                 mode: 'lecture',
                 groupByFaculty,
+                config: realmConfig,
+                realmKey: realm,
+                realmName,
             });
             addToast({ type: 'success', title: 'CSV Exported', message: 'Lecture timetable downloaded as CSV.' });
             return;
@@ -313,6 +323,9 @@ export default function LectureTimetablePage() {
             paperSize,
             structured: paperSize === 'a3',
             isLocked,
+            config: realmConfig,
+            realmKey: realm,
+            realmName,
         });
         addToast({ type: 'success', title: 'PDF Exported', message: `Lecture timetable downloaded as PDF (${paperSize.toUpperCase()}).` });
     };
@@ -371,7 +384,7 @@ export default function LectureTimetablePage() {
                     </button>
                 </div>
             </div>
-            <TimetableGrid mode="lecture" semesterId={selectedSemesterId} semesterName={semesters.find(s => s.id === selectedSemesterId)?.name || null} blockedSlots={blockedSlots} readOnly={readOnly} readOnlyReasons={readOnlyReasons} enrollmentsByCourse={enrollmentsByCourse} />
+            <TimetableGrid mode="lecture" semesterId={selectedSemesterId} semesterName={semesters.find(s => s.id === selectedSemesterId)?.name || null} blockedSlots={blockedSlots} readOnly={readOnly} readOnlyReasons={readOnlyReasons} enrollmentsByCourse={enrollmentsByCourse} externalBookings={isCurrentSemester ? externalBookings : NO_EXTERNAL_BOOKINGS} />
             <ExportModal
                 isOpen={isExportModalOpen}
                 onClose={() => setIsExportModalOpen(false)}

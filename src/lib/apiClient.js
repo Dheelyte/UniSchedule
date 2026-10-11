@@ -1,3 +1,5 @@
+import { lastRealm, loginPath } from "./realm.js";
+
 function getApiBaseUrl() {
 	if (process.env.NEXT_PUBLIC_API_URL) {
 		return process.env.NEXT_PUBLIC_API_URL;
@@ -41,7 +43,7 @@ export const apiClient = {
 						window.location.pathname,
 					)
 				) {
-					window.location.href = "/login";
+					window.location.href = loginPath(lastRealm());
 				}
 			}
 
