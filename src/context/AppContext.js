@@ -251,7 +251,7 @@ export function AppProvider({ children }) {
             lectureCount: state.scheduleItems.filter((s) => s.type === 'lecture').length,
             examCount: state.scheduleItems.filter((s) => s.type === 'exam').length,
         };
-    }, [state]);
+    }, [state.scheduleItems, state.faculties, state.rooms, state.courses, state.departments]);
 
     // Helper: get department with its faculty name
     const getDepartmentsWithFaculty = useMemo(() => {
@@ -306,8 +306,8 @@ export function AppProvider({ children }) {
                 courseScope: course?.scope ?? null,
                 courseDepartmentId: course?.departmentId ?? null,
                 // Multi-room display helpers
-                roomNames: resolvedRooms.map((r) => r.name).join(', ') || 'NIL',
-                roomCapacity: resolvedRooms.reduce((sum, r) => sum + (r.capacity || 0), 0),
+                roomNames: item.is_online ? '🌐 Online' : (resolvedRooms.map((r) => r.name).join(', ') || 'NIL'),
+                roomCapacity: item.is_online ? null : resolvedRooms.reduce((sum, r) => sum + (r.capacity || 0), 0),
                 departmentId: dept?.id || null,
                 departmentName: dept?.name || 'NIL',
                 facultyId: effFacId,
@@ -316,7 +316,7 @@ export function AppProvider({ children }) {
                 isSpecialFaculty: !!(effFaculty?.is_special ?? effFaculty?.isSpecial),
             };
         });
-    }, [state]);
+    }, [state.scheduleItems, state.courses, state.rooms, state.departments, state.faculties]);
 
     const value = {
         state,

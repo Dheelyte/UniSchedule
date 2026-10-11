@@ -1,6 +1,16 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { assignLanes, splitCourseCode, computeDayRange, fitChipText } from "./timetableLayout.js";
+import {
+	assignLanes,
+	splitCourseCode,
+	computeDayRange,
+	fitChipText,
+	ONLINE_ROOM_ID,
+	ONLINE_ROOM_NAME,
+	isScheduleOnline,
+	scheduleMatchesRoom,
+	buildFacultyRooms,
+} from "./timetableLayout.js";
 
 const cls = (id, startTime, endTime) => ({ id, startTime, endTime });
 const lanesById = (placed) => Object.fromEntries(placed.map((c) => [c.id, c.lane]));
@@ -81,4 +91,59 @@ test("fitChipText falls back without shrinking the font", () => {
 	assert.equal(stacked.marked, true);
 	assert.equal(fitChipText("HIS201", 4, measure, sizes).marked, false);
 	assert.equal(fitChipText("UNILAG-HIS206", 2, measure, sizes).kind, "clipped");
+});
+
+test("isScheduleOnline identifies online schedules from various properties", () => {
+	assert.equal(isScheduleOnline({ is_online: true }), true);
+	assert.equal(isScheduleOnline({ isOnline: true }), true);
+	assert.equal(isScheduleOnline({ roomId: ONLINE_ROOM_ID }), true);
+	assert.equal(isScheduleOnline({ roomIds: [ONLINE_ROOM_ID] }), true);
+	assert.equal(isScheduleOnline({ is_online: false, roomIds: [101] }), false);
+	assert.equal(isScheduleOnline(null), false);
+	assert.equal(isScheduleOnline({}), false);
+});
+
+test("scheduleMatchesRoom routes online courses only to the online room", () => {
+	const onlineRoom = { id: ONLINE_ROOM_ID, name: ONLINE_ROOM_NAME, isOnline: true };
+	const physicalRoom = { id: 101, name: "Room 101" };
+	const otherPhysicalRoom = { id: 102, name: "Room 102" };
+
+	const onlineClass = { id: 1, courseCode: "CSC201", is_online: true, roomIds: [101] };
+	const physicalClass = { id: 2, courseCode: "CSC202", is_online: false, roomIds: [101] };
+
+	// Online class matches online room, does NOT match physical room even if residual roomIds exists
+	assert.equal(scheduleMatchesRoom(onlineClass, onlineRoom), true);
+	assert.equal(scheduleMatchesRoom(onlineClass, physicalRoom), false);
+
+	// Physical class matches its assigned physical room, does NOT match online room
+	assert.equal(scheduleMatchesRoom(physicalClass, onlineRoom), false);
+	assert.equal(scheduleMatchesRoom(physicalClass, physicalRoom), true);
+	assert.equal(scheduleMatchesRoom(physicalClass, otherPhysicalRoom), false);
+});
+
+test("buildFacultyRooms places online venue first when faculty has online courses", () => {
+	const onlineRoom = { id: ONLINE_ROOM_ID, name: ONLINE_ROOM_NAME, isOnline: true };
+	const r1 = { id: 101, name: "Room 101" };
+	const r2 = { id: 102, name: "Room 102" };
+	const r3 = { id: 103, name: "Room 103" };
+	const activeRooms = [r1, r2, r3];
+
+	const schedulesWithOnline = [
+		{ id: 1, is_online: true },
+		{ id: 2, is_online: false, roomIds: [102] },
+	];
+
+	const roomsWithOnline = buildFacultyRooms(schedulesWithOnline, activeRooms, onlineRoom);
+	// Online room must be first, followed by active physical room 102 (101 and 103 excluded since not in this faculty)
+	assert.deepEqual(roomsWithOnline, [onlineRoom, r2]);
+
+	// When faculty has ONLY online courses
+	const onlyOnlineSchedules = [{ id: 1, is_online: true }];
+	const roomsOnlyOnline = buildFacultyRooms(onlyOnlineSchedules, activeRooms, onlineRoom);
+	assert.deepEqual(roomsOnlyOnline, [onlineRoom]);
+
+	// When faculty has NO online courses
+	const onlyPhysicalSchedules = [{ id: 2, is_online: false, roomIds: [101] }];
+	const roomsOnlyPhysical = buildFacultyRooms(onlyPhysicalSchedules, activeRooms, onlineRoom);
+	assert.deepEqual(roomsOnlyPhysical, [r1]);
 });

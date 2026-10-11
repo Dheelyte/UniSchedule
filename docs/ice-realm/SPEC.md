@@ -117,7 +117,7 @@ Changing a realm's config later doesn't rewrite existing schedule items. The new
 | `semesters`, `blocked_slots`, `timetable_locks`, `course_enrollments`, `conflict_dismissals`, `notifications` | No new column | Realm comes from the semester (via its session), the course or the schedule item |
 | `faculties`, `departments`, `rooms` | No change | Shared |
 
-Write one hand-written revision with `down_revision = "m3h4i5j6k7l8"` (the current head). Use autogenerate only to cross-check it. The revision performs these steps in order:
+Write one hand-written revision with `down_revision = "2f166d445031"` (the head on `main`; it was `m3h4i5j6k7l8` until main gained the DEO-role and online-session revisions). Use autogenerate only to cross-check it. The revision performs these steps in order:
 
 1. Create `realms` and insert the four rows with the configs from §4.
 2. Add the `realm_key` columns. The server default fills existing rows with `UG`.

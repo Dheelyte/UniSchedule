@@ -221,14 +221,20 @@ class AuthService:
         )
         return created_user
 
-    async def get_users(self, *, realm_key: str) -> list[User]:
-        return await self.repo.get_users(realm_key=realm_key)
+    async def get_users(self, *, realm_key: str, faculty_id: str | None = None) -> list[User]:
+        users = await self.repo.get_users(realm_key=realm_key)
+        if faculty_id:
+            users = [u for u in users if u.faculty_id == faculty_id]
+        return users
 
     async def get_user_by_email(self, email: str) -> User:
         return await self.repo.get_user_by_email(email)
 
-    async def get_invitations(self, *, realm_key: str) -> list[Invitation]:
-        return await self.repo.get_invitations(realm_key=realm_key)
+    async def get_invitations(self, *, realm_key: str, faculty_id: str | None = None) -> list[Invitation]:
+        invites = await self.repo.get_invitations(realm_key=realm_key)
+        if faculty_id:
+            invites = [i for i in invites if i.faculty_id == faculty_id]
+        return invites
 
     async def delete_user(self, user_id: int, current_user: dict) -> bool:
         user = await self.repo.get_user_by_id(user_id)

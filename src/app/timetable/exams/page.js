@@ -386,7 +386,7 @@ export default function ExamTimetablePage() {
 				: s,
 		);
 		const activeRoomIds = new Set(state.rooms.filter(isRoomActive).map((room) => room.id));
-		const exportableSchedules = filteredSchedules.filter((s) => (s.roomIds || []).some((rid) => activeRoomIds.has(rid)));
+		const exportableSchedules = filteredSchedules.filter((s) => s.is_online || s.isOnline || (s.roomIds || []).some((rid) => activeRoomIds.has(rid)));
 		if (exportableSchedules.length === 0) {
 			addToast({
 				type: "error",

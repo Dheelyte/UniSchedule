@@ -27,6 +27,7 @@ def _has_global_read_scope(user: dict) -> bool:
         RoleEnum.GS_ADMIN.value,
         RoleEnum.FACULTY_EDITOR.value,
         RoleEnum.FACULTY_VIEWER.value,
+        RoleEnum.DEO.value,
         RoleEnum.CITS_ADMIN.value,
     )
 
@@ -446,7 +447,8 @@ class TimetableService:
 
     async def get_courses(self, current_user: dict) -> list[Course]:
         faculty_id = None if _has_global_read_scope(current_user) else current_user.get('faculty_id')
-        return await self.repo.get_courses(realm_key=current_user["realm"], faculty_id=faculty_id)
+        prioritize_faculty_id = current_user.get('faculty_id')
+        return await self.repo.get_courses(realm_key=current_user["realm"], faculty_id=faculty_id, prioritize_faculty_id=prioritize_faculty_id)
 
     async def update_course(self, id: int, data: CourseUpdate, current_user: dict) -> Course:
         course = await self.repo.get_course(id, realm_key=current_user["realm"])
@@ -783,7 +785,8 @@ class TimetableService:
             realm_key=current_user["realm"], semester_id=sem_id, item_type=data.type,
             day_of_week=data.day_of_week, exam_date=exam_date_val,
             start_time=data.start_time, end_time=data.end_time,
-            room_ids=data.room_ids, faculty_id=data.faculty_id,
+            # An online session holds no room.
+            room_ids=[] if data.is_online else data.room_ids, faculty_id=data.faculty_id,
         )
 
         item = ScheduleItem(
@@ -798,6 +801,7 @@ class TimetableService:
             exam_date=getattr(data, 'exam_date', None),
             semester_id=sem_id,
             realm_key=current_user["realm"],
+            is_online=data.is_online,
         )
         created = await self.repo.create_schedule_item(item)
         await self._notify_priority_overrides(created)
@@ -844,13 +848,14 @@ class TimetableService:
         new_exam_date = getattr(data, 'exam_date', None) if getattr(data, 'exam_date', None) is not None else getattr(item, 'exam_date', None)
         new_start = data.start_time or item.start_time
         new_end = data.end_time or item.end_time
+        new_online = data.is_online if data.is_online is not None else item.is_online
         _assert_fits_window(current_user, item.type, new_day, new_exam_date, new_start, new_end)
         if item.semester_id:
             await self._check_blocked_slots(item.type, new_day, new_exam_date, new_start, new_end, item.semester_id, current_user["realm"])
         await self._assert_no_cross_realm_clash(
             realm_key=current_user["realm"], semester_id=item.semester_id, item_type=item.type,
             day_of_week=new_day, exam_date=new_exam_date, start_time=new_start, end_time=new_end,
-            room_ids=data.room_ids if data.room_ids is not None else item.room_ids,
+            room_ids=[] if new_online else (data.room_ids if data.room_ids is not None else item.room_ids),
             faculty_id=item.faculty_id,
         )
         if data.room_ids is not None:
@@ -860,6 +865,7 @@ class TimetableService:
         if data.exam_date is not None: item.exam_date = data.exam_date
         if data.start_time is not None: item.start_time = data.start_time
         if data.end_time is not None: item.end_time = data.end_time
+        if data.is_online is not None: item.is_online = data.is_online
         updated = await self.repo.update_schedule_item(item)
         await self._notify_priority_overrides(updated)
         course = await self.repo.get_course(updated.course_id, realm_key=current_user["realm"])
@@ -1147,6 +1153,7 @@ class TimetableService:
             end_time=data.end_time,
             week=data.week,
             exam_date=data.exam_date,
+            is_online=data.is_online,
             reason=data.reason,
             status=ChangeRequestStatus.PENDING.value,
             requested_by=requester_id,
@@ -1229,6 +1236,8 @@ class TimetableService:
                     week=cr.week,
                     exam_date=cr.exam_date,
                     semester_id=cr.semester_id,
+                    # NULL on requests made before online sessions existed, or sent without the flag.
+                    is_online=bool(cr.is_online),
                 )
                 created_item = await self.create_schedule_item(payload, current_user)
                 cr.resulting_schedule_item_id = created_item.id
@@ -1241,6 +1250,7 @@ class TimetableService:
                     exam_date=cr.exam_date,
                     start_time=cr.start_time,
                     end_time=cr.end_time,
+                    is_online=cr.is_online,
                 )
                 updated_item = await self.update_schedule_item(cr.target_schedule_item_id, payload, current_user)
                 cr.resulting_schedule_item_id = updated_item.id

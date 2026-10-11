@@ -79,8 +79,18 @@ async def invite_staff(
     data: InviteRequest, 
     service: AuthService = Depends(),
     timetable_repo: TimetableRepository = Depends(),
-    current_user: dict = Depends(RequireRole([RoleEnum.SUPER_ADMIN.value]))
+    current_user: dict = Depends(RequireRole([RoleEnum.SUPER_ADMIN.value, RoleEnum.FACULTY_EDITOR.value]))
 ):
+    if current_user.get("role") == RoleEnum.FACULTY_EDITOR.value:
+        if data.target_role != RoleEnum.DEO:
+            from fastapi import HTTPException
+            raise HTTPException(status_code=403, detail="Faculty Editors can only invite DEOs")
+        if not data.faculty_id:
+            data.faculty_id = current_user.get("faculty_id")
+        elif data.faculty_id != current_user.get("faculty_id"):
+            from fastapi import HTTPException
+            raise HTTPException(status_code=403, detail="Faculty Editors can only invite DEOs to their own faculty")
+
     invite = await service.generate_invite(data.email, data.target_role, data.faculty_id, data.semester_id, current_user=current_user)
     
     faculty_name = None
@@ -110,12 +120,21 @@ async def complete_registration(
     return {"message": "Registration successful", "user_id": user.id}
 
 @router.get("/users", response_model=list[UserResponse])
-async def get_users(service: AuthService = Depends(), user: dict = Depends(RequireRole([RoleEnum.SUPER_ADMIN.value, RoleEnum.SUPER_VIEWER.value]))):
-    return await service.get_users(realm_key=user["realm"])
+async def get_users(service: AuthService = Depends(), user: dict = Depends(RequireRole([RoleEnum.SUPER_ADMIN.value, RoleEnum.SUPER_VIEWER.value, RoleEnum.FACULTY_EDITOR.value]))):
+    faculty_id = None
+    if user.get("role") == RoleEnum.FACULTY_EDITOR.value:
+        faculty_id = user.get("faculty_id")
+    return await service.get_users(realm_key=user["realm"], faculty_id=faculty_id)
 
 @router.get("/invitations", response_model=list[InvitationResponse])
-async def get_invitations(service: AuthService = Depends(), user: dict = Depends(RequireRole([RoleEnum.SUPER_ADMIN.value, RoleEnum.SUPER_VIEWER.value]))):
-    invitations = [InvitationResponse.model_validate(inv) for inv in await service.get_invitations(realm_key=user["realm"])]
+async def get_invitations(service: AuthService = Depends(), user: dict = Depends(RequireRole([RoleEnum.SUPER_ADMIN.value, RoleEnum.SUPER_VIEWER.value, RoleEnum.FACULTY_EDITOR.value]))):
+    faculty_id = None
+    if user.get("role") == RoleEnum.FACULTY_EDITOR.value:
+        faculty_id = user.get("faculty_id")
+    invitations = [
+        InvitationResponse.model_validate(inv)
+        for inv in await service.get_invitations(realm_key=user["realm"], faculty_id=faculty_id)
+    ]
     if user.get("role") != RoleEnum.SUPER_ADMIN.value:
         for invitation in invitations:
             invitation.token = None

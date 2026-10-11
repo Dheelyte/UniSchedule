@@ -1,12 +1,12 @@
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, or_, any_
+from sqlalchemy import select, or_, any_, case
 from datetime import date, datetime, timezone
 from core.database import get_db
 from modules.calendar.models import AcademicSession, Semester
 from modules.calendar.repository import realm_semester_ids
 from modules.realms.models import Realm
-from modules.timetable.models import Faculty, Room, Course, ScheduleItem, Department, TimetableLock, CourseEnrollment, ChangeRequest, ConflictDismissal
+from modules.timetable.models import Faculty, Room, Course, ScheduleItem, Department, TimetableLock, CourseEnrollment, ChangeRequest, ConflictDismissal, CourseScope
 
 
 def _realm_course_ids(realm_key: str):
@@ -118,19 +118,24 @@ class TimetableRepository:
         await self.db.flush()
         return course
 
-    async def get_courses(self, *, realm_key: str, faculty_id: str | None = None) -> list[Course]:
+    async def get_courses(self, *, realm_key: str, faculty_id: str | None = None, prioritize_faculty_id: str | None = None) -> list[Course]:
         if faculty_id:
-            from sqlalchemy import or_
-            from modules.timetable.models import CourseScope
             dept_result = await self.db.execute(select(Department.id).where(Department.faculty_id == faculty_id))
             dept_ids = [r for r in dept_result.scalars().all()]
             conditions = [Course.scope.in_([CourseScope.INTERFACULTY, CourseScope.UNIVERSITY_WIDE])]
             if dept_ids:
                 conditions.append(Course.department_id.in_(dept_ids))
             query = select(Course).where(Course.realm_key == realm_key, or_(*conditions))
-            result = await self.db.execute(query)
         else:
-            result = await self.db.execute(select(Course).where(Course.realm_key == realm_key))
+            query = select(Course).where(Course.realm_key == realm_key)
+
+        if prioritize_faculty_id:
+            dept_result = await self.db.execute(select(Department.id).where(Department.faculty_id == prioritize_faculty_id))
+            dept_ids = [r for r in dept_result.scalars().all()]
+            if dept_ids:
+                query = query.order_by(case((Course.department_id.in_(dept_ids), 0), else_=1))
+
+        result = await self.db.execute(query)
         return list(result.scalars().all())
 
     async def get_course(self, id: int, *, realm_key: str) -> Course | None:
@@ -231,6 +236,8 @@ class TimetableRepository:
             .outerjoin(Faculty, Faculty.id == ScheduleItem.faculty_id)
             .where(
                 ScheduleItem.realm_key != exclude_realm_key,
+                # An online session holds no room.
+                ScheduleItem.is_online.is_(False),
                 Semester.is_current == True,
                 AcademicSession.realm_key == ScheduleItem.realm_key,
             )

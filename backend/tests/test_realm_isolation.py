@@ -501,3 +501,45 @@ async def test_a_cross_realm_requester_is_told_which_realm_was_reviewed(world, m
     assert reviewed(await _ok(await ice["editor"].get(f"{API}/notifications"))) == {
         ("Your change request was rejected", "/timetable/lectures"),
     }
+
+
+# --- Merged from main: DEO role and online sessions -------------------------
+
+async def test_a_faculty_editor_manages_deos_in_their_own_realm_only(world, make_user, monkeypatch):
+    async def no_email(**kwargs):
+        return None
+    monkeypatch.setattr(mail.EmailService, "send_invitation_email", no_email)
+    ug, ice = world["UG"], world["ICE"]
+    ug_deo = await make_user(RoleEnum.DEO, faculty_id="ENG", realm="UG")
+    ice_deo = await make_user(RoleEnum.DEO, faculty_id="ENG", realm="ICE")
+
+    # Same faculty in both realms, but each editor lists only their own realm's staff.
+    for realm, own, other in ((ug, ug_deo, ice_deo), (ice, ice_deo, ug_deo)):
+        emails = {row["email"] for row in await _ok(await realm["editor"].get(f"{API}/auth/users"))}
+        assert own["email"] in emails and realm["editor_user"]["email"] in emails
+        assert other["email"] not in emails
+
+    # A DEO invited by an ICE editor joins ICE, and only ICE's editor sees the invitation, without its token.
+    await _ok(await ice["editor"].post(f"{API}/auth/invite", json={"email": "new-deo@example.com", "target_role": "DEO"}))
+    async with async_session_maker() as session:
+        from modules.auth.models import Invitation
+        invite = (await session.execute(select(Invitation).where(Invitation.email == "new-deo@example.com"))).scalar_one()
+    assert (invite.realm_key, invite.faculty_id) == ("ICE", "ENG")
+    listed = await _ok(await ice["editor"].get(f"{API}/auth/invitations"))
+    assert [(row["email"], row["token"]) for row in listed] == [("new-deo@example.com", None)]
+    assert await _ok(await ug["editor"].get(f"{API}/auth/invitations")) == []
+
+
+async def test_an_online_session_holds_no_room_across_realms(world):
+    ug, ice = world["UG"], world["ICE"]
+    # UG holds the shared room on Monday 10:00-12:00 (the fixture's lecture). Monday isn't an ICE day,
+    # so the clash is set up the other way round: ICE holds Friday 10:00-12:00.
+    clash = _lecture(ug, day_of_week="Friday", start_time="11:00:00", end_time="13:00:00")
+    assert (await ug["admin"].post(f"{API}/timetable/schedule-items", json=clash)).status_code == 409
+
+    online = await _ok(await ug["admin"].post(f"{API}/timetable/schedule-items", json={**clash, "is_online": True}))
+    assert online["is_online"] is True
+    # ...and it isn't offered to the other realm as a room booking.
+    assert online["id"] not in {row["id"] for row in await _ok(await ice["admin"].get(f"{API}/timetable/external-bookings"))}
+    # Moving it back into the room is refused again.
+    assert (await ug["admin"].put(f"{API}/timetable/schedule-items/{online['id']}", json={"is_online": False})).status_code == 409

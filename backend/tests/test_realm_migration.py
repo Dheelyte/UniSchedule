@@ -16,7 +16,7 @@ from tests.conftest import BACKEND_DIR, TEST_DATABASE_URL, _url
 # with -m "not slow"; a phase's final check runs everything.
 pytestmark = pytest.mark.slow
 
-PREVIOUS_HEAD = "m3h4i5j6k7l8"
+PREVIOUS_HEAD = "2f166d445031"
 REALMS_REVISION = "n4i5j6k7l8m9"
 SCRATCH_DB = "unilag_timetable_migration_test"
 # conftest has already refused any TEST_DATABASE_URL that isn't a local *_test database.

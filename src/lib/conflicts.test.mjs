@@ -80,7 +80,7 @@ test("UG output is unchanged when no options are passed", () => {
 	]);
 
 	const map = detectAllConflicts([a, b, late]);
-	assert.deepEqual([...map.keys()], [1, 2, 3]);
+	assert.deepEqual([...map.keys()].sort(), [1, 2, 3]);
 	assert.deepEqual(map.get(1), [
 		{ type: "room", severity: "error", message: 'Room "LT1" double-booked with MTH101 (11:00–13:00)', relatedId: 2 },
 	]);

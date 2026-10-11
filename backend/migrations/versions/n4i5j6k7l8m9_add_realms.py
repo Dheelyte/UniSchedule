@@ -1,7 +1,7 @@
 """Add realms and realm_key columns
 
 Revision ID: n4i5j6k7l8m9
-Revises: m3h4i5j6k7l8
+Revises: 2f166d445031
 Create Date: 2026-10-08 00:00:00.000000
 
 Additive and safe for the previous version of the code: the deploy workflow
@@ -16,7 +16,7 @@ from sqlalchemy.dialects import postgresql
 
 
 revision: str = 'n4i5j6k7l8m9'
-down_revision: Union[str, Sequence[str], None] = 'm3h4i5j6k7l8'
+down_revision: Union[str, Sequence[str], None] = '2f166d445031'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
