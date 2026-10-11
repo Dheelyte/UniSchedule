@@ -100,3 +100,42 @@ export function fitChipText(rawCode, innerW, measure, sizes) {
 	}
 	return { kind: "clipped", lines: [clipped + "…"], marked };
 }
+
+export const ONLINE_ROOM_ID = "online_virtual_room";
+export const ONLINE_ROOM_NAME = "Online Classes";
+
+export function isScheduleOnline(schedule) {
+	return !!(
+		schedule &&
+		(schedule.is_online ||
+			schedule.isOnline ||
+			schedule.roomId === ONLINE_ROOM_ID ||
+			(Array.isArray(schedule.roomIds) && schedule.roomIds.includes(ONLINE_ROOM_ID)))
+	);
+}
+
+export function scheduleMatchesRoom(schedule, room) {
+	if (!room) return false;
+	const isOnlineRoom = room.id === ONLINE_ROOM_ID || !!room.isOnline;
+	if (isOnlineRoom) {
+		return isScheduleOnline(schedule);
+	}
+	if (isScheduleOnline(schedule)) {
+		return false;
+	}
+	const rids = schedule.roomIds || (schedule.roomId ? [schedule.roomId] : []);
+	return rids.includes(room.id);
+}
+
+export function buildFacultyRooms(
+	facSchedules,
+	activeRooms,
+	onlineRoom = { id: ONLINE_ROOM_ID, name: ONLINE_ROOM_NAME, isOnline: true }
+) {
+	const hasOnline = (facSchedules || []).some(isScheduleOnline);
+	const physicalRooms = (activeRooms || []).filter((r) => {
+		if (r.id === ONLINE_ROOM_ID || r.isOnline) return false;
+		return (facSchedules || []).some((si) => scheduleMatchesRoom(si, r));
+	});
+	return hasOnline ? [onlineRoom, ...physicalRooms] : physicalRooms;
+}

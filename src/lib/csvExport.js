@@ -50,6 +50,7 @@ export function exportTimetableCSV({
 
   const toRow = (s) => {
     const lecturers = (s.courseLecturers || []).join("; ");
+    const roomName = s.roomNames || (s.is_online || s.isOnline ? "Online" : "NIL");
     if (mode === "exam") {
       const dateObj = parseLocalDate(s.examDate);
       const dateStr = dateObj
@@ -58,9 +59,9 @@ export function exportTimetableCSV({
       const dayStr = dateObj
         ? dateObj.toLocaleDateString("en-GB", { weekday: "long" })
         : "";
-      return [dateStr, dayStr, s.startTime, s.endTime, s.roomNames, s.courseCode, s.courseTitle, s.departmentName, s.facultyName, lecturers];
+      return [dateStr, dayStr, s.startTime, s.endTime, roomName, s.courseCode, s.courseTitle, s.departmentName, s.facultyName, lecturers];
     }
-    return [s.day, s.startTime, s.endTime, s.roomNames, s.courseCode, s.courseTitle, s.departmentName, s.facultyName, lecturers];
+    return [s.day, s.startTime, s.endTime, roomName, s.courseCode, s.courseTitle, s.departmentName, s.facultyName, lecturers];
   };
 
   const escape = (val) => {

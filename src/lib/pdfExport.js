@@ -1,7 +1,16 @@
 import jsPDF from "jspdf";
 import { unilagLogoBase64 } from "@/lib/logo";
 import { GENERAL_STUDIES_FACULTY, isGeneralStudiesCourse } from "@/lib/utils";
-import { assignLanes, computeDayRange, fitChipText } from "@/lib/timetableLayout";
+import {
+	assignLanes,
+	computeDayRange,
+	fitChipText,
+	ONLINE_ROOM_ID,
+	ONLINE_ROOM_NAME,
+	isScheduleOnline,
+	scheduleMatchesRoom,
+	buildFacultyRooms,
+} from "@/lib/timetableLayout";
 import { robotoCondensedRegular, robotoCondensedBold } from "@/lib/fonts/robotoCondensed";
 
 export function exportTimetablePDF({
@@ -46,6 +55,10 @@ export function exportTimetablePDF({
 
 	// Helper: format room label with brackets and faculty name (common helper)
 	const getRoomLabel = (room) => {
+		if (!room) return "";
+		if (room.id === ONLINE_ROOM_ID || room.isOnline) {
+			return room.name || ONLINE_ROOM_NAME;
+		}
 		let roomLabel = room.name || room.id;
 		const facId = room.facultyId || room.faculty_id;
 		if (facId) {
@@ -603,6 +616,7 @@ export function exportTimetablePDF({
 		// 2. Identify active rooms and map them to faculties
 		const activeRoomIds = new Set();
 		schedules.forEach(s => {
+			if (isScheduleOnline(s)) return;
 			const ids = s.roomIds || (s.roomId ? [s.roomId] : []);
 			ids.forEach(id => activeRoomIds.add(id));
 		});
@@ -614,6 +628,14 @@ export function exportTimetablePDF({
 			}
 		});
 		activeRooms.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+
+		const onlineRoom = {
+			id: ONLINE_ROOM_ID,
+			name: ONLINE_ROOM_NAME,
+			capacity: "—",
+			isOnline: true,
+			faculty_id: null,
+		};
 
 		const roomFaculties = {};
 		activeRooms.forEach(r => {
@@ -643,8 +665,7 @@ export function exportTimetablePDF({
 		const getLectureRoomDayLanes = (room, targetSchedules, dayVal) => {
 			const seen = new Set();
 			const unique = targetSchedules.filter((si) => {
-				const rids = si.roomIds || (si.roomId ? [si.roomId] : []);
-				if (!rids.includes(room.id) || si.day !== dayVal) return false;
+				if (!scheduleMatchesRoom(si, room) || si.day !== dayVal) return false;
 				const code = si.courseCode || si.courseId || "N/A";
 				if (seen.has(code)) return false;
 				seen.add(code);
@@ -672,10 +693,7 @@ export function exportTimetablePDF({
 				return Math.max(labelH, maxLanes * LANE_PITCH + 2 * ROW_PAD - (LANE_PITCH - CHIP_H));
 			}
 
-			const roomSchedules = targetSchedules.filter(si => {
-				const rids = si.roomIds || (si.roomId ? [si.roomId] : []);
-				return rids.includes(room.id);
-			});
+			const roomSchedules = targetSchedules.filter(si => scheduleMatchesRoom(si, room));
 
 			let maxLinesInAnySlot = 1;
 			const slotGroups = {};
@@ -714,7 +732,7 @@ export function exportTimetablePDF({
 		};
 
 		// Helper: Find enrolling faculties for a course
-		const getEnrolledFaculties = (courseId, ownerFacultyId) => {
+		const getEnrolledFaculties = (courseId, ownerFacultyId, ownerFacultyName) => {
 			const enrollingFacs = new Set();
 			
 			// Find all enrollments for this course
@@ -732,6 +750,9 @@ export function exportTimetablePDF({
 				if (ownerFacultyId) {
 					const fac = faculties.find(f => String(f.id) === String(ownerFacultyId));
 					if (fac) enrollingFacs.add(fac.name);
+				}
+				if (enrollingFacs.size === 0 && ownerFacultyName && ownerFacultyName !== "NIL") {
+					enrollingFacs.add(ownerFacultyName);
 				}
 			}
 
@@ -785,7 +806,7 @@ export function exportTimetablePDF({
 			// Group GST schedules by enrolling faculty name
 			const gstFacultySchedules = {};
 			weekGstSchedules.forEach(si => {
-				const allFacs = getEnrolledFaculties(si.courseId, si.facultyId);
+				const allFacs = getEnrolledFaculties(si.courseId, si.facultyId, si.facultyName);
 				const targetFacs = allFacs.filter(f => {
 					if (isAllFaculty) return true;
 					return f.toLowerCase().trim() === cleanSelectedFaculty;
@@ -809,9 +830,7 @@ export function exportTimetablePDF({
 
 			sortedGstFacs.forEach(facName => {
 				const facSchedules = gstFacultySchedules[facName];
-				const facRooms = activeRooms.filter(r => {
-					return facSchedules.some(si => (si.roomIds || [si.roomId]).includes(r.id));
-				});
+				const facRooms = buildFacultyRooms(facSchedules, activeRooms, onlineRoom);
 				if (facRooms.length === 0) return;
 
 				const dayRange = mode === "exam" ? null : getLectureDayRange(facName, facSchedules);
@@ -867,7 +886,7 @@ export function exportTimetablePDF({
 			// Group normal schedules by enrolling faculty name (prioritize faculty of concern)
 			const normalFacultySchedules = {};
 			weekNormalSchedules.forEach(si => {
-				const allFacs = getEnrolledFaculties(si.courseId, si.facultyId);
+				const allFacs = getEnrolledFaculties(si.courseId, si.facultyId, si.facultyName);
 				const targetFacs = allFacs.filter(f => {
 					if (isAllFaculty) return true;
 					return f.toLowerCase().trim() === cleanSelectedFaculty;
@@ -891,9 +910,7 @@ export function exportTimetablePDF({
 
 			sortedNormalFacs.forEach(facName => {
 				const facSchedules = normalFacultySchedules[facName];
-				const facRooms = activeRooms.filter(r => {
-					return facSchedules.some(si => (si.roomIds || [si.roomId]).includes(r.id));
-				});
+				const facRooms = buildFacultyRooms(facSchedules, activeRooms, onlineRoom);
 				if (facRooms.length === 0) return;
 
 				const dayRange = mode === "exam" ? null : getLectureDayRange(facName, facSchedules);
@@ -1299,8 +1316,7 @@ export function exportTimetablePDF({
 
 							// Fetch scheduled sittings for this faculty/room/day/timeslot
 							const cellSchedules = facWeekSchedules.filter(si => {
-								const rids = si.roomIds || (si.roomId ? [si.roomId] : []);
-								if (!rids.includes(room.id)) return false;
+								if (!scheduleMatchesRoom(si, room)) return false;
 
 								if (!dayVal.startsWith("legacy:")) {
 									if (si.examDate !== dayVal) return false;
@@ -1616,7 +1632,14 @@ export function exportTimetablePDF({
 	const packGroups = mode === "exam";
 
 	// Room lookup mapping
-	const roomLookup = {};
+	const onlineRoom = {
+		id: ONLINE_ROOM_ID,
+		name: ONLINE_ROOM_NAME,
+		capacity: "—",
+		isOnline: true,
+		faculty_id: null,
+	};
+	const roomLookup = { [ONLINE_ROOM_ID]: onlineRoom };
 	rooms.forEach((r) => { roomLookup[r.id] = r; });
 	const generatedDate = new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
 
@@ -1628,7 +1651,7 @@ export function exportTimetablePDF({
 		const labelHeight = 8 + (Math.max(1, labelLines.length) - 1) * 4;
 
 		const roomSchedules = blockSchedules.filter((s) =>
-			(s.roomIds || []).includes(room.id)
+			scheduleMatchesRoom(s, room)
 		);
 
 		const itemsByWindow = new Map();
@@ -1689,13 +1712,20 @@ export function exportTimetablePDF({
 
 	groups.forEach((group) => {
 		const usedRoomIds = [];
+		const hasOnlineInGroup = group.schedules.some(isScheduleOnline);
+		if (hasOnlineInGroup) {
+			usedRoomIds.push(ONLINE_ROOM_ID);
+		}
 		group.schedules.forEach((s) => {
+			if (isScheduleOnline(s)) return;
 			(s.roomIds || []).forEach((rid) => {
 				if (!usedRoomIds.includes(rid)) usedRoomIds.push(rid);
 			});
 		});
 
 		usedRoomIds.sort((a, b) => {
+			if (a === ONLINE_ROOM_ID) return -1;
+			if (b === ONLINE_ROOM_ID) return 1;
 			return (
 				rooms.findIndex((r) => r.id === a) - rooms.findIndex((r) => r.id === b)
 			);
@@ -1971,7 +2001,7 @@ export function exportTimetablePDF({
 
 				// Draw events in this room
 				const roomSchedules = block.schedules.filter((s) =>
-					(s.roomIds || []).includes(room.id),
+					scheduleMatchesRoom(s, room),
 				);
 
 				const itemsByWindow = new Map();
