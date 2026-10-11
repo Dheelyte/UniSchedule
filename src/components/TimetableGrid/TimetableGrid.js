@@ -54,9 +54,10 @@ function timeToCol(time) {
  * Compute vertical stacking layout for overlapping events in the SAME ROOM.
  */
 function computeVerticalOverlapLayout(events) {
-    if (events.length <= 1) {
+    if (!events || events.length === 0) return new Map();
+    if (events.length === 1) {
         const map = new Map();
-        if (events.length === 1) map.set(events[0].id, { offset: 0, total: 1 });
+        map.set(events[0].id, { offset: 0, total: 1 });
         return map;
     }
 
@@ -68,58 +69,54 @@ function computeVerticalOverlapLayout(events) {
     const lanes = [];
     const assignments = new Map();
 
-    sorted.forEach((ev) => {
+    for (let i = 0; i < sorted.length; i++) {
+        const ev = sorted[i];
         const start = timeToMinutes(ev.startTime);
+        const end = timeToMinutes(ev.endTime);
         let placed = false;
         for (let l = 0; l < lanes.length; l++) {
             if (lanes[l] <= start) {
-                lanes[l] = timeToMinutes(ev.endTime);
-                assignments.set(ev.id, { offset: l, total: 0 });
+                lanes[l] = end;
+                assignments.set(ev.id, { offset: l, total: 1 });
                 placed = true;
                 break;
             }
         }
         if (!placed) {
-            assignments.set(ev.id, { offset: lanes.length, total: 0 });
-            lanes.push(timeToMinutes(ev.endTime));
+            assignments.set(ev.id, { offset: lanes.length, total: 1 });
+            lanes.push(end);
         }
-    });
+    }
 
-    const groups = [];
-    const visited = new Set();
+    let cluster = [];
+    let clusterMaxEnd = -1;
 
-    sorted.forEach((ev) => {
-        if (visited.has(ev.id)) return;
-        const group = [];
-        const queue = [ev];
-        visited.add(ev.id);
-        while (queue.length > 0) {
-            const curr = queue.shift();
-            group.push(curr);
-            sorted.forEach((other) => {
-                if (visited.has(other.id)) return;
-                const overlaps = group.some((g) => {
-                    const gStart = timeToMinutes(g.startTime);
-                    const gEnd = timeToMinutes(g.endTime);
-                    const oStart = timeToMinutes(other.startTime);
-                    const oEnd = timeToMinutes(other.endTime);
-                    return gStart < oEnd && oStart < gEnd;
-                });
-                if (overlaps) {
-                    visited.add(other.id);
-                    queue.push(other);
-                }
-            });
+    const finalizeCluster = (items) => {
+        let maxLanes = 1;
+        for (let i = 0; i < items.length; i++) {
+            const assign = assignments.get(items[i].id);
+            if (assign && assign.offset + 1 > maxLanes) maxLanes = assign.offset + 1;
         }
-        groups.push(group);
-    });
+        for (let i = 0; i < items.length; i++) {
+            const assign = assignments.get(items[i].id);
+            if (assign) assign.total = maxLanes;
+        }
+    };
 
-    groups.forEach((group) => {
-        const maxOffset = Math.max(...group.map((e) => assignments.get(e.id).offset)) + 1;
-        group.forEach((e) => {
-            assignments.get(e.id).total = maxOffset;
-        });
-    });
+    for (let i = 0; i < sorted.length; i++) {
+        const ev = sorted[i];
+        const start = timeToMinutes(ev.startTime);
+        const end = timeToMinutes(ev.endTime);
+        if (cluster.length === 0 || start < clusterMaxEnd) {
+            cluster.push(ev);
+            if (end > clusterMaxEnd) clusterMaxEnd = end;
+        } else {
+            finalizeCluster(cluster);
+            cluster = [ev];
+            clusterMaxEnd = end;
+        }
+    }
+    if (cluster.length > 0) finalizeCluster(cluster);
 
     return assignments;
 }
@@ -161,6 +158,7 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
     // Filters
     const [filterFaculty, setFilterFaculty] = useState('');
     const [filterDept, setFilterDept] = useState('');
+    const [hideEmptyRooms, setHideEmptyRooms] = useState(false);
 
     // State for selected day
     const [currentDay, setCurrentDay] = useState(activeDays[0]);
@@ -312,19 +310,6 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
         flashTimerRef.current = setTimeout(() => setFlashScheduleId(null), 2400);
     };
 
-    // Rooms to render: own-faculty rooms + any room referenced by a visible schedule item.
-    // Global-scope users see everything; this trims the grid for FACULTY editors/viewers.
-    const displayedRooms = useMemo(() => {
-        const activeRooms = rooms.filter(isRoomActive);
-        if (cbtOnly) {
-            return activeRooms.filter((r) => r.name && r.name.toUpperCase().includes('CBT'));
-        }
-        if (hasGlobalScope(user?.role) || !user?.faculty_id) return activeRooms;
-        const referenced = new Set();
-        allModeSchedules.forEach((s) => (s.roomIds || []).forEach((rid) => referenced.add(rid)));
-        return activeRooms.filter((r) => r.faculty_id === user.faculty_id || r.faculty_id === null || referenced.has(r.id));
-    }, [rooms, allModeSchedules, user?.role, user?.faculty_id, cbtOnly]);
-
     // Filtered mode schedules (respecting faculty, dept, week) but independent of day
     const filteredModeSchedules = useMemo(() => {
         const deptId = filterDept ? Number(filterDept) : null;
@@ -334,6 +319,26 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
             return true;
         });
     }, [allModeSchedules, filterFaculty, filterDept]);
+
+    // Rooms to render: own-faculty rooms + any room referenced by a visible schedule item.
+    // Global-scope users see everything; this trims the grid for FACULTY editors/viewers.
+    const displayedRooms = useMemo(() => {
+        const activeRooms = rooms.filter(isRoomActive);
+        if (cbtOnly) {
+            return activeRooms.filter((r) => r.name && r.name.toUpperCase().includes('CBT'));
+        }
+        let finalRooms = activeRooms;
+        if (!hasGlobalScope(user?.role) && user?.faculty_id) {
+            const referenced = new Set();
+            allModeSchedules.forEach((s) => (s.roomIds || []).forEach((rid) => referenced.add(rid)));
+            finalRooms = activeRooms.filter((r) => r.faculty_id === user.faculty_id || r.faculty_id === null || referenced.has(r.id));
+        } else if (filterFaculty) {
+            const referenced = new Set();
+            filteredModeSchedules.forEach((s) => (s.roomIds || []).forEach((rid) => referenced.add(rid)));
+            finalRooms = activeRooms.filter((r) => r.faculty_id === filterFaculty || r.faculty_id === null || referenced.has(r.id));
+        }
+        return finalRooms;
+    }, [rooms, allModeSchedules, filteredModeSchedules, user?.role, user?.faculty_id, cbtOnly, filterFaculty]);
 
     // Schedules for ONLY the current day/date
     const daySchedules = useMemo(() => {
@@ -346,6 +351,42 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
         }
         return filteredModeSchedules.filter(s => s.day === currentDay);
     }, [filteredModeSchedules, currentDay, currentDate, mode]);
+
+    // Pre-index schedules by room ID for O(1) cell and layout lookups
+    const schedulesByRoom = useMemo(() => {
+        const map = new Map();
+        for (let i = 0; i < daySchedules.length; i++) {
+            const s = daySchedules[i];
+            const rids = s.roomIds?.length ? s.roomIds : (s.roomId ? [s.roomId] : []);
+            for (let j = 0; j < rids.length; j++) {
+                const rid = rids[j];
+                let list = map.get(rid);
+                if (!list) {
+                    list = [];
+                    map.set(rid, list);
+                }
+                list.push(s);
+            }
+            if (s.is_online || s.isOnline) {
+                let onlineList = map.get('online_virtual_room');
+                if (!onlineList) {
+                    onlineList = [];
+                    map.set('online_virtual_room', onlineList);
+                }
+                onlineList.push(s);
+            }
+        }
+        return map;
+    }, [daySchedules]);
+
+    const visibleRooms = useMemo(() => {
+        const list = [...displayedRooms];
+        if (schedulesByRoom.has('online_virtual_room')) {
+            list.unshift({ id: 'online_virtual_room', name: '🌐 Online Classes', capacity: '—', isVirtual: true });
+        }
+        if (!hideEmptyRooms) return list;
+        return list.filter((r) => schedulesByRoom.has(r.id));
+    }, [displayedRooms, hideEmptyRooms, schedulesByRoom]);
 
     // Blocked slots relevant for the current day/date
     const activeBlockedSlots = useMemo(() => {
@@ -383,6 +424,33 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
         });
     }, [blockedSlots, mode, currentDay, currentDate]);
 
+    // Pre-calculate blocked slot overlays for each hour cell once instead of 4,000+ times
+    const blockedSlotsByHour = useMemo(() => {
+        const map = {};
+        for (let hour = 8; hour < 18; hour++) {
+            const cellStart = hour * 60;
+            const cellEnd = (hour + 1) * 60;
+            map[hour] = activeBlockedSlots.filter(slot => {
+                if (slot.type === 'HOLIDAY') return true;
+                if (!slot.start_time || !slot.end_time) return true;
+                const slotStart = timeToMinutes(slot.start_time.slice(0, 5));
+                const slotEnd = timeToMinutes(slot.end_time.slice(0, 5));
+                return slotStart < cellEnd && slotEnd > cellStart;
+            }).map((slot, si) => {
+                let leftPct = 0;
+                let widthPct = 100;
+                if (slot.type !== 'HOLIDAY' && slot.start_time && slot.end_time) {
+                    const slotStart = timeToMinutes(slot.start_time.slice(0, 5));
+                    const slotEnd = timeToMinutes(slot.end_time.slice(0, 5));
+                    leftPct = Math.max(0, ((slotStart - cellStart) / 60) * 100);
+                    widthPct = Math.min(100, ((Math.min(slotEnd, cellEnd) - Math.max(slotStart, cellStart)) / 60) * 100);
+                }
+                return { slot, si, leftPct, widthPct };
+            });
+        }
+        return map;
+    }, [activeBlockedSlots]);
+
     const courseColorMap = useMemo(() => {
         const map = {};
         let idx = 0;
@@ -394,17 +462,16 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
         return map;
     }, [daySchedules]);
 
-    // Pre-compute overlapping per room for the current day
+    // Pre-compute overlapping per room for the current day only for rooms with schedules
     const overlapLayoutMap = useMemo(() => {
-        const roomMap = {};
-        rooms.forEach((room) => {
-            const roomSchedules = daySchedules.filter((s) =>
-                s.roomIds?.includes(room.id) || s.roomId === room.id
-            );
-            roomMap[room.id] = computeVerticalOverlapLayout(roomSchedules);
-        });
+        const roomMap = new Map();
+        for (const [roomId, roomSchedules] of schedulesByRoom.entries()) {
+            if (roomSchedules && roomSchedules.length > 0) {
+                roomMap.set(roomId, computeVerticalOverlapLayout(roomSchedules));
+            }
+        }
         return roomMap;
-    }, [daySchedules, rooms]);
+    }, [schedulesByRoom]);
 
     const modalCourses = useMemo(() => {
         let filteredCourses = courses;
@@ -887,6 +954,15 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
                             {filteredDepts.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
                         </select>
                     </div>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem', cursor: 'pointer', userSelect: 'none', color: 'var(--color-text-secondary)', marginLeft: '8px' }}>
+                        <input
+                            type="checkbox"
+                            checked={hideEmptyRooms}
+                            onChange={(e) => setHideEmptyRooms(e.target.checked)}
+                            style={{ cursor: 'pointer' }}
+                        />
+                        Hide empty rooms
+                    </label>
                 </div>
                 <div className={styles.filterRight}>
                     <span className={styles.scheduleCount}>
@@ -1008,18 +1084,16 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
                     ))}
 
                     {/* Room rows */}
-                    {displayedRooms.map((room) => {
-                        const roomSchedules = daySchedules.filter((s) =>
-                            s.roomIds?.includes(room.id) || s.roomId === room.id
-                        );
-                        const layoutMap = overlapLayoutMap[room.id] || new Map();
+                    {visibleRooms.map((room) => {
+                        const roomSchedules = schedulesByRoom.get(room.id) || [];
+                        const layoutMap = overlapLayoutMap.get(room.id) || new Map();
 
                         return (
                             <div key={room.id} className={styles.roomRow}>
                                 {/* Room label */}
                                 <div className={styles.roomLabel}>
-                                    <span className={styles.roomName}>{getRoomDisplayName(room)}</span>
-                                    <span className={styles.roomCapacity}>Capacity: {room.capacity}</span>
+                                    <span className={styles.roomName}>{room.isVirtual ? room.name : getRoomDisplayName(room)}</span>
+                                    <span className={styles.roomCapacity}>{room.isVirtual ? 'Virtual' : `Capacity: ${room.capacity}`}</span>
                                 </div>
 
                                 {/* Hourly cells for grid lining & drop zones (spanning 2 columns each) */}
@@ -1027,13 +1101,13 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
                                     const cellStartCol = (hour - 8) * 2;
                                     const cellEndCol = cellStartCol + 2;
 
-                                    const cellEvents = roomSchedules.filter((s) => {
+                                    const cellEvents = roomSchedules.length === 0 ? [] : roomSchedules.filter((s) => {
                                         const startCol = timeToCol(s.startTime);
                                         // Return true if it STARTS in this hour block (so we only render it once)
                                         return startCol >= cellStartCol && startCol < cellEndCol;
                                     });
 
-                                    const isCellEmpty = !roomSchedules.some((s) => {
+                                    const isCellEmpty = roomSchedules.length === 0 || !roomSchedules.some((s) => {
                                         const startCol = timeToCol(s.startTime);
                                         const endCol = timeToCol(s.endTime);
                                         return startCol < cellEndCol && endCol > cellStartCol;
@@ -1050,8 +1124,8 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
                                             onDragLeave={handleCellDragLeave}
                                             onDrop={(e) => handleDrop(room.id, hour, e)}
                                         >
-                                            {isCellEmpty && !readOnly && <span className={styles.cellHint}>+ Add</span>}
-                                            {!readOnly && (
+                                            {isCellEmpty && !readOnly && !room.isVirtual && <span className={styles.cellHint}>+ Add</span>}
+                                            {!readOnly && !room.isVirtual && (
                                                 <button
                                                     className={styles.quickAddBtn}
                                                     onClick={(e) => {
@@ -1065,51 +1139,31 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
                                             )}
 
                                             {/* Blocked slot overlays */}
-                                            {activeBlockedSlots.filter(slot => {
-                                                if (slot.type === 'HOLIDAY') return true; // Full day
-                                                if (!slot.start_time || !slot.end_time) return true; // Whole-day block
-                                                const slotStart = timeToMinutes(slot.start_time.slice(0, 5));
-                                                const slotEnd = timeToMinutes(slot.end_time.slice(0, 5));
-                                                const cellStart = hour * 60;
-                                                const cellEnd = (hour + 1) * 60;
-                                                return slotStart < cellEnd && slotEnd > cellStart;
-                                            }).map((slot, si) => {
-                                                let leftPct = 0;
-                                                let widthPct = 100;
-                                                if (slot.type !== 'HOLIDAY' && slot.start_time && slot.end_time) {
-                                                    const slotStart = timeToMinutes(slot.start_time.slice(0, 5));
-                                                    const slotEnd = timeToMinutes(slot.end_time.slice(0, 5));
-                                                    const cellStart = hour * 60;
-                                                    const cellEnd = (hour + 1) * 60;
-                                                    leftPct = Math.max(0, ((slotStart - cellStart) / 60) * 100);
-                                                    widthPct = Math.min(100, ((Math.min(slotEnd, cellEnd) - Math.max(slotStart, cellStart)) / 60) * 100);
-                                                }
-                                                return (
-                                                    <div
-                                                        key={`blocked-${slot.id}-${si}`}
-                                                        style={{
-                                                            position: 'absolute',
-                                                            top: 0,
-                                                            left: `${leftPct}%`,
-                                                            width: `${widthPct}%`,
-                                                            height: '100%',
-                                                            background: 'repeating-linear-gradient(45deg, rgba(239,68,68,0.10), rgba(239,68,68,0.10) 4px, rgba(239,68,68,0.05) 4px, rgba(239,68,68,0.05) 8px)',
-                                                            borderTop: '2px solid rgba(239,68,68,0.35)',
-                                                            borderBottom: '2px solid rgba(239,68,68,0.35)',
-                                                            zIndex: 1,
-                                                            pointerEvents: 'none',
-                                                            display: 'flex',
-                                                            alignItems: 'center',
-                                                            justifyContent: 'center',
-                                                        }}
-                                                        title={`Blocked: ${slot.name}`}
-                                                    >
-                                                        <span style={{ fontSize: '0.6rem', color: 'rgba(239,68,68,0.7)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                                                            {slot.name}
-                                                        </span>
-                                                    </div>
-                                                );
-                                            })}
+                                            {(blockedSlotsByHour[hour] || []).map(({ slot, si, leftPct, widthPct }) => (
+                                                <div
+                                                    key={`blocked-${slot.id}-${si}`}
+                                                    style={{
+                                                        position: 'absolute',
+                                                        top: 0,
+                                                        left: `${leftPct}%`,
+                                                        width: `${widthPct}%`,
+                                                        height: '100%',
+                                                        background: 'repeating-linear-gradient(45deg, rgba(239,68,68,0.10), rgba(239,68,68,0.10) 4px, rgba(239,68,68,0.05) 4px, rgba(239,68,68,0.05) 8px)',
+                                                        borderTop: '2px solid rgba(239,68,68,0.35)',
+                                                        borderBottom: '2px solid rgba(239,68,68,0.35)',
+                                                        zIndex: 1,
+                                                        pointerEvents: 'none',
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        justifyContent: 'center',
+                                                    }}
+                                                    title={`Blocked: ${slot.name}`}
+                                                >
+                                                    <span style={{ fontSize: '0.6rem', color: 'rgba(239,68,68,0.7)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                                                        {slot.name}
+                                                    </span>
+                                                </div>
+                                            ))}
 
                                             {/* Schedule blocks that START in this hour block */}
                                             {cellEvents.map((s) => {
@@ -1153,11 +1207,11 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
                                                             transition: 'outline 0.2s, box-shadow 0.2s',
                                                             zIndex: isFlashing ? 5 : undefined,
                                                         }}
-                                                        draggable={!readOnly && isOwnItem(s)}
+                                                        draggable={!readOnly && isOwnItem(s) && !room.isVirtual}
                                                         onDragStart={(e) => handleDragStart(s, e)}
                                                         onDragEnd={handleDragEnd}
                                                         onClick={(e) => handleEventClick(s, e)}
-                                                        title={hasConflict ? itemConflicts.map((c) => c.message).join('\n') : `${s.courseCode} - ${s.roomNames}${!isOwnItem(s) ? ' (read-only — owned by another faculty)' : ''}`}
+                                                        title={hasConflict ? (itemConflicts.length <= 5 ? itemConflicts.map((c) => c.message).join('\n') : itemConflicts.slice(0, 5).map((c) => c.message).join('\n') + `\n...and ${itemConflicts.length - 5} more conflict(s)`) : `${s.courseCode} - ${s.roomNames || (s.is_online || s.isOnline ? 'Online' : '')}${!isOwnItem(s) ? ' (read-only — owned by another faculty)' : ''}`}
                                                     >
                                                         <span className={styles.eventCode} style={{ color: hasError ? '#f87171' : color.border }}>
                                                             {hasError && '⚠ '}{s.courseCode}

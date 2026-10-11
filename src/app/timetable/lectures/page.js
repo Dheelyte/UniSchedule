@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useApp, ACTION_TYPES } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
 import { apiClient } from '@/lib/apiClient';
@@ -42,7 +42,17 @@ export default function LectureTimetablePage() {
     const [requestBusy, setRequestBusy] = useState(false);
     const [isChangeModalOpen, setIsChangeModalOpen] = useState(false);
     const [changeBusy, setChangeBusy] = useState(false);
-    const [enrollmentsByCourse, setEnrollmentsByCourse] = useState(new Map());
+
+    const enrollmentsByCourse = useMemo(() => {
+        const map = new Map();
+        if (state.enrollments) {
+            state.enrollments.forEach((e) => {
+                if (!map.has(e.course_id)) map.set(e.course_id, []);
+                map.get(e.course_id).push(e);
+            });
+        }
+        return map;
+    }, [state.enrollments]);
 
     // Load all sessions/semesters for the picker
     useEffect(() => {
@@ -71,85 +81,31 @@ export default function LectureTimetablePage() {
     const loadSchedules = useCallback(async (semId) => {
         if (semId === null) return;
         try {
-            if (isInitialized) {
-                const [scheduleItems, blockedSlotsData, locks] = await Promise.all([
-                    apiClient.get(`/timetable/schedule-items?semester_id=${semId}`).catch(() => []),
-                    apiClient.get(`/timetable/blocked-slots?semester_id=${semId}`).catch(() => []),
-                    apiClient.get(`/timetable/locks?semester_id=${semId}`).catch(() => []),
-                ]);
-                const lecLock = (locks || []).find(l => l.timetable_type === 'lecture');
-                setIsLocked(!!lecLock?.is_locked);
-                dispatch({
-                    type: ACTION_TYPES.INIT_STATE,
-                    payload: {
-                        scheduleItems: (scheduleItems || []).map(s => ({
-                            ...s,
-                            courseId: s.course_id,
-                            roomIds: s.room_ids,
-                            facultyId: s.faculty_id,
-                            day: s.day_of_week,
-                            examDate: s.exam_date,
-                            startTime: s.start_time,
-                            endTime: s.end_time
-                        }))
-                    }
-                });
-                setBlockedSlots(blockedSlotsData || []);
-            } else {
-                const [faculties, departments, rooms, courses, scheduleItems, blockedSlotsData, locks, enrollments] = await Promise.all([
-                    apiClient.get('/timetable/faculties?all=true').catch(() => []),
-                    apiClient.get('/timetable/departments?all=true').catch(() => []),
-                    apiClient.get('/timetable/rooms?all=true').catch(() => []),
-                    apiClient.get('/timetable/courses').catch(() => []),
-                    apiClient.get(`/timetable/schedule-items?semester_id=${semId}`).catch(() => []),
-                    apiClient.get(`/timetable/blocked-slots?semester_id=${semId}`).catch(() => []),
-                    apiClient.get(`/timetable/locks?semester_id=${semId}`).catch(() => []),
-                    apiClient.get('/timetable/enrollments').catch(() => [])
-                ]);
-                const lecLock = (locks || []).find(l => l.timetable_type === 'lecture');
-                setIsLocked(!!lecLock?.is_locked);
-                dispatch({
-                    type: ACTION_TYPES.INIT_STATE,
-                    payload: {
-                        faculties: faculties || [],
-                        departments: (departments || []).map(d => ({ ...d, facultyId: d.faculty_id })),
-                        rooms: (rooms || []).map((r) => ({
-                            ...r,
-                            facultyId: r.faculty_id ?? r.facultyId ?? null,
-                            isLab: r.is_lab ?? r.isLab ?? false,
-                            isActive: r.is_active !== false,
-                            activeSeats: r.active_seats ?? r.activeSeats ?? 0,
-                            inactiveSeats: r.inactive_seats ?? r.inactiveSeats ?? 0,
-                        })),
-                        courses: (courses || []).map(c => ({ ...c, creditLoad: c.credit_load, departmentId: c.department_id, isCbtExam: c.is_cbt_exam || false })),
-                        scheduleItems: (scheduleItems || []).map(s => ({
-                            ...s,
-                            courseId: s.course_id,
-                            roomIds: s.room_ids,
-                            facultyId: s.faculty_id,
-                            day: s.day_of_week,
-                            examDate: s.exam_date,
-                            startTime: s.start_time,
-                            endTime: s.end_time
-                        })),
-                        enrollments: enrollments || [],
-                    }
-                });
-                setBlockedSlots(blockedSlotsData || []);
-            }
-        } catch (e) { console.error(e); }
-    }, [dispatch, isInitialized]);
-
-    useEffect(() => {
-        if (isInitialized && state.enrollments) {
-            const map = new Map();
-            state.enrollments.forEach((e) => {
-                if (!map.has(e.course_id)) map.set(e.course_id, []);
-                map.get(e.course_id).push(e);
+            const [scheduleItems, blockedSlotsData, locks] = await Promise.all([
+                apiClient.get(`/timetable/schedule-items?semester_id=${semId}`).catch(() => []),
+                apiClient.get(`/timetable/blocked-slots?semester_id=${semId}`).catch(() => []),
+                apiClient.get(`/timetable/locks?semester_id=${semId}`).catch(() => []),
+            ]);
+            const lecLock = (locks || []).find(l => l.timetable_type === 'lecture');
+            setIsLocked(!!lecLock?.is_locked);
+            dispatch({
+                type: ACTION_TYPES.INIT_STATE,
+                payload: {
+                    scheduleItems: (scheduleItems || []).map(s => ({
+                        ...s,
+                        courseId: s.course_id,
+                        roomIds: s.room_ids,
+                        facultyId: s.faculty_id,
+                        day: s.day_of_week,
+                        examDate: s.exam_date,
+                        startTime: s.start_time,
+                        endTime: s.end_time
+                    }))
+                }
             });
-            setEnrollmentsByCourse(map);
-        }
-    }, [isInitialized, state.enrollments]);
+            setBlockedSlots(blockedSlotsData || []);
+        } catch (e) { console.error(e); }
+    }, [dispatch]);
 
     useEffect(() => {
         if (selectedSemesterId !== null) {
@@ -304,7 +260,7 @@ export default function LectureTimetablePage() {
             isGeneralStudiesCourse(s.courseCode) ? { ...s, facultyName: GENERAL_STUDIES_FACULTY } : s
         );
         const activeRoomIds = new Set(state.rooms.filter(isRoomActive).map((room) => room.id));
-        const exportableSchedules = filteredSchedules.filter((s) => (s.roomIds || []).some((rid) => activeRoomIds.has(rid)));
+        const exportableSchedules = filteredSchedules.filter((s) => s.is_online || s.isOnline || (s.roomIds || []).some((rid) => activeRoomIds.has(rid)));
         if (exportableSchedules.length === 0) {
             addToast({ type: 'error', title: 'Export Failed', message: 'No schedules found for the selected filters.' });
             return;
