@@ -60,7 +60,7 @@ class AuthService:
         if target_role in FACULTY_SCOPED_ROLES:
             if not faculty_id:
                 raise HTTPException(status_code=400, detail=f"{target_role.value} requires a faculty")
-            if not await self.repo.faculty_exists(faculty_id):
+            if not await self.repo.faculty_exists(faculty_id, realm_key=current_user["realm"]):
                 raise HTTPException(status_code=404, detail="Faculty not found")
         else:
             # Global roles carry no single-faculty scope.
@@ -169,6 +169,10 @@ class AuthService:
         for inv in existing_invites:
             if not inv.is_used and inv.expires_at > datetime.now(timezone.utc):
                 raise HTTPException(status_code=400, detail="An active invitation already exists for this email")
+
+        # A faculty belongs to one realm, so the account can only be bound to one of the inviter's.
+        if faculty_id and not await self.repo.faculty_exists(faculty_id, realm_key=current_user["realm"]):
+            raise HTTPException(status_code=404, detail="Faculty not found")
 
         token = secrets.token_urlsafe(32)
         invitation = Invitation(

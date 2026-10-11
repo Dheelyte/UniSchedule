@@ -10,7 +10,7 @@ Non-negotiables:
 
 - **UG behaviour doesn't change.** Every UG screen, rule and export keeps working exactly as today. The UG realm config reproduces today's hardcoded values.
 - **No leaks between realms.** A UG user never sees ICE courses, sessions, timetables, requests or staff, and the reverse is also true.
-- **Rooms are physical and shared.** A room can't host two same-type sessions from different realms at the same time.
+- **Each realm has its own faculties, departments and rooms.** Nothing a realm does to them changes another realm's. Two realms' rooms can be linked as the same physical hall; a linked hall can't host two same-type sessions from different realms at the same time.
 
 Today the only trace of realms is the static list in `src/app/realms/page.js:7-12`, where Undergraduate is the only live entry and links to `/login`. The backend and database have no realm concept.
 
@@ -18,11 +18,11 @@ Today the only trace of realms is the static list in `src/app/realms/page.js:7-1
 
 | Topic | Decision |
 |---|---|
-| Venues | ICE uses the same rooms, halls and CBT centres as UG. Rooms stay shared, and cross-realm room clashes are checked. UG also runs on Fridays and Saturdays. |
+| Venues | Each realm has its own list of rooms. Where ICE uses a hall UG also uses, the two rooms are put in one **hall group**, and only grouped rooms are checked for cross-realm clashes (§5.1, §8.2). UG also runs on Fridays and Saturdays. *(Originally: one shared list of rooms. Changed after launch prep, because ICE's venues and departments differ from UG's.)* |
 | Staff | Super Admin, Super Viewer and CITS Admin are **cross-realm**: they pick a realm at login and can switch. Faculty Editor, Faculty Viewer and GS Admin belong to **one** realm. |
 | ICE classes | A weekly pattern like UG, on Friday, Saturday and Sunday, any time 07:00–21:00 in 15-minute steps. |
 | ICE exams | Dated, on dates that fall on a Friday, Saturday or Sunday, any time 07:00–21:00. |
-| Org structure | Faculties and departments are shared, because ICE courses belong to the same departments. |
+| Org structure | Each realm has its own faculties and departments. *(Originally shared; changed for the same reason.)* |
 | Accounts | One email is one account (`users.email` is unique). A person who edits both programmes needs two emails. |
 
 ### Confirm before Phase 1
@@ -38,7 +38,8 @@ The defaults below are used if nobody changes them. Edit them here and in §4 if
 
 - **Realm**: a programme with its own calendar, courses, timetables and staff. Keys: `UG`, `ICE`. `PG` and `FOUNDATION` are seeded but not live.
 - **Active realm**: the realm of the current request, `current_user["realm"]`.
-- **Realm-scoped** data belongs to one realm. **Shared** data is used by all realms: faculties, departments and rooms.
+- **Realm-scoped** data belongs to one realm. Since the separation revision (§5.1) that is everything, including faculties, departments and rooms. No data is shared.
+- **Hall group**: a set of rooms, at most one per realm, that are the same physical hall. It is the only link between realms.
 - **Cross-realm roles**: `SUPER_ADMIN`, `SUPER_VIEWER`, `CITS_ADMIN`. These are unrelated to the existing `_has_global_scope` / `hasGlobalScope` helpers, which are about faculties, not realms.
 - **Live realm**: shown as clickable on `/realms`. A non-live realm can still be reached at `/login?realm=KEY`, so ICE staff can set up before launch.
 
@@ -115,7 +116,7 @@ Changing a realm's config later doesn't rewrite existing schedule items. The new
 | `users`, `invitations` | `realm_key` varchar **NULL**, FK, `server_default 'UG'` | NULL for cross-realm roles (set explicitly in code) |
 | `activity_logs` | `realm_key` varchar NULL | Existing rows backfilled to `UG` |
 | `semesters`, `blocked_slots`, `timetable_locks`, `course_enrollments`, `conflict_dismissals`, `notifications` | No new column | Realm comes from the semester (via its session), the course or the schedule item |
-| `faculties`, `departments`, `rooms` | No change | Shared |
+| `faculties`, `departments`, `rooms` | No change in this revision | Separated per realm by the next revision (§5.1) |
 
 Write one hand-written revision with `down_revision = "2f166d445031"` (the head on `main`; it was `m3h4i5j6k7l8` until main gained the DEO-role and online-session revisions). Use autogenerate only to cross-check it. The revision performs these steps in order:
 
@@ -130,6 +131,37 @@ Write one hand-written revision with `down_revision = "2f166d445031"` (the head 
 **Why the server defaults matter:** `.github/workflows/deploy.yml` runs `alembic upgrade head` on production *before* the new Lambda image is live. For a few minutes, old code runs against the new schema, and its inserts must still succeed and land in UG. Keep the `'UG'` defaults until after launch; dropping them is a follow-up.
 
 **Rollback:** the old code ignores the realm columns. Once ICE data exists, rolling back would show ICE courses inside UG. From that point, roll forward only.
+
+### 5.1 Separate faculties, departments and rooms
+
+A second hand-written revision, `o5j6k7l8m9n0`, on top of `n4i5j6k7l8m9`. It is additive, with `'UG'` server defaults, for the same deploy-order reason.
+
+| Table | Change | Notes |
+|---|---|---|
+| `hall_groups` (new) | `id`, `created_at` | Rooms in one group are the same physical hall |
+| `faculties` | `realm_key` NOT NULL, FK, `server_default 'UG'`. Unique `(realm_key, name)` replaces the global unique name | `id` stays the primary key and no existing id changes |
+| `departments` | No new column | A department belongs to its faculty's realm, as a semester belongs to its session's |
+| `rooms` | `realm_key` as above; `hall_group_id` nullable FK, `ON DELETE SET NULL`. Unique `(realm_key, name, faculty_id)` replaces `(name, faculty_id)`; unique `(hall_group_id, realm_key)` | A group holds at most one room per realm |
+
+Rules:
+
+- **Existing rows** all stay in UG, untouched: no faculty, department or room is renamed, merged, re-identified or deleted. Rooms with no faculty keep today's behaviour, where the database does not force their names to be unique.
+- **Faculty ids** are unique across realms. UG keeps the id the client sends, as before. A faculty created in any other realm gets its id from the server as `<REALM>-<id sent>` (for example `ICE-FE-4821`), so it can never take a UG id.
+- **A room's faculty** must be a faculty of the room's own realm.
+- **Hall groups by hand** are created and changed by super admins only, because that needs both realms' room lists:
+  - `GET /timetable/rooms/other-realm?realm=KEY` lists another realm's rooms, each with this realm's room for the same hall, if any;
+  - `PUT /timetable/rooms/{id}/hall {room_id}` puts this realm's room in the hall group of another realm's room (creating the group if needed); 409 if that hall already has a room of this realm;
+  - `DELETE /timetable/rooms/{id}/hall` takes this realm's room out of its group.
+  Deleting a room, or taking it out of a group, never changes the other rooms: they stay in the group, and a group of one has nothing to clash with.
+- **Adding rooms from Undergraduate.** UG's room list is the catalogue (`ROOM_CATALOGUE_REALM`). Any other realm, now or later, picks the UG halls it also uses; whoever may create a room there (super admin, faculty editor, GS admin) may add one. This is the only place a realm sees another realm's rooms, and it is read-only.
+  - `GET /timetable/rooms/catalogue` returns `{realm_key, realm_name, rooms}`. Each room has its name, UG faculty name, capacity, seats and lab flag, plus `added_room_id` and `added_room_name` once the caller's realm has added it. In UG the list is empty.
+  - `POST /timetable/rooms/from-catalogue {rooms: [{room_id, faculty_id}]}` creates a room of the caller's realm for each one. It keeps the name, capacity, active and inactive seats and lab flag, takes the chosen faculty (one of the caller's realm's, or none) and joins its original's hall group, so the two realms' bookings of that hall are checked against each other.
+  - The rules for creating a room by hand apply: a faculty editor adds to their own faculty only, a GS admin with no faculty only.
+  - A hall the realm already has a room for is skipped, so a UG room is added once (again only after the realm deletes or unlinks its room). A name already used in the chosen faculty is skipped too. Skipped rooms are reported with a reason.
+  - Afterwards the new room is the realm's own: editing, deactivating or deleting it changes nothing in UG, and UG's later changes to its room change nothing here. Joining the hall group is the one thing adding does to the UG room.
+  - "Create new room" is the ordinary room form: a room of the realm that is in no hall group and never appears in or affects UG.
+- **Data another realm entered while faculties, departments and rooms were shared** (between the two revisions) is moved by the revision. For each non-UG realm, every UG faculty, department and room its accounts, courses, enrollments, schedule items and change requests point at is copied into that realm (faculty id `<REALM>-<old id>`; each room copy grouped with its original) and those rows are repointed. UG rows are not modified. With no such data, the revision only adds the columns. A faculty, department or room that another realm *created* in that window can't be told apart from UG's and stays in UG.
+- **Downgrade** drops the columns and the hall groups. It refuses, with a clear error, while any non-UG faculty or room exists.
 
 ## 6. Auth and realm context
 
@@ -182,7 +214,8 @@ Every read or write of realm-scoped data filters by the active realm.
 | Notifications to super admins | They're cross-realm, so the message names the realm | `timetable/service.py:848` and `:970`: prefix the title with the realm name, and add `?realm=KEY` to the link |
 | Change-request review notification | The requester; named the same way when the requester is cross-realm (a super viewer) | `review_change_request` |
 | Realm settings | `PUT /realms/{key}` works from any portal; its audit entry is filed under the realm that changed | `realms/service.py` |
-| Deleting a shared department | Refused with 400 while another realm has enrollments for it, because the delete cascades to them | `delete_department` |
+| Faculties, departments | `faculties.realm_key`; departments through their faculty | Every place that takes a faculty or department id checks it: departments, rooms, courses, enrollments, schedule items, change requests, invitations and impersonation |
+| Rooms | `rooms.realm_key` | List, create, edit, reorder, deactivate and delete act on the realm's own rooms only. A session's rooms must be rooms of its realm. A delete is blocked only by that realm's own sessions |
 | Audit log | `activity_logs.realm_key` | `AuditService.log` sets it from `current_user`; the list returns the active realm plus NULL rows |
 | Users, invitations | See §6 | |
 
@@ -215,13 +248,15 @@ Two schedule items clash across realms when **all** of these hold:
 - they are in different realms;
 - they are the same type (lecture or exam);
 - each is in its realm's current semester;
-- they share at least one room id;
+- they use the same physical hall: a room of one is in the same hall group (§5.1) as a room of the other;
 - they are in the same slot: the same `day_of_week` for lectures, the same `exam_date` for exams;
 - their times overlap (`a.start < b.end and b.start < a.end`). Back-to-back is fine.
 
 Items whose faculty has `is_special = true` are exempt, just as they are within a realm.
 
-The API checks this on create, update and change-request approval and returns 409 naming the other realm, course, room and time. This applies to UG as well, so UG editors can't book a room ICE already holds. The clash can't be ignored or dismissed: one of the two sessions has to move.
+The API checks this on create, update and change-request approval and returns 409 naming the other realm, course, room and time. This applies to UG as well, so UG editors can't book a hall ICE already holds. The clash can't be ignored or dismissed: one of the two sessions has to move.
+
+Rooms that are in no hall group never clash across realms, whatever their names. An online session holds no room, so it never clashes either.
 
 ### 8.3 Cross-type warnings (UI only)
 
@@ -232,7 +267,7 @@ Semesters have no dates, so the system can't confirm whether UG weekly lectures 
 
 ### 8.4 External bookings endpoint
 
-`GET /api/v1/timetable/external-bookings` is open to any signed-in user. It returns the other realms' items in their current semesters, with only these fields:
+`GET /api/v1/timetable/external-bookings` is open to any signed-in user. It returns the other realms' items in their current semesters that use a hall the caller's realm also has a room for, with only these fields. `room_ids` are the **caller's own** rooms for those halls, so the frontend compares and draws them like its own; bookings in rooms that aren't linked are not returned.
 
 ```json
 [{
@@ -319,12 +354,14 @@ This must be a pure module, with no `@/` imports and explicit `.js` extensions, 
 3. Creating an ICE session or semester leaves UG's current semester untouched.
 4. The same course code can exist in UG and ICE. A duplicate within one realm returns 400.
 5. ICE: a Friday 19:15–20:45 lecture is accepted. Monday returns 400, a 06:45 start returns 400, and a 19:10 start returns 400.
-6. With a UG lecture on Friday 10:00–12:00 in room R, an ICE lecture on Friday 11:00–13:00 in R returns 409. The reverse order also returns 409. A different room, Sunday, or a back-to-back 12:00–14:00 slot is accepted.
+6. With a UG lecture on Friday 10:00–12:00 in a room, an ICE lecture on Friday 11:00–13:00 in the ICE room linked to it as the same hall returns 409. The reverse order also returns 409. A different room, an unlinked room of the same name, Sunday, or a back-to-back 12:00–14:00 slot is accepted.
 7. An ICE exam on Sunday at 19:00 shows in the grid, both A3 and A4 PDFs, and the CSV.
 8. Logging in to the wrong portal with a realm-bound account returns 403 naming the right portal. A super admin can switch realms. Impersonation keeps the realm.
 9. Priority-override emails and notifications reach only editors in the same realm. Notifications to super admins name the realm.
 10. `/realms` lists ICE as "Coming soon" until `is_live` is true, and `/login?realm=ICE` works before then.
 11. These all pass: `cd backend && uv run pytest`, `npm test`, `npm run lint`, `npm run build`.
+12. Each realm lists and changes only its own faculties, departments and rooms; the other realm's ids behave like missing ids. Editing or deleting a room never changes another realm's room, and a room's delete is blocked only by its own realm's sessions.
+13. On the ICE Rooms page, whoever can add rooms picks UG rooms from a searchable list (name, faculty, capacity), chooses an ICE faculty or none for each, and they appear in ICE's list in one hall group with their originals. A UG room can be added once and is marked in the list afterwards. A room made with "Create new room" never appears in or affects UG.
 
 ## 11. Out of scope and follow-ups
 

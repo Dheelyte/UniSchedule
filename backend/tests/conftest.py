@@ -24,8 +24,10 @@ from alembic import command  # noqa: E402
 from alembic.config import Config  # noqa: E402
 from httpx import ASGITransport, AsyncClient  # noqa: E402
 from sqlalchemy import text  # noqa: E402
-from sqlalchemy.engine import make_url  # noqa: E402
 
+from tests.db_guard import assert_disposable_database  # noqa: E402
+
+from core.config import settings  # noqa: E402
 from core.database import async_session_maker, engine  # noqa: E402
 from main import app  # noqa: E402
 from modules.auth.models import CROSS_REALM_ROLES, RoleEnum, User, stored_realm_key  # noqa: E402
@@ -35,13 +37,8 @@ DEFAULT_PASSWORD = "Password123"
 # Tables that keep their rows between tests (`realms` is seeded by a migration).
 KEEP_TABLES = ("alembic_version", "realms")
 
-_url = make_url(TEST_DATABASE_URL)
-# Every test truncates the database, so refuse anything that isn't a local test database.
-if _url.host not in ("localhost", "127.0.0.1") or not (_url.database or "").endswith("_test"):
-    raise RuntimeError(
-        f"Refusing to run tests against {_url.host}/{_url.database}: "
-        "the test database must be on localhost and its name must end with '_test'."
-    )
+# Every test empties the database, so refuse anything that isn't a local test database.
+_url = assert_disposable_database(TEST_DATABASE_URL)
 
 
 async def _create_database_if_missing() -> None:
@@ -62,6 +59,10 @@ async def _create_database_if_missing() -> None:
 
 @pytest.fixture(scope="session", autouse=True)
 def _migrated_database():
+    # The settings were read when core.config was first imported. If that happened
+    # before this file set DATABASE_URL, they point somewhere else: stop here.
+    assert_disposable_database(settings.DATABASE_URL)
+    assert_disposable_database(engine.url)
     # Sync on purpose: Alembic's env.py calls asyncio.run() itself.
     asyncio.run(_create_database_if_missing())
     command.upgrade(Config(str(BACKEND_DIR / "alembic.ini")), "head")
@@ -89,10 +90,17 @@ END $$;
 """.format(keep=", ".join(f"'{table}'" for table in KEEP_TABLES))
 
 
-@pytest.fixture(autouse=True)
-async def _clean_tables(_migrated_database):
+async def clean_tables() -> None:
+    """Delete every row. Checked against the database the engine is really
+    connected to, each time, so it can never run anywhere but a local test database."""
+    assert_disposable_database(engine.url)
     async with engine.begin() as conn:
         await conn.execute(text(_CLEAN_SQL))
+
+
+@pytest.fixture(autouse=True)
+async def _clean_tables(_migrated_database):
+    await clean_tables()
 
 
 @pytest.fixture

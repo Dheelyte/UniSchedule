@@ -1,16 +1,21 @@
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, or_, any_, case
+from sqlalchemy.orm import aliased
 from datetime import date, datetime, timezone
 from core.database import get_db
 from modules.calendar.models import AcademicSession, Semester
 from modules.calendar.repository import realm_semester_ids
 from modules.realms.models import Realm
-from modules.timetable.models import Faculty, Room, Course, ScheduleItem, Department, TimetableLock, CourseEnrollment, ChangeRequest, ConflictDismissal, CourseScope
+from modules.timetable.models import Faculty, HallGroup, Room, Course, ScheduleItem, Department, TimetableLock, CourseEnrollment, ChangeRequest, ConflictDismissal, CourseScope
 
 
 def _realm_course_ids(realm_key: str):
     return select(Course.id).where(Course.realm_key == realm_key)
+
+
+def _realm_faculty_ids(realm_key: str):
+    return select(Faculty.id).where(Faculty.realm_key == realm_key)
 
 
 def _realm_item_ids(realm_key: str):
@@ -18,9 +23,9 @@ def _realm_item_ids(realm_key: str):
 
 
 class TimetableRepository:
-    """Faculties, departments and rooms are shared by every realm. Everything
-    else here is realm-scoped: its reads take a required, keyword-only
-    `realm_key`, so a forgotten filter is a TypeError rather than a leak."""
+    """Everything here is realm-scoped: its reads take a required, keyword-only
+    `realm_key`, so a forgotten filter is a TypeError rather than a leak.
+    Hall groups are the one link between realms (see `get_linked_rooms`)."""
 
     def __init__(self, db: AsyncSession = Depends(get_db)):
         self.db = db
@@ -30,16 +35,21 @@ class TimetableRepository:
         await self.db.flush()
         return faculty
 
-    async def get_faculties(self, faculty_id: str | None = None) -> list[Faculty]:
-        query = select(Faculty)
+    async def get_faculties(self, *, realm_key: str, faculty_id: str | None = None) -> list[Faculty]:
+        query = select(Faculty).where(Faculty.realm_key == realm_key)
         if faculty_id:
             query = query.where(Faculty.id == faculty_id)
         result = await self.db.execute(query)
         return list(result.scalars().all())
 
-    async def get_faculty(self, id: str) -> Faculty | None:
-        result = await self.db.execute(select(Faculty).where(Faculty.id == id))
+    async def get_faculty(self, id: str, *, realm_key: str) -> Faculty | None:
+        result = await self.db.execute(select(Faculty).where(Faculty.id == id, Faculty.realm_key == realm_key))
         return result.scalar_one_or_none()
+
+    async def faculty_id_exists(self, id: str) -> bool:
+        """In any realm: faculty ids are primary keys, so a new one must be free everywhere."""
+        result = await self.db.execute(select(Faculty.id).where(Faculty.id == id))
+        return result.scalar_one_or_none() is not None
 
     async def update_faculty(self, faculty: Faculty) -> Faculty:
         await self.db.flush()
@@ -54,29 +64,24 @@ class TimetableRepository:
         await self.db.flush()
         return dept
 
-    async def get_departments(self, faculty_id: str | None = None) -> list[Department]:
-        query = select(Department)
+    # A department's realm is the realm of its faculty.
+
+    async def get_departments(self, *, realm_key: str, faculty_id: str | None = None) -> list[Department]:
+        query = select(Department).where(Department.faculty_id.in_(_realm_faculty_ids(realm_key)))
         if faculty_id:
             query = query.where(Department.faculty_id == faculty_id)
         result = await self.db.execute(query)
         return list(result.scalars().all())
 
-    async def get_department(self, id: int) -> Department | None:
-        result = await self.db.execute(select(Department).where(Department.id == id))
+    async def get_department(self, id: int, *, realm_key: str) -> Department | None:
+        result = await self.db.execute(
+            select(Department).where(Department.id == id, Department.faculty_id.in_(_realm_faculty_ids(realm_key)))
+        )
         return result.scalar_one_or_none()
 
     async def update_department(self, dept: Department) -> Department:
         await self.db.flush()
         return dept
-
-    async def is_department_enrolled_outside_realm(self, department_id: int, *, realm_key: str) -> bool:
-        # Departments are shared, and deleting one cascades to its enrollments in every realm.
-        query = select(CourseEnrollment.id).where(
-            CourseEnrollment.department_id == department_id,
-            CourseEnrollment.course_id.not_in(_realm_course_ids(realm_key)),
-        ).limit(1)
-        result = await self.db.execute(query)
-        return result.scalar() is not None
 
     async def delete_department(self, dept: Department) -> None:
         await self.db.delete(dept)
@@ -87,22 +92,22 @@ class TimetableRepository:
         await self.db.flush()
         return room
 
-    async def get_rooms(self, faculty_id: str | None = None) -> list[Room]:
-        query = select(Room)
+    async def get_rooms(self, *, realm_key: str, faculty_id: str | None = None) -> list[Room]:
+        query = select(Room).where(Room.realm_key == realm_key)
         if faculty_id:
             query = query.where(Room.faculty_id == faculty_id)
         query = query.order_by(Room.display_order.asc(), Room.name.asc())
         result = await self.db.execute(query)
         return list(result.scalars().all())
 
-    async def get_room(self, id: int) -> Room | None:
-        result = await self.db.execute(select(Room).where(Room.id == id))
+    async def get_room(self, id: int, *, realm_key: str) -> Room | None:
+        result = await self.db.execute(select(Room).where(Room.id == id, Room.realm_key == realm_key))
         return result.scalar_one_or_none()
 
-    async def get_rooms_by_ids(self, ids: list[int]) -> list[Room]:
+    async def get_rooms_by_ids(self, ids: list[int], *, realm_key: str) -> list[Room]:
         if not ids:
             return []
-        result = await self.db.execute(select(Room).where(Room.id.in_(ids)))
+        result = await self.db.execute(select(Room).where(Room.id.in_(ids), Room.realm_key == realm_key))
         return list(result.scalars().all())
 
     async def update_room(self, room: Room) -> Room:
@@ -112,6 +117,65 @@ class TimetableRepository:
     async def delete_room(self, room: Room) -> None:
         await self.db.delete(room)
         await self.db.flush()
+
+    # ---------- Hall groups ----------
+    # The same physical hall is one room per realm, joined by a hall group.
+    # These are the only reads that deliberately cross realms.
+
+    async def create_hall_group(self) -> HallGroup:
+        group = HallGroup()
+        self.db.add(group)
+        await self.db.flush()
+        return group
+
+    async def get_linked_rooms(self, *, realm_key: str, room_ids: list[int] | None = None) -> list[dict]:
+        """For the realm's rooms that are in a hall group: the other realms' rooms in that group."""
+        mine, other = aliased(Room), aliased(Room)
+        query = (
+            select(mine.id, other.id, other.name, other.realm_key, Realm.name)
+            .join(other, other.hall_group_id == mine.hall_group_id)
+            .join(Realm, Realm.key == other.realm_key)
+            .where(mine.realm_key == realm_key, other.realm_key != realm_key, mine.hall_group_id.is_not(None))
+            .order_by(mine.id, Realm.sort_order)
+        )
+        if room_ids is not None:
+            query = query.where(mine.id.in_(room_ids))
+        result = await self.db.execute(query)
+        return [
+            {"room_id": room_id, "linked_room_id": linked_id, "name": name, "realm_key": key, "realm_name": realm_name}
+            for room_id, linked_id, name, key, realm_name in result.all()
+        ]
+
+    async def get_other_realm_rooms(self, *, realm_key: str, source_realm_key: str) -> list[Room]:
+        """Another realm's rooms: the catalogue a realm adds halls from, or a super admin links to."""
+        if source_realm_key == realm_key:
+            return []
+        result = await self.db.execute(
+            select(Room).where(Room.realm_key == source_realm_key).order_by(Room.display_order.asc(), Room.name.asc())
+        )
+        return list(result.scalars().all())
+
+    async def get_realm_name(self, realm_key: str) -> str | None:
+        result = await self.db.execute(select(Realm.name).where(Realm.key == realm_key))
+        return result.scalar_one_or_none()
+
+    async def is_room_name_taken(self, name: str, faculty_id: str, *, realm_key: str) -> bool:
+        """Room names are unique per realm and faculty (rooms with no faculty are not constrained)."""
+        result = await self.db.execute(
+            select(Room.id).where(Room.realm_key == realm_key, Room.name == name, Room.faculty_id == faculty_id).limit(1)
+        )
+        return result.scalar() is not None
+
+    async def get_room_outside_realm(self, id: int, *, realm_key: str) -> Room | None:
+        """A room of any other realm, for a super admin linking two rooms as one hall."""
+        result = await self.db.execute(select(Room).where(Room.id == id, Room.realm_key != realm_key))
+        return result.scalar_one_or_none()
+
+    async def get_room_in_hall_group(self, hall_group_id: int, *, realm_key: str) -> Room | None:
+        result = await self.db.execute(
+            select(Room).where(Room.hall_group_id == hall_group_id, Room.realm_key == realm_key)
+        )
+        return result.scalar_one_or_none()
 
     async def create_course(self, course: Course) -> Course:
         self.db.add(course)
@@ -160,11 +224,11 @@ class TimetableRepository:
         result = await self.db.execute(query)
         return result.scalar() is not None
 
-    async def is_room_referenced_by_schedule(self, room_id: int) -> bool:
-        # Rooms are shared, so this looks at every realm's schedule on purpose.
-        from modules.timetable.models import ScheduleItem
-        from sqlalchemy import func
-        query = select(ScheduleItem.id).where(room_id == any_(ScheduleItem.room_ids)).limit(1)
+    async def is_room_referenced_by_schedule(self, room_id: int, *, realm_key: str) -> bool:
+        # A room is used only by its own realm's sessions.
+        query = select(ScheduleItem.id).where(
+            room_id == any_(ScheduleItem.room_ids), ScheduleItem.realm_key == realm_key
+        ).limit(1)
         result = await self.db.execute(query)
         return result.scalar() is not None
 
@@ -217,16 +281,22 @@ class TimetableRepository:
     async def get_other_realms_current_items(
         self,
         *,
-        exclude_realm_key: str,
+        realm_key: str,
         item_type: str | None = None,
         day_of_week: str | None = None,
         exam_date: date | None = None,
     ) -> list[dict]:
-        """Room bookings held by the other realms in their current semesters.
+        """Bookings the other realms hold, in their current semesters, on halls
+        this realm also has a room for (the same hall group).
 
-        Rooms are shared, so this is the one read that deliberately crosses
-        realms. It returns only what a room clash needs, never the item itself.
+        `room_ids` are this realm's room ids, so a caller compares and draws
+        them like its own. It returns only what a room clash needs, never the
+        item itself, and nothing for rooms that are not linked.
         """
+        links = await self.get_linked_rooms(realm_key=realm_key)
+        own_room_of = {link["linked_room_id"]: link["room_id"] for link in links}
+        if not own_room_of:
+            return []
         query = (
             select(ScheduleItem, Course.code, Realm.name, Faculty.is_special)
             .join(Semester, Semester.id == ScheduleItem.semester_id)
@@ -235,7 +305,7 @@ class TimetableRepository:
             .join(Course, Course.id == ScheduleItem.course_id)
             .outerjoin(Faculty, Faculty.id == ScheduleItem.faculty_id)
             .where(
-                ScheduleItem.realm_key != exclude_realm_key,
+                ScheduleItem.realm_key != realm_key,
                 # An online session holds no room.
                 ScheduleItem.is_online.is_(False),
                 Semester.is_current == True,
@@ -256,7 +326,7 @@ class TimetableRepository:
                 "realm_key": item.realm_key,
                 "realm_name": realm_name,
                 "type": item.type,
-                "room_ids": list(item.room_ids or []),
+                "room_ids": [own_room_of[rid] for rid in item.room_ids if rid in own_room_of],
                 "day_of_week": item.day_of_week,
                 "exam_date": item.exam_date,
                 "start_time": item.start_time,
@@ -265,6 +335,7 @@ class TimetableRepository:
                 "is_special_faculty": bool(is_special),
             }
             for item, course_code, realm_name, is_special in result.all()
+            if any(rid in own_room_of for rid in (item.room_ids or []))
         ]
 
     # ---------- Conflict Dismissals ----------
