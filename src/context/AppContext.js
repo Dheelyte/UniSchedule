@@ -251,7 +251,7 @@ export function AppProvider({ children }) {
             lectureCount: state.scheduleItems.filter((s) => s.type === 'lecture').length,
             examCount: state.scheduleItems.filter((s) => s.type === 'exam').length,
         };
-    }, [state]);
+    }, [state.scheduleItems, state.faculties, state.rooms, state.courses, state.departments]);
 
     // Helper: get department with its faculty name
     const getDepartmentsWithFaculty = useMemo(() => {
@@ -316,7 +316,7 @@ export function AppProvider({ children }) {
                 isSpecialFaculty: !!(effFaculty?.is_special ?? effFaculty?.isSpecial),
             };
         });
-    }, [state]);
+    }, [state.scheduleItems, state.courses, state.rooms, state.departments, state.faculties]);
 
     const value = {
         state,
