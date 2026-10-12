@@ -25,7 +25,7 @@ export const UG_CONFIG = {
 export const FALLBACK_REALMS = [
 	{ key: "UG", name: "Undergraduate", is_live: true },
 	{ key: "PG", name: "Postgraduate", is_live: false },
-	{ key: "ICE", name: "ICE", is_live: false },
+	{ key: "ICE", name: "ICE", is_live: true },
 	{ key: "FOUNDATION", name: "Foundation", is_live: false },
 ];
 
