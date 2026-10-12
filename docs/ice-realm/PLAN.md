@@ -233,7 +233,7 @@ Prerequisites: Phase 7's PR merged (production is at revision `n4i5j6k7l8m9`). B
 - [x] "Add from Undergraduate" on the Rooms page for every realm but UG, next to "Create new room".
 - [x] One shared guard, `tests/db_guard.py`, in front of everything in the suite that deletes data.
 - [x] SPEC.md, CLAUDE.md, README.md and this plan updated.
-- [ ] Push the branch and open a PR. **Don't merge it.**
+- [x] Push the branch and open a PR. **Don't merge it.** (PRs #80 and #81, merged by the owner on 2026-10-12.)
 
 **Verify** with tests:
 - Each realm lists and changes only its own faculties, departments and rooms; the other realm's ids behave like missing ids.
@@ -242,6 +242,26 @@ Prerequisites: Phase 7's PR merged (production is at revision `n4i5j6k7l8m9`). B
 - Adding from Undergraduate: fields kept, chosen faculty applied, one hall group with the original, added once, creation rules per role.
 - The revision: upgrade and downgrade round trip; existing UG rows untouched; interim ICE data moved onto ICE's own faculties, departments and rooms.
 - UG unchanged: the baseline tests, and no file under `src/` other than the Rooms page differs from `main`.
+
+---
+
+## Phase 9 — ICE lectures on any day
+
+Prerequisites: Phase 8 merged (production is at revision `o5j6k7l8m9n0`). Branch: `feature/ice-all-week`, cut from `main`. ICE only; UG must not change, and no realm's `is_live` changes.
+
+- [x] Data revision `p6k7l8m9n0o1`: ICE's `lecture_days` become Monday to Sunday. Nothing else in ICE's config, and no other realm, is touched.
+- [x] `backend/modules/realms/defaults.py` matches, and a test ties it to the two revisions.
+- [x] ICE lecture PDFs print a day column only for days with classes; UG's columns are unchanged.
+- [x] SPEC.md, README.md and this plan updated.
+- [ ] Push the branch and open a PR. **Don't merge it.**
+
+**Verify** with tests:
+- ICE accepts a lecture on each of the seven days, still inside 07:00–21:00 on the 15-minute grid.
+- ICE exams, and exam blocked slots, are still refused on Monday to Thursday.
+- A day outside a realm's list is still refused (a strict realm listing Friday to Sunday).
+- A hall linked between UG and ICE can't be double-booked on Monday to Thursday, in either order, on create and on edit.
+- The revision changes only ICE's `lecture_days`, keeps `is_live`, and downgrades cleanly.
+- UG's lecture PDF day columns are the same as before for every combination of days; no grid file changes.
 
 ---
 
@@ -296,6 +316,10 @@ Prerequisites: Phase 7's PR merged (production is at revision `n4i5j6k7l8m9`). B
 - `backend/tests/test_realm_migration.py`: on the development PC used for this phase, a child Python that imports SQLAlchemy with piped output crashes at random (exit code 3221227274), so these tests were run there with Alembic in-process. CI runs them as written.
 - `backend/scripts/seed_ice_qa.py` (git-ignored): updated for separate faculties and rooms; it exists only on the machine that ran it.
 
+- `src/lib/realm.js` (`lecturePdfDays`): "only days with classes" applies to a realm whose `lecture_days` are all seven days, because the deployed code rejects new config keys, so a dedicated setting could not be added in the same deploy. If another realm needs the same printing with fewer days, add a config key in a release of its own (code first, then the data).
+- `src/lib/realm.test.mjs` ("portal links"): this test failed on `main` after the "make ice live" commit set ICE live in `FALLBACK_REALMS`; it now expects UG and ICE. Whether production's ICE row is live is set through the API, not here.
+- `src/components/TimetableGrid/TimetableGrid.js`: ICE's lecture grid now has seven day tabs. Not checked by hand at narrow widths.
+
 ## Progress log
 
 <!-- Claude appends one line per finished phase: YYYY-MM-DD · Phase N · what changed · test results -->
@@ -311,3 +335,4 @@ Prerequisites: Phase 7's PR merged (production is at revision `n4i5j6k7l8m9`). B
 2026-10-09 · Phase 7 (partial) · `/ice-audit` found no realm leak (no blockers); fixed its findings and the three left from the previous audit: a shared department can't be deleted while another realm has enrollments for it, an ADD change request stores no target item, only a super admin reads invitation tokens, a realm update is logged under the realm that changed, and a cross-realm requester's review notification names the realm; `.github/workflows/test.yml` runs pytest (Postgres 16 service), lint, unit tests and build on pull requests; README gains a realms section; SPEC.md brought in line with the build. Not done: the production-dump restore, smoke test and course-level check (no dump on this machine), and opening the PR (`gh` is not installed) · backend `pytest` 110 passed (106 existing, 4 new), also 110 passed on a fresh `postgres:16` container set up like the CI job; `npm test` 27 passed; `npm run lint` 0 errors (20 warnings, as before); `npm run build` OK; the workflow itself first runs when the PR is opened
 2026-10-11 · Merge of `main` · brought in main's DEO role, online sessions, faster conflict engine and layout fix; the realms revision now follows main's two revisions (`down_revision = "2f166d445031"`); DEO is a realm-bound role, and a faculty editor's staff and invitation lists are limited to their own realm and faculty; an online session holds no room, so it neither causes nor suffers a cross-realm clash and is left out of `external-bookings`; the realm window and other realms' bookings were re-applied on top of main's conflict engine; the blocked-slot overlay follows the realm's hours; approving an ADD change request that has no online flag no longer fails (500 on main) · backend `pytest` 112 passed (110 existing, 2 new); `npm test` 30 passed; `npm run lint` 0 errors (20 warnings, as before); `npm run build` OK; not re-checked by hand in a browser
 2026-10-12 · Phase 8 · faculties, departments and rooms belong to a realm (revision `o5j6k7l8m9n0` on top of the deployed `n4i5j6k7l8m9`; every existing row stays UG with its id; any interim ICE data is moved onto ICE's own copies); hall groups replace shared rooms, so only rooms in one group clash across realms and show in `external-bookings`; realms other than UG add rooms from Undergraduate on the Rooms page (own room, chosen faculty, one group with the original, once) or create rooms of their own; super admins link and unlink by hand; a shared guard refuses any test-suite delete outside a localhost `*_test` database (added after a faulty local helper emptied the local development database) · backend `pytest -m "not slow"` 134 passed; the 4 migration tests passed with Alembic in-process (see Follow-ups); `npm test` 30 passed; `npm run lint` 0 errors (20 warnings, as before); `npm run build` OK; only the Rooms page differs from `main` under `src/`; not checked by hand in a browser
+2026-10-12 · Phase 9 · ICE lectures can be on any day: data revision `p6k7l8m9n0o1` sets only ICE's `lecture_days` to Monday–Sunday (exam days, window, step, exam slots, other realms and every `is_live` untouched; no new config key, so the deployed code keeps working during the deploy); defaults and tests updated; a day outside a realm's list is still refused (ICE exams on Monday–Thursday, and lectures in a strict realm that lists Friday–Sunday); linked halls are clash-checked against UG's weekday lectures in both orders; ICE lecture PDFs print only days with classes while UG's day columns are pinned to the old rule for all 128 day combinations; the stale "portal links" test, failing on `main` since ICE was set live in the fallback list, now expects UG and ICE · backend `pytest -m "not slow"` 151 passed; the 5 migration tests passed with Alembic in-process; `npm test` 32 passed; `npm run lint` 0 errors (20 warnings, as before); `npm run build` OK; under `src/` only `realm.js`, one expression in `pdfExport.js` and two test files differ from `main` (no grid file); not checked by hand in a browser

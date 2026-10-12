@@ -101,7 +101,7 @@ The app serves more than one programme. Each one is a **realm** with its own fac
 | Key | Programme | Week |
 |---|---|---|
 | `UG` | Undergraduate | Monday to Saturday, 08:00 to 18:00, 30-minute steps |
-| `ICE` | ICE (part-time) | Friday to Sunday, 07:00 to 21:00, 15-minute steps; the API rejects anything outside |
+| `ICE` | ICE (part-time) | Lectures any day, exams Friday to Sunday; 07:00 to 21:00, 15-minute steps; the API rejects anything outside |
 | `PG`, `FOUNDATION` | Placeholders | Copies of the UG settings, not in use |
 
 - **Portals.** `/realms` lists the programmes and each one signs in at `/login?realm=KEY`. A realm whose `is_live` flag is off shows as "Coming soon" on `/realms`, but its login page still works, so staff can set it up before launch.

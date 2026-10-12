@@ -79,6 +79,22 @@ export function isAllowedLectureDay(day, config = UG_CONFIG) {
 }
 
 /**
+ * The day columns of a lecture PDF, picked from `days` (already in week order).
+ *
+ * A realm with a set teaching week (UG: Monday to Saturday) prints every
+ * weekday column, used or not, and a weekend column only when that day has
+ * classes. A realm that can teach on any day of the week has no set week, so
+ * it prints only the days that have classes.
+ */
+export function lecturePdfDays(days, usedDays, config = UG_CONFIG) {
+	const anyDay = config.lecture_days.length === WEEKDAYS.length;
+	return days.filter((day) => {
+		const optional = anyDay || day === "Saturday" || day === "Sunday";
+		return !optional || usedDays.includes(day);
+	});
+}
+
+/**
  * Weekday name of a "YYYY-MM-DD" date. Built from the date's parts in local
  * time: `new Date("YYYY-MM-DD")` is UTC midnight, which is the previous day
  * in timezones behind UTC.

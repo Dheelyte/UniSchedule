@@ -3,7 +3,10 @@ from datetime import date
 
 import pytest
 
+from core.database import async_session_maker
 from modules.auth.models import RoleEnum
+from modules.realms.defaults import ICE_CONFIG
+from modules.realms.models import Realm
 
 API = "/api/v1"
 SATURDAY, SUNDAY, MONDAY = "2026-10-10", "2026-10-11", "2026-10-12"
@@ -89,8 +92,18 @@ async def test_ice_accepts_a_friday_evening_lecture_on_the_quarter_hour(campus):
     assert (item["day_of_week"], item["start_time"], item["end_time"]) == ("Friday", "19:15:00", "20:45:00")
 
 
+@pytest.mark.parametrize("day", ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"])
+async def test_ice_lectures_can_be_on_any_day(campus, day):
+    ice = campus["ICE"]
+    item = await _ok(await _schedule(ice, _lecture(ice, day_of_week=day, start_time="07:00:00", end_time="09:15:00")))
+    assert item["day_of_week"] == day
+    # The rest of ICE's window still applies on a weekday.
+    for overrides in ({"start_time": "06:45:00", "end_time": "08:00:00"}, {"start_time": "19:10:00", "end_time": "20:45:00"}):
+        assert (await _schedule(ice, _lecture(ice, day_of_week=day, **overrides))).status_code == 400
+
+
 @pytest.mark.parametrize("overrides", [
-    {"day_of_week": "Monday"},
+    {"day_of_week": "Someday"},
     {"day_of_week": None},
     {"start_time": "06:45:00", "end_time": "08:00:00"},
     {"start_time": "19:10:00", "end_time": "20:45:00"},
@@ -99,7 +112,7 @@ async def test_ice_accepts_a_friday_evening_lecture_on_the_quarter_hour(campus):
     {"start_time": "20:00:00", "end_time": "21:15:00"},
     {"start_time": "12:00:00", "end_time": "12:00:00"},
     {"start_time": "12:00:00", "end_time": "11:00:00"},
-], ids=["monday", "no-day", "before-07", "off-grid-start", "off-grid-end", "seconds", "after-21", "empty", "backwards"])
+], ids=["not-a-day", "no-day", "before-07", "off-grid-start", "off-grid-end", "seconds", "after-21", "empty", "backwards"])
 async def test_ice_rejects_lectures_outside_its_window(campus, overrides):
     ice = campus["ICE"]
     response = await _schedule(ice, _lecture(ice, **overrides))
@@ -121,7 +134,8 @@ async def test_ice_checks_the_window_when_an_item_is_edited(campus):
     item = await _ok(await _schedule(ice, _lecture(ice)))
     url = f"{API}/timetable/schedule-items/{item['id']}"
 
-    for change in ({"day_of_week": "Monday"}, {"start_time": "06:00:00"}, {"end_time": "12:10:00"}, {"end_time": "09:00:00"}):
+    await _ok(await ice["admin"].put(url, json={"day_of_week": "Monday"}))
+    for change in ({"day_of_week": "Someday"}, {"start_time": "06:00:00"}, {"end_time": "12:10:00"}, {"end_time": "09:00:00"}):
         response = await ice["admin"].put(url, json=change)
         assert response.status_code == 400, f"{change}: {response.text}"
 
@@ -138,9 +152,9 @@ async def test_ice_checks_the_window_on_change_requests(campus):
         return _lecture(ice, timetable_type="lecture", action=action, reason="please", **overrides)
 
     rejected = [
-        request("ADD", day_of_week="Monday"),
+        request("ADD", day_of_week="Someday"),
         request("ADD", start_time="19:10:00", end_time="20:45:00"),
-        request("MODIFY", target_schedule_item_id=item["id"], day_of_week="Tuesday"),
+        request("MODIFY", target_schedule_item_id=item["id"], day_of_week="Tuesday", start_time="06:00:00"),
         # No day given: the target's Friday stands, but the time is still checked.
         request("MODIFY", target_schedule_item_id=item["id"], day_of_week=None, start_time="06:00:00"),
     ]
@@ -149,6 +163,8 @@ async def test_ice_checks_the_window_on_change_requests(campus):
         assert response.status_code == 400, f"{body}: {response.text}"
 
     await _ok(await ice["editor"].post(url, json=request("ADD", day_of_week="Saturday")))
+    await _ok(await ice["editor"].post(url, json=request("ADD", day_of_week="Wednesday")))
+    await _ok(await ice["editor"].post(url, json=request("MODIFY", target_schedule_item_id=item["id"], day_of_week="Tuesday")))
     await _ok(await ice["editor"].post(url, json=request(
         "MODIFY", target_schedule_item_id=item["id"], day_of_week=None, start_time="14:00:00", end_time="16:00:00",
     )))
@@ -164,13 +180,13 @@ async def test_ice_blocked_slots_must_sit_on_ice_days(campus):
     semester = {"semester_id": ice["semester"]["id"]}
     url = f"{API}/timetable/blocked-slots"
 
-    for body in (
-        {"name": "Midweek", "day_of_week": "Wednesday", "applies_to": "LECTURE_ONLY"},
-        {"name": "Midweek", "day_of_week": "Wednesday", "applies_to": "BOTH"},
-        {"name": "Monday paper", "date": MONDAY, "applies_to": "EXAM_ONLY"},
-    ):
-        response = await ice["admin"].post(url, json={**body, **semester})
-        assert response.status_code == 400, f"{body}: {response.text}"
+    # Exams are still Friday to Sunday only, so a block for an exam date can't sit on a Monday.
+    body = {"name": "Monday paper", "date": MONDAY, "applies_to": "EXAM_ONLY"}
+    response = await ice["admin"].post(url, json={**body, **semester})
+    assert response.status_code == 400, response.text
+    # Lectures run all week, so a weekday can be blocked for them.
+    await _ok(await ice["admin"].post(url, json={"name": "Midweek", "day_of_week": "Wednesday", "applies_to": "LECTURE_ONLY", **semester}))
+    await _ok(await ice["admin"].post(url, json={"name": "Midweek both", "day_of_week": "Thursday", "applies_to": "BOTH", **semester}))
 
     await _ok(await ice["admin"].post(url, json={"name": "Service", "day_of_week": "Sunday", "applies_to": "BOTH", **semester}))
     await _ok(await ice["admin"].post(url, json={"name": "Convocation", "date": SUNDAY, "applies_to": "EXAM_ONLY", **semester}))
@@ -189,6 +205,65 @@ async def test_ug_gets_no_new_day_or_time_validation(campus):
     await _ok(await ug["editor"].post(f"{API}/timetable/change-requests", json=_lecture(
         ug, timetable_type="lecture", action="ADD", day_of_week="Sunday", start_time="06:10:00", end_time="07:05:00",
     )))
+
+
+async def test_ice_exams_stay_on_friday_to_sunday(campus):
+    ice = campus["ICE"]
+    for exam_date, weekday in ((MONDAY, "Monday"), ("2026-10-14", "Wednesday"), ("2026-10-15", "Thursday")):
+        assert date.fromisoformat(exam_date).strftime("%A") == weekday
+        response = await _schedule(ice, _exam(ice, exam_date=exam_date))
+        assert response.status_code == 400, f"{weekday}: {response.text}"
+        assert response.json()["detail"] == "ICE exams run on Friday, Saturday, Sunday only"
+    # An undated exam is checked by its day, and a lecture on the same Monday is fine.
+    assert (await _schedule(ice, _exam(ice, exam_date=None, day_of_week="Monday"))).status_code == 400
+    await _ok(await _schedule(ice, _lecture(ice, day_of_week="Monday")))
+    request = _exam(ice, exam_date=MONDAY, timetable_type="exam", action="ADD", reason="please")
+    assert (await ice["editor"].post(f"{API}/timetable/change-requests", json=request)).status_code == 400
+
+
+@pytest.fixture
+async def weekend_only_pg(make_client, make_user, login):
+    """PG as a strict realm that teaches Friday to Sunday, which is what ICE was. The
+    `realms` table is not emptied between tests, so the row is put back afterwards."""
+    async with async_session_maker() as session:
+        realm = await session.get(Realm, "PG")
+        original = realm.config
+        realm.config = {**ICE_CONFIG, "lecture_days": ["Friday", "Saturday", "Sunday"]}
+        await session.commit()
+    try:
+        admin = make_client()
+        await login(admin, (await make_user(RoleEnum.SUPER_ADMIN))["email"], realm="PG")
+        faculty = (await _ok(await admin.post(f"{API}/timetable/faculties", json={"id": "ENG", "name": "Engineering"})))["id"]
+        department = await _ok(await admin.post(f"{API}/timetable/departments", json={"name": "Civil", "faculty_id": faculty}))
+        room = await _ok(await admin.post(f"{API}/timetable/rooms", json={"name": "PG 1", "faculty_id": faculty}))
+        session_row = await _ok(await admin.post(f"{API}/calendar/sessions", json={"name": "PG 2025/2026"}))
+        semester = await _ok(await admin.post(
+            f"{API}/calendar/semesters", json={"name": "First Semester", "session_id": session_row["id"]}
+        ))
+        course = await _ok(await admin.post(f"{API}/timetable/courses", json={
+            "code": "PG801", "title": "PG Mechanics", "department_id": department["id"], "level": 700,
+        }))
+        yield {"key": "PG", "admin": admin, "faculty": faculty, "room": room, "semester": semester, "course": course}
+    finally:
+        async with async_session_maker() as session:
+            (await session.get(Realm, "PG")).config = original
+            await session.commit()
+
+
+async def test_a_day_outside_a_realms_list_is_still_refused(weekend_only_pg):
+    """ICE now lists every day for lectures; the rule itself is unchanged for a realm that doesn't."""
+    pg = weekend_only_pg
+    for day in ("Monday", "Thursday"):
+        response = await _schedule(pg, _lecture(pg, day_of_week=day))
+        assert response.status_code == 400, response.text
+        assert response.json()["detail"] == "Postgraduate lectures run on Friday, Saturday, Sunday only"
+    item = await _ok(await _schedule(pg, _lecture(pg, day_of_week="Saturday")))
+    moved = await pg["admin"].put(f"{API}/timetable/schedule-items/{item['id']}", json={"day_of_week": "Tuesday"})
+    assert moved.status_code == 400, moved.text
+    blocked = await pg["admin"].post(f"{API}/timetable/blocked-slots", json={
+        "name": "Midweek", "day_of_week": "Wednesday", "applies_to": "LECTURE_ONLY", "semester_id": pg["semester"]["id"],
+    })
+    assert blocked.status_code == 400, blocked.text
 
 
 # --- Cross-realm room clashes (SPEC 8.2) --------------------------------------
@@ -210,6 +285,31 @@ async def test_a_room_cannot_hold_two_realms_lectures_at_once(campus, first, sec
     await _ok(await _schedule(late, _lecture(late, start_time="11:00:00", end_time="13:00:00", room_ids=[late["other_room"]["id"]])))
     await _ok(await _schedule(late, _lecture(late, start_time="11:00:00", end_time="13:00:00", day_of_week="Saturday")))
     await _ok(await _schedule(late, _lecture(late, start_time="12:00:00", end_time="14:00:00")))
+
+
+@pytest.mark.parametrize("day", ["Monday", "Tuesday", "Wednesday", "Thursday"])
+@pytest.mark.parametrize("first, second", [("UG", "ICE"), ("ICE", "UG")])
+async def test_a_linked_hall_is_checked_against_weekday_lectures_too(campus, day, first, second):
+    """UG teaches on weekdays; now that ICE can too, a hall both use can't be double-booked then."""
+    holder, late = campus[first], campus[second]
+    held = await _ok(await _schedule(holder, _lecture(holder, day_of_week=day, start_time="10:00:00", end_time="12:00:00")))
+
+    response = await _schedule(late, _lecture(late, day_of_week=day, start_time="11:00:00", end_time="13:00:00"))
+    assert response.status_code == 409, response.text
+    for part in ("ENG 101", f"{first}201", day, "10:00–12:00"):
+        assert part in response.json()["detail"], response.json()["detail"]
+    # The other realm sees the booking on that weekday, on its own room for the hall.
+    [seen] = await _ok(await late["admin"].get(f"{API}/timetable/external-bookings"))
+    assert (seen["id"], seen["day_of_week"], seen["room_ids"]) == (held["id"], day, [late["room"]["id"]])
+
+    # Straight after, another weekday, or a room that isn't linked is fine.
+    await _ok(await _schedule(late, _lecture(late, day_of_week=day, start_time="12:00:00", end_time="14:00:00")))
+    await _ok(await _schedule(late, _lecture(late, day_of_week=day, start_time="11:00:00", end_time="13:00:00", room_ids=[late["unlinked_room"]["id"]])))
+    # Moving an existing session onto the held slot is refused as well.
+    other_day = "Friday" if day != "Friday" else "Saturday"
+    item = await _ok(await _schedule(late, _lecture(late, day_of_week=other_day, start_time="10:30:00", end_time="11:30:00")))
+    moved = await late["admin"].put(f"{API}/timetable/schedule-items/{item['id']}", json={"day_of_week": day})
+    assert moved.status_code == 409, moved.text
 
 
 async def test_exams_clash_across_realms_on_the_same_date_only(campus):
