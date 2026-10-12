@@ -92,14 +92,23 @@ def test_cross_realm_roles():
 
 # --- Seed data -------------------------------------------------------------
 
+def _revision(filename: str):
+    path = BACKEND_DIR / "migrations" / "versions" / filename
+    spec = importlib.util.spec_from_file_location(filename.removesuffix(".py"), path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def test_migration_seed_matches_defaults():
-    """The revision keeps its own copy of the configs; it must not drift from the app's."""
-    path = BACKEND_DIR / "migrations" / "versions" / "n4i5j6k7l8m9_add_realms.py"
-    spec = importlib.util.spec_from_file_location("add_realms_revision", path)
-    revision = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(revision)
+    """The revisions keep their own copies of the configs; they must not drift from the app's."""
+    revision = _revision("n4i5j6k7l8m9_add_realms.py")
+    any_day = _revision("p6k7l8m9n0o1_ice_lectures_any_day.py")
     assert revision.UG_CONFIG == UG_CONFIG
-    assert revision.ICE_CONFIG == ICE_CONFIG
+    # ICE as first seeded, then with the one value the later revision changes.
+    assert revision.ICE_CONFIG["lecture_days"] == any_day.PREVIOUS_ICE_LECTURE_DAYS
+    assert {**revision.ICE_CONFIG, "lecture_days": any_day.ICE_LECTURE_DAYS} == ICE_CONFIG
+    assert ICE_CONFIG["exam_days"] == ["Friday", "Saturday", "Sunday"]
     assert {role.value for role in CROSS_REALM_ROLES} == set(eval(revision.CROSS_REALM_ROLES))
 
 

@@ -11,7 +11,7 @@ import {
 	scheduleMatchesRoom,
 	buildFacultyRooms,
 } from "@/lib/timetableLayout";
-import { UG_CONFIG, DEFAULT_REALM, hourRange } from "@/lib/realm";
+import { UG_CONFIG, DEFAULT_REALM, hourRange, lecturePdfDays } from "@/lib/realm";
 import { robotoCondensedRegular, robotoCondensedBold } from "@/lib/fonts/robotoCondensed";
 
 export function exportTimetablePDF({
@@ -670,11 +670,9 @@ export function exportTimetablePDF({
 			examWeeks.forEach((week) => uniqueDates.push(...week));
 		} else {
 			// Saturday and Sunday are optional lecture days - only show their
-			// columns when something is actually scheduled on them.
-			lectureDays.forEach((day) => {
-				const isWeekend = day === "Saturday" || day === "Sunday";
-				if (!isWeekend || schedules.some((s) => s.day === day)) uniqueDates.push(day);
-			});
+			// columns when something is actually scheduled on them. In a realm
+			// that teaches on any day (ICE), every day is optional.
+			uniqueDates.push(...lecturePdfDays(lectureDays, schedules.map((s) => s.day), config));
 		}
 
 		// 2. Identify active rooms and map them to faculties

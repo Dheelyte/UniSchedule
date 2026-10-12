@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { detectConflicts, detectAllConflicts, countConflicts, toExternalBooking } from "./conflicts.js";
 
 const ICE_CONFIG = {
-	lecture_days: ["Friday", "Saturday", "Sunday"],
+	lecture_days: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"],
 	exam_days: ["Friday", "Saturday", "Sunday"],
 	day_start: "07:00",
 	day_end: "21:00",

@@ -1,7 +1,7 @@
 """Seed values for the realms table.
 
-The Alembic revision that creates `realms` carries its own copy of these
-configs (migrations must not import app code); a test keeps the two in sync.
+The Alembic revisions that create and change `realms` carry their own copies
+of these configs (migrations must not import app code); a test keeps them in sync.
 """
 
 DEFAULT_REALM_KEY = "UG"
@@ -24,7 +24,8 @@ UG_CONFIG = {
 }
 
 ICE_CONFIG = {
-    "lecture_days": ["Friday", "Saturday", "Sunday"],
+    # Any day: some ICE departments teach Monday to Thursday. Exams stay on the weekend.
+    "lecture_days": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"],
     "exam_days": ["Friday", "Saturday", "Sunday"],
     "day_start": "07:00",
     "day_end": "21:00",

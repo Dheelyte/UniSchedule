@@ -4,7 +4,7 @@ Base commit: `e3a3c4a` (main). Line numbers below refer to that commit. If they'
 
 ## 1. Goal
 
-Add ICE, the part-time programme, as a second realm next to Undergraduate (UG). ICE gets everything UG has: courses, lecture/exam/CBT timetables, locks, change requests, conflict management and exports. It has its own academic calendar, courses and staff, and a different weekly shape. ICE classes and exams run on Friday, Saturday and Sunday at flexible times.
+Add ICE, the part-time programme, as a second realm next to Undergraduate (UG). ICE gets everything UG has: courses, lecture/exam/CBT timetables, locks, change requests, conflict management and exports. It has its own academic calendar, courses and staff, and a different weekly shape. ICE classes run on any day of the week and ICE exams on Friday, Saturday and Sunday, at flexible times.
 
 Non-negotiables:
 
@@ -20,7 +20,7 @@ Today the only trace of realms is the static list in `src/app/realms/page.js:7-1
 |---|---|
 | Venues | Each realm has its own list of rooms. Where ICE uses a hall UG also uses, the two rooms are put in one **hall group**, and only grouped rooms are checked for cross-realm clashes (§5.1, §8.2). UG also runs on Fridays and Saturdays. *(Originally: one shared list of rooms. Changed after launch prep, because ICE's venues and departments differ from UG's.)* |
 | Staff | Super Admin, Super Viewer and CITS Admin are **cross-realm**: they pick a realm at login and can switch. Faculty Editor, Faculty Viewer and GS Admin belong to **one** realm. |
-| ICE classes | A weekly pattern like UG, on Friday, Saturday and Sunday, any time 07:00–21:00 in 15-minute steps. |
+| ICE classes | A weekly pattern like UG, on any day from Monday to Sunday, any time 07:00–21:00 in 15-minute steps. *(Originally Friday to Sunday only; widened by revision `p6k7l8m9n0o1` because some ICE departments teach Monday to Thursday.)* |
 | ICE exams | Dated, on dates that fall on a Friday, Saturday or Sunday, any time 07:00–21:00. |
 | Org structure | Each realm has its own faculties and departments. *(Originally shared; changed for the same reason.)* |
 | Accounts | One email is one account (`users.email` is unique). A person who edits both programmes needs two emails. |
@@ -82,7 +82,7 @@ ICE:
 
 ```json
 {
-  "lecture_days": ["Friday", "Saturday", "Sunday"],
+  "lecture_days": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"],
   "exam_days": ["Friday", "Saturday", "Sunday"],
   "day_start": "07:00",
   "day_end": "21:00",
@@ -99,6 +99,10 @@ ICE:
   "strict": true
 }
 ```
+
+ICE was seeded with `lecture_days` of Friday, Saturday and Sunday. Revision `p6k7l8m9n0o1` (data only) sets them to all seven days and changes nothing else: not ICE's exam days, window, time step or exam slots, not another realm, and not any realm's `is_live`. The rule in §8.1 is unchanged, so a day outside a realm's list is still refused; ICE's lecture list simply has no day outside it now, while an ICE exam on a Monday is still refused.
+
+A config change made by a migration must not add a key: the deploy workflow runs migrations while the previous code is still live, and `RealmConfig` rejects unknown keys.
 
 `PG` and `FOUNDATION` start as placeholders: a copy of the UG config with `is_live = false`.
 
@@ -339,7 +343,7 @@ This must be a pure module, with no `@/` imports and explicit `.js` extensions, 
 
 ### 9.5 Exports: today they silently drop ICE data
 
-- **A3 lecture days.** `pdfExport.js:596-600` pushes Monday–Friday (plus Saturday when used), so Sunday classes never appear. Use `lecture_days`. Monday–Friday days in the list always get a column, as today; Saturday and Sunday get one only when they have items, as Saturday works today. (Hiding an empty weekday would change UG exports.)
+- **A3 lecture days.** `pdfExport.js:596-600` pushes Monday–Friday (plus Saturday when used), so Sunday classes never appear. Use `lecture_days`. Monday–Friday days in the list always get a column, as today; Saturday and Sunday get one only when they have items, as Saturday works today. (Hiding an empty weekday would change UG exports.) A realm whose `lecture_days` are all seven days has no set teaching week, so every day is optional there: an ICE lecture PDF has a column only for days that have classes (`lecturePdfDays` in `src/lib/realm.js`).
 - **A3 lecture hours.** `:371-374` uses an 8–18 grid that `computeDayRange` widens. Start from the realm's window instead.
 - **A3 exam weeks.** `:577-594` builds each week as a Monday plus 6 days, so Sunday exams never appear; the legacy fallback lists Monday–Saturday. Build weeks from `exam_days`.
 - **A3 exam slots.** `:555-566` fixes the slots at 9–12, 12–3 and 3–6, and cells are matched with `GRID_START_H + i * SLOT_HOURS` (`:1312-1316`), so exams outside 09–18 vanish. Use `config.exam_slots`, matching on each slot's own start and end.
@@ -353,8 +357,8 @@ This must be a pure module, with no `@/` imports and explicit `.js` extensions, 
 2. For every realm-scoped resource, UG and ICE users see only their own realm's data. Ids from the other realm behave like missing ids (§7): 404, or a 200 that does nothing when deleting a course or schedule item.
 3. Creating an ICE session or semester leaves UG's current semester untouched.
 4. The same course code can exist in UG and ICE. A duplicate within one realm returns 400.
-5. ICE: a Friday 19:15–20:45 lecture is accepted. Monday returns 400, a 06:45 start returns 400, and a 19:10 start returns 400.
-6. With a UG lecture on Friday 10:00–12:00 in a room, an ICE lecture on Friday 11:00–13:00 in the ICE room linked to it as the same hall returns 409. The reverse order also returns 409. A different room, an unlinked room of the same name, Sunday, or a back-to-back 12:00–14:00 slot is accepted.
+5. ICE: a Friday 19:15–20:45 lecture is accepted, and so is a lecture on any day from Monday to Sunday. A 06:45 start returns 400, a 19:10 start returns 400, and an exam on a Monday returns 400. In a strict realm that lists Friday to Sunday only, a Monday lecture still returns 400.
+6. With a UG lecture on Friday 10:00–12:00 (or on any weekday) in a room, an ICE lecture on Friday 11:00–13:00 in the ICE room linked to it as the same hall returns 409. The reverse order also returns 409. A different room, an unlinked room of the same name, Sunday, or a back-to-back 12:00–14:00 slot is accepted.
 7. An ICE exam on Sunday at 19:00 shows in the grid, both A3 and A4 PDFs, and the CSV.
 8. Logging in to the wrong portal with a realm-bound account returns 403 naming the right portal. A super admin can switch realms. Impersonation keeps the realm.
 9. Priority-override emails and notifications reach only editors in the same realm. Notifications to super admins name the realm.
