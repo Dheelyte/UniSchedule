@@ -1,19 +1,19 @@
-import jsPDF from "jspdf";
-import { unilagLogoBase64 } from "@/lib/logo";
-import { GENERAL_STUDIES_FACULTY, isGeneralStudiesCourse } from "@/lib/utils";
+import { jsPDF } from "jspdf";
+import { unilagLogoBase64 } from "./logo.js";
+import { GENERAL_STUDIES_FACULTY, isGeneralStudiesCourse } from "./utils.js";
 import {
 	assignLanes,
 	computeDayRange,
-	fitChipText,
+	layoutChipLabel,
 	ONLINE_ROOM_ID,
 	ONLINE_ROOM_NAME,
 	isScheduleOnline,
 	scheduleMatchesRoom,
 	buildFacultyRooms,
 	mergeAdjacentCourseSchedules,
-} from "@/lib/timetableLayout";
-import { UG_CONFIG, DEFAULT_REALM, hourRange, lecturePdfDays } from "@/lib/realm";
-import { robotoCondensedRegular, robotoCondensedBold } from "@/lib/fonts/robotoCondensed";
+} from "./timetableLayout.js";
+import { UG_CONFIG, DEFAULT_REALM, hourRange, lecturePdfDays } from "./realm.js";
+import { robotoCondensedRegular, robotoCondensedBold } from "./fonts/robotoCondensed.js";
 
 export function exportTimetablePDF({
 	schedules,
@@ -52,10 +52,15 @@ export function exportTimetablePDF({
 	const realmTitlePrefix = otherRealm ? `${String(realmName || realmKey).toUpperCase()} ` : "";
 	const realmFilePrefix = otherRealm ? `${realmKey.toLowerCase()}_` : "";
 
-	// The realm's day window in whole hours (UG: 8 and 18).
+	// Detect ICE realm (Institute of Continuing Education / part-time)
+	const isICE = (realmKey && realmKey.toUpperCase() === "ICE") ||
+		(realmName && realmName.toUpperCase().includes("ICE")) ||
+		(config && (config.day_start === "07:00" || config.day_start === "14:00" || config.slot_minutes === 15));
+
+	// The realm's day window in whole hours (UG: 8 and 18; ICE lectures start at 14:00 / 2pm).
 	const realmHours = hourRange(config);
-	const WINDOW_START_H = realmHours[0];
-	const WINDOW_END_H = realmHours[realmHours.length - 1];
+	let WINDOW_START_H = (isICE && mode === "lecture") ? 14 : realmHours[0];
+	let WINDOW_END_H = (isICE && mode === "lecture") ? Math.max(realmHours[realmHours.length - 1], 22) : realmHours[realmHours.length - 1];
 
 	const WEEK_ORDER = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
@@ -174,7 +179,7 @@ export function exportTimetablePDF({
 	const getTimetableTypeLabel = (titleVal, facultyVal, departmentVal) => {
 		const isAllFaculty = !facultyVal || facultyVal.toLowerCase() === "all faculties" || facultyVal.toLowerCase() === "all";
 		const isAllDept = !departmentVal || departmentVal.toLowerCase() === "all departments" || departmentVal.toLowerCase() === "all";
-		const modeStr = titleVal.toLowerCase().includes("exam") ? "EXAMINATION" : "LECTURE";
+		const modeStr = (mode === "exam" || (titleVal && titleVal.toLowerCase().includes("exam"))) ? "EXAMINATION" : "LECTURE";
 
 		if (isAllFaculty && isAllDept) {
 			return `${realmTitlePrefix}GENERAL UNIVERSITY ${modeStr} TIMETABLE`;
@@ -400,7 +405,7 @@ export function exportTimetablePDF({
 		});
 		const pageW = pageFormat === "a4" ? 297 : 420; // mm (landscape)
 		const pageH = pageFormat === "a4" ? 210 : 297;
-		const m = 12;
+		const m = mode === "lecture" ? 8 : 12;
 
 		// Condensed face used only for lecture course chips.
 		const CHIP_FONT = "RobotoCondensed";
@@ -554,83 +559,96 @@ export function exportTimetablePDF({
 		// Lecture-only: hour range shared by every day of one faculty table.
 		// Defaults to the realm's day window and widens to cover any class outside it, so
 		// a chip can never run past its day's wall into the next day.
+		// Lecture-only: hour range shared by every day of one faculty table.
+		// Defaults to the realm's day window and widens to cover any class outside it.
+		// Trims empty leading and trailing hours across the faculty to recover horizontal space.
 		function getLectureDayRange(facName, facSchedules) {
-			const range = computeDayRange(facSchedules, GRID_START_H, GRID_END_H);
-			if (range.outOfRange.length > 0) {
+			const startAnchor = isICE ? 14 : GRID_START_H;
+			const endAnchor = isICE ? Math.max(GRID_END_H, 22) : GRID_END_H;
+			const range = computeDayRange(facSchedules, startAnchor, endAnchor, { trim: !isICE });
+			let startH = isICE ? Math.min(14, range.startH) : range.startH;
+			let endH = isICE ? Math.max(22, range.endH) : range.endH;
+			if (startH % 2 !== 0) startH -= 1;
+			if (endH % 2 !== 0) endH += 1;
+			if (range.outOfRange && range.outOfRange.length > 0) {
 				console.warn(
 					`[pdfExport] ${facName}: ${range.outOfRange.length} class(es) outside ` +
-					`${GRID_START_H}:00-${GRID_END_H}:00; grid extended to ${range.startH}:00-${range.endH}:00`,
+					`${startAnchor}:00-${endAnchor}:00; grid extended to ${startH}:00-${endH}:00`,
 					range.outOfRange.map((si) => `${si.courseCode} ${si.day} ${si.startTime}-${si.endTime}`),
 				);
 			}
-			return range;
+			return { ...range, startH: Math.max(0, startH), endH: Math.min(24, endH) };
 		}
 
 		// Lecture chip geometry (mm) and fixed font sizes (pt). Overlapping
-		// classes stack in lanes; text is never shrunk below these sizes.
+		// classes stack in lanes; text is never shrunk below 6pt.
 		const CHIP_H = 6.6;
 		const LANE_PITCH = 7.2;
 		const ROW_PAD = 1.0;
 		const CHIP_INSET = 0.5;
-		const CHIP_PAD_X = 0.35;
-		const CHIP_SIZES = { main: 7, prefix: 6 };
 		const PT_TO_MM = 0.3528;
 		const CAP_RATIO = 0.71;
 
-		const measureChipText = (text, size, bold) => {
-			pdfA3.setFont(CHIP_FONT, bold ? "bold" : "normal");
+		const measureChipTextPt = (text, size) => {
+			pdfA3.setFont(CHIP_FONT, "bold");
 			pdfA3.setFontSize(size);
-			return pdfA3.getTextWidth(text);
+			return pdfA3.getTextWidth(text) * (72 / 25.4);
 		};
 
-		// Draws one lecture chip at a fixed size. Returns true when the code's
-		// prefix had to be dropped (a "•" in the chip corner, explained in the
-		// page legend).
-		function drawLectureChip(x, y, w, si) {
+		// Draws one lecture chip showing the complete course code without any truncation or dropped prefix.
+		function drawLectureChip(x, y, w, h, si) {
 			const bgCol = monochrome ? [255, 255, 255] : [239, 246, 255];
 			const borderCol = monochrome ? [156, 163, 175] : [191, 219, 254];
 			const textCol = monochrome ? [75, 85, 99] : [29, 78, 216];
-			const prefixCol = monochrome ? [107, 114, 128] : [100, 116, 139];
+
+			const chipHeight = h || CHIP_H;
 
 			pdfA3.setFillColor(...bgCol);
 			pdfA3.setDrawColor(...borderCol);
 			pdfA3.setLineWidth(0.12);
-			pdfA3.roundedRect(x, y, w, CHIP_H, 0.6, 0.6, "FD");
+			pdfA3.roundedRect(x, y, w, chipHeight, 0.6, 0.6, "FD");
 
-			const innerW = w - 2 * CHIP_PAD_X;
-			const fit = fitChipText(si.courseCode || si.courseId, innerW, measureChipText, CHIP_SIZES);
-			const mainCap = CHIP_SIZES.main * PT_TO_MM * CAP_RATIO;
-			const prefixCap = CHIP_SIZES.prefix * PT_TO_MM * CAP_RATIO;
-			const lineGap = 0.9;
-			const cx = x + w / 2;
+			const wPt = w * (72 / 25.4);
+			const hPt = chipHeight * (72 / 25.4);
+			const startMin = timeToMinutes(si.startTime);
+			const endMin = timeToMinutes(si.endTime);
+			const durationMin = endMin > startMin ? endMin - startMin : 60;
 
-			if (fit.kind === "two-line") {
-				const top = y + (CHIP_H - (prefixCap + lineGap + mainCap)) / 2;
-				pdfA3.setFont(CHIP_FONT, "normal");
-				pdfA3.setFontSize(CHIP_SIZES.prefix);
-				pdfA3.setTextColor(...prefixCol);
-				pdfA3.text(fit.prefix, cx, top + prefixCap, { align: "center" });
-				pdfA3.setFont(CHIP_FONT, "bold");
-				pdfA3.setFontSize(CHIP_SIZES.main);
-				pdfA3.setTextColor(...textCol);
-				pdfA3.text(fit.lines[0], cx, top + prefixCap + lineGap + mainCap, { align: "center" });
+			const layout = layoutChipLabel(
+				si.courseCode || si.courseId,
+				wPt,
+				hPt,
+				measureChipTextPt,
+				{ durationMin }
+			);
+
+			pdfA3.setFont(CHIP_FONT, "bold");
+			pdfA3.setFontSize(layout.fontSizePt);
+			pdfA3.setTextColor(...textCol);
+
+			const linePitchMm = layout.fontSizePt * PT_TO_MM * 1.1;
+			const capHeightMm = layout.fontSizePt * PT_TO_MM * CAP_RATIO;
+
+			if (layout.rotated) {
+				// Rotated 90°: text runs bottom-to-top centered vertically in chip
+				const lineCenterY = y + chipHeight / 2;
+				if (layout.lines.length === 1) {
+					pdfA3.text(layout.lines[0], x + w / 2, lineCenterY, { align: "center", angle: 90 });
+				} else {
+					const x1 = x + w / 2 - linePitchMm / 2;
+					const x2 = x + w / 2 + linePitchMm / 2;
+					pdfA3.text(layout.lines[0], x1, lineCenterY, { align: "center", angle: 90 });
+					pdfA3.text(layout.lines[1], x2, lineCenterY, { align: "center", angle: 90 });
+				}
 			} else {
-				const blockH = fit.lines.length * mainCap + (fit.lines.length - 1) * lineGap;
-				const top = y + (CHIP_H - blockH) / 2;
-				pdfA3.setFont(CHIP_FONT, "bold");
-				pdfA3.setFontSize(CHIP_SIZES.main);
-				pdfA3.setTextColor(...textCol);
-				fit.lines.forEach((line, idx) => {
-					pdfA3.text(line, cx, top + mainCap + idx * (mainCap + lineGap), { align: "center" });
+				// Horizontal text
+				const blockH = (layout.lines.length - 1) * linePitchMm + capHeightMm;
+				const top = y + (chipHeight - blockH) / 2;
+				const cx = x + w / 2;
+				layout.lines.forEach((line, idx) => {
+					pdfA3.text(line, cx, top + capHeightMm + idx * linePitchMm, { align: "center" });
 				});
 			}
-			if (fit.marked) {
-				pdfA3.setFont(CHIP_FONT, "bold");
-				pdfA3.setFontSize(CHIP_SIZES.prefix);
-				pdfA3.setTextColor(...prefixCol);
-				pdfA3.text("•", x + w - 0.3, y + 1.9, { align: "right" });
-			}
-			return fit.marked;
 		}
 
 		// 1. Gather all unique dates (or legacy days) from schedules
@@ -715,7 +733,7 @@ export function exportTimetablePDF({
 			}
 		});
 
-		const venueColW = 35; // Wider column for rooms
+		const venueColW = mode === "lecture" ? 24 : 35; // Wrapped venue column
 		const facultyColW = 0;  // No faculty column
 		// Hoisted so the pagination pre-pass below can also compute a
 		// per-dayChunk dayWidth (needed to size day segments before we know
@@ -738,7 +756,7 @@ export function exportTimetablePDF({
 		};
 
 		// Dynamic row height calculator for A3 (based on a custom list of schedules)
-		const getA3RoomRowHeight = (room, targetSchedules) => {
+		const getA3RoomRowHeight = (room, targetSchedules, lanePitch, chipH) => {
 			const label = getRoomLabel(room);
 			pdfA3.setFont("helvetica", "bold");
 			pdfA3.setFontSize(7.5);
@@ -753,7 +771,9 @@ export function exportTimetablePDF({
 					const placed = getLectureRoomDayLanes(room, targetSchedules, dayVal);
 					if (placed.length) maxLanes = Math.max(maxLanes, placed[0].laneCount);
 				});
-				return Math.max(labelH, maxLanes * LANE_PITCH + 2 * ROW_PAD - (LANE_PITCH - CHIP_H));
+				const lp = lanePitch || LANE_PITCH;
+				const ch = chipH || CHIP_H;
+				return Math.max(labelH, maxLanes * lp + 2 * ROW_PAD - (lp - ch));
 			}
 
 			const roomSchedules = targetSchedules.filter(si => scheduleMatchesRoom(si, room));
@@ -834,10 +854,8 @@ export function exportTimetablePDF({
 		if (mode === "exam") {
 			dayChunks.push(...examWeeks);
 		} else {
-			const daysPerPage = pageFormat === "a4" ? 3 : Math.max(6, uniqueDates.length);
-			for (let i = 0; i < uniqueDates.length; i += daysPerPage) {
-				dayChunks.push(uniqueDates.slice(i, i + daysPerPage));
-			}
+			// Monday–Friday always appear together on one page width
+			dayChunks.push(uniqueDates);
 		}
 
 		// Vertical space for room rows below the repeated day/hour header,
@@ -902,6 +920,38 @@ export function exportTimetablePDF({
 
 				const dayRange = mode === "exam" ? null : getLectureDayRange(facName, facSchedules);
 
+				let facultyLanePitch = LANE_PITCH;
+				let facultyChipH = CHIP_H;
+
+				if (mode !== "exam") {
+					const remainingW = tableW - venueColW - facultyColW;
+					const dayWidth = remainingW / dayChunk.length;
+					const rangeMin = (dayRange.endH - dayRange.startH) * 60;
+
+					let maxReqHPt = 0;
+					facSchedules.forEach((si) => {
+						const startMin = timeToMinutes(si.startTime);
+						const endMin = timeToMinutes(si.endTime);
+						if (endMin <= startMin) return;
+						const chipWMm = ((endMin - startMin) / rangeMin) * dayWidth - 2 * CHIP_INSET;
+						const chipWPt = chipWMm * (72 / 25.4);
+						const layout = layoutChipLabel(
+							si.courseCode || si.courseId,
+							chipWPt,
+							CHIP_H * (72 / 25.4),
+							measureChipTextPt,
+							{ durationMin: endMin - startMin }
+						);
+						if (layout.requiredHeightPt > maxReqHPt) {
+							maxReqHPt = layout.requiredHeightPt;
+						}
+					});
+
+					const maxReqHMm = maxReqHPt * (25.4 / 72);
+					facultyChipH = Math.max(CHIP_H, maxReqHMm);
+					facultyLanePitch = Math.max(LANE_PITCH, facultyChipH + 0.6);
+				}
+
 				// Slice active rooms of this faculty into page row chunks (vertical fit)
 				const rowChunks = [];
 				let idxRoom = 0;
@@ -910,7 +960,7 @@ export function exportTimetablePDF({
 					let chunk = [];
 					let j = idxRoom;
 					while (j < facRooms.length) {
-						const rowH = getA3RoomRowHeight(facRooms[j], facSchedules);
+						const rowH = getA3RoomRowHeight(facRooms[j], facSchedules, facultyLanePitch, facultyChipH);
 						if (chunk.length > 0 && currentHeight + rowH > maxGridH) {
 							break;
 						}
@@ -934,6 +984,8 @@ export function exportTimetablePDF({
 						rowChunk,
 						facWeekSchedules: facSchedules,
 						dayRange,
+						facultyLanePitch,
+						facultyChipH,
 						isGSTSection: true
 					});
 				});
@@ -982,6 +1034,38 @@ export function exportTimetablePDF({
 
 				const dayRange = mode === "exam" ? null : getLectureDayRange(facName, facSchedules);
 
+				let facultyLanePitch = LANE_PITCH;
+				let facultyChipH = CHIP_H;
+
+				if (mode !== "exam") {
+					const remainingW = tableW - venueColW - facultyColW;
+					const dayWidth = remainingW / dayChunk.length;
+					const rangeMin = (dayRange.endH - dayRange.startH) * 60;
+
+					let maxReqHPt = 0;
+					facSchedules.forEach((si) => {
+						const startMin = timeToMinutes(si.startTime);
+						const endMin = timeToMinutes(si.endTime);
+						if (endMin <= startMin) return;
+						const chipWMm = ((endMin - startMin) / rangeMin) * dayWidth - 2 * CHIP_INSET;
+						const chipWPt = chipWMm * (72 / 25.4);
+						const layout = layoutChipLabel(
+							si.courseCode || si.courseId,
+							chipWPt,
+							CHIP_H * (72 / 25.4),
+							measureChipTextPt,
+							{ durationMin: endMin - startMin }
+						);
+						if (layout.requiredHeightPt > maxReqHPt) {
+							maxReqHPt = layout.requiredHeightPt;
+						}
+					});
+
+					const maxReqHMm = maxReqHPt * (25.4 / 72);
+					facultyChipH = Math.max(CHIP_H, maxReqHMm);
+					facultyLanePitch = Math.max(LANE_PITCH, facultyChipH + 0.6);
+				}
+
 				// Slice active rooms of this faculty into page row chunks (vertical fit)
 				const rowChunks = [];
 				let idxRoom = 0;
@@ -990,7 +1074,7 @@ export function exportTimetablePDF({
 					let chunk = [];
 					let j = idxRoom;
 					while (j < facRooms.length) {
-						const rowH = getA3RoomRowHeight(facRooms[j], facSchedules);
+						const rowH = getA3RoomRowHeight(facRooms[j], facSchedules, facultyLanePitch, facultyChipH);
 						if (chunk.length > 0 && currentHeight + rowH > maxGridH) {
 							break;
 						}
@@ -1014,32 +1098,13 @@ export function exportTimetablePDF({
 						rowChunk,
 						facWeekSchedules: facSchedules,
 						dayRange,
+						facultyLanePitch,
+						facultyChipH,
 						isGSTSection: false
 					});
 				});
 			});
 		});
-		}
-
-		// A4 lectures: keep each faculty's Mon-Wed and Thu-Fri pages together
-		// (stable sort by the faculty table's first appearance), and give both
-		// halves the same hour range so their columns line up.
-		if (mode !== "exam" && dayChunks.length > 1) {
-			const firstIdx = new Map();
-			const tableRange = new Map();
-			pagesToRender.forEach((p, i) => {
-				const key = `${p.isGSTSection}|${p.facultyName}`;
-				if (!firstIdx.has(key)) firstIdx.set(key, i);
-				const r = tableRange.get(key);
-				tableRange.set(key, r
-					? { startH: Math.min(r.startH, p.dayRange.startH), endH: Math.max(r.endH, p.dayRange.endH) }
-					: { startH: p.dayRange.startH, endH: p.dayRange.endH });
-			});
-			pagesToRender.forEach((p) => {
-				p.dayRange = tableRange.get(`${p.isGSTSection}|${p.facultyName}`);
-			});
-			pagesToRender.sort((a, b) =>
-				firstIdx.get(`${a.isGSTSection}|${a.facultyName}`) - firstIdx.get(`${b.isGSTSection}|${b.facultyName}`));
 		}
 
 		// ---------- Front cover page (light mode) ----------
@@ -1138,7 +1203,7 @@ export function exportTimetablePDF({
 		// Now render all built pages (cover occupies the first page)
 		let pageIdx = 0;
 		pagesToRender.forEach(pageSpec => {
-			const { weekIdx, dayChunk, facultyName: facName, rowChunk, facWeekSchedules, dayRange, isGSTSection } = pageSpec;
+			const { weekIdx, dayChunk, facultyName: facName, rowChunk, facWeekSchedules, dayRange, facultyLanePitch, facultyChipH, isGSTSection } = pageSpec;
 
 			if (hasCover || pageIdx > 0) pdfA3.addPage();
 
@@ -1216,7 +1281,8 @@ export function exportTimetablePDF({
 			// Title
 			let timetableTitle = getTimetableTypeLabel(title, facName, scopeLabel);
 			if (isGSTSection) {
-				timetableTitle = `${realmTitlePrefix}GENERAL STUDIES EXAMINATION TIMETABLE`;
+				const gstModeStr = (mode === "exam" || (title && title.toLowerCase().includes("exam"))) ? "EXAMINATION" : "LECTURE";
+				timetableTitle = `${realmTitlePrefix}GENERAL STUDIES ${gstModeStr} TIMETABLE`;
 			}
 			pdfA3.setFont("helvetica", "bold");
 			pdfA3.setFontSize(14);
@@ -1265,7 +1331,6 @@ export function exportTimetablePDF({
 				pdfA3.setLineWidth(0.2);
 				pdfA3.setLineDashPattern([], 0);
 			};
-			let pageHasMarkedChip = false;
 
 			// Draw Header background
 			pdfA3.setFillColor(241, 245, 249);
@@ -1351,7 +1416,7 @@ export function exportTimetablePDF({
 			const pageBlockedCols = new Map();
 
 			rowChunk.forEach((room) => {
-				const rowH = getA3RoomRowHeight(room, facWeekSchedules);
+				const rowH = getA3RoomRowHeight(room, facWeekSchedules, facultyLanePitch, facultyChipH);
 
 				pdfA3.setDrawColor(71, 85, 105);
 				pdfA3.setLineWidth(0.2);
@@ -1532,9 +1597,11 @@ export function exportTimetablePDF({
 						}
 						resetLine();
 
+						const lp = facultyLanePitch || LANE_PITCH;
+						const ch = facultyChipH || CHIP_H;
 						const placed = getLectureRoomDayLanes(room, facWeekSchedules, dayVal.replace("legacy:", ""));
 						const laneCount = placed.length ? placed[0].laneCount : 1;
-						const lanesTop = rowY + (rowH - (laneCount * LANE_PITCH - (LANE_PITCH - CHIP_H))) / 2;
+						const lanesTop = rowY + (rowH - (laneCount * lp - (lp - ch))) / 2;
 						placed.forEach((si) => {
 							const startMin = timeToMinutes(si.startTime);
 							const endMin = timeToMinutes(si.endTime);
@@ -1550,9 +1617,7 @@ export function exportTimetablePDF({
 
 							const chipX = xForMinute(dayX, startMin) + CHIP_INSET;
 							const chipW = xForMinute(dayX, endMin) - xForMinute(dayX, startMin) - 2 * CHIP_INSET;
-							if (drawLectureChip(chipX, lanesTop + si.lane * LANE_PITCH, chipW, si)) {
-								pageHasMarkedChip = true;
-							}
+							drawLectureChip(chipX, lanesTop + si.lane * lp, chipW, ch, si);
 						});
 					}
 				});
@@ -1613,13 +1678,7 @@ export function exportTimetablePDF({
 				});
 			});
 
-			// Legend for chips whose code prefix was dropped to fit.
-			if (pageHasMarkedChip) {
-				pdfA3.setFont("helvetica", "normal");
-				pdfA3.setFontSize(7);
-				pdfA3.setTextColor(71, 85, 105);
-				pdfA3.text("• Course code has a LAG-/UNILAG- or similar prefix", m, pageH - 10.5);
-			}
+
 
 			// Render Footer
 			pdfA3.setFont("helvetica", "normal");
@@ -1638,9 +1697,11 @@ export function exportTimetablePDF({
 			pageIdx++;
 		});
 
-		const fname = getExportFileName(title, session, semester, faculty, scopeLabel, "a3");
-		pdfA3.save(fname);
-		return;
+		const fname = getExportFileName(title, session, semester, faculty, scopeLabel, pageFormat === "a4" ? "a4" : "a3");
+		if (typeof window !== "undefined") {
+			pdfA3.save(fname);
+		}
+		return pdfA3;
 	}
 
 	// =========================================================================

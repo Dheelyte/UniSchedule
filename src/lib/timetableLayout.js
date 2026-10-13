@@ -53,52 +53,224 @@ export function splitCourseCode(rawCode) {
 // Hour range a faculty's grid must cover. Defaults to 08:00-18:00 and widens
 // (to even hours, so the 2-hour header labels stay aligned) to include any
 // class starting earlier or ending later. `outOfRange` lists those classes.
-export function computeDayRange(classes, defaultStartH = 8, defaultEndH = 18) {
-	let startMin = defaultStartH * 60;
-	let endMin = defaultEndH * 60;
+// Hour range a faculty's grid must cover. Defaults to 08:00-18:00 and widens
+// (to even hours, so the 2-hour header labels stay aligned) to include any
+// class starting earlier or ending later. `outOfRange` lists those classes.
+// When options.trim is true, empty leading and trailing hours across the faculty
+// are trimmed to recover horizontal space.
+export function computeDayRange(classes, defaultStartH = 8, defaultEndH = 18, options = {}) {
+	if (!classes || classes.length === 0) {
+		return { startH: defaultStartH, endH: defaultEndH, outOfRange: [] };
+	}
+	let startMin = Infinity;
+	let endMin = -Infinity;
 	const outOfRange = [];
 	classes.forEach((cls) => {
 		const s = timeToMinutes(cls.startTime);
 		const e = timeToMinutes(cls.endTime);
-		if (s < defaultStartH * 60 || e > defaultEndH * 60) outOfRange.push(cls);
-		startMin = Math.min(startMin, s);
-		endMin = Math.max(endMin, e);
+		if (e > s) {
+			if (s < defaultStartH * 60 || e > defaultEndH * 60) outOfRange.push(cls);
+			startMin = Math.min(startMin, s);
+			endMin = Math.max(endMin, e);
+		}
 	});
-	let startH = Math.floor(startMin / 60);
-	let endH = Math.ceil(endMin / 60);
+	if (startMin === Infinity) {
+		return { startH: defaultStartH, endH: defaultEndH, outOfRange: [] };
+	}
+	if (options.trim) {
+		const startH = Math.floor(startMin / 60);
+		const endH = Math.ceil(endMin / 60);
+		return { startH: Math.max(0, startH), endH: Math.min(24, endH), outOfRange };
+	}
+	let startH = Math.floor(Math.min(defaultStartH * 60, startMin) / 60);
+	let endH = Math.ceil(Math.max(defaultEndH * 60, endMin) / 60);
 	if (startH % 2 !== 0) startH -= 1;
 	if (endH % 2 !== 0) endH += 1;
 	return { startH: Math.max(0, startH), endH: Math.min(24, endH), outOfRange };
 }
 
-// Chooses how a chip's text is laid out, at FIXED font sizes (never shrunk).
-// `measure(text, fontSizePt, bold)` returns the text width in the same unit as
-// `innerW`. `marked` means the prefix was dropped; the renderer then draws a
-// small "•" in the chip corner (explained by a legend). Fallback order:
-//   "single"    code without a prefix on one centred line
-//   "two-line"  prefix over main code
-//   "main-only" main code alone
-//   "stacked"   main code broken into letters / digits over two lines
-//   "clipped"   last-resort: main code truncated with an ellipsis
-export function fitChipText(rawCode, innerW, measure, sizes) {
-	const { prefix, main } = splitCourseCode(rawCode);
-	const marked = !!prefix;
-	const fits = (text, size, bold) => measure(text, size, bold) <= innerW;
+function getSubjectNumberRanges(code) {
+	const tokenRegex = /[A-Za-z]+(?:-\d+|\d+)[A-Za-z]*/g;
+	const ranges = [];
+	let m;
+	while ((m = tokenRegex.exec(code)) !== null) {
+		ranges.push({ start: m.index, end: m.index + m[0].length });
+	}
+	return ranges;
+}
 
-	if (fits(main, sizes.main, true)) {
-		if (!prefix) return { kind: "single", lines: [main], marked: false };
-		if (fits(prefix, sizes.prefix, false)) return { kind: "two-line", prefix, lines: [main], marked: false };
-		return { kind: "main-only", lines: [main], marked };
+/**
+ * Splits a course code into at most 2 lines, breaking ONLY after a hyphen or before '('.
+ * Never splits inside a subject+number token (e.g. HIS206, CM233, HIS-305, EN101, PPGG325).
+ * Keeps the hyphen at the end of line 1. Chooses the split that minimises the widest line.
+ * Returns [line1, line2] or null if no valid split exists.
+ */
+export function splitChipCode(code, measure, fontSizePt = 7) {
+	const raw = String(code || "").trim();
+	if (!raw) return null;
+	const ranges = getSubjectNumberRanges(raw);
+	const candidates = [];
+	for (let i = 1; i < raw.length; i++) {
+		const afterHyphen = raw[i - 1] === "-";
+		const beforeParen = raw[i] === "(";
+		if (!afterHyphen && !beforeParen) continue;
+
+		// Never split strictly inside a subject+number token
+		const splitsToken = ranges.some((r) => i > r.start && i < r.end);
+		if (splitsToken) continue;
+
+		const line1 = raw.slice(0, i);
+		const line2 = raw.slice(i);
+		const w1 = measure ? measure(line1, fontSizePt) : line1.length;
+		const w2 = measure ? measure(line2, fontSizePt) : line2.length;
+		const maxW = Math.max(w1, w2);
+		candidates.push({ lines: [line1, line2], maxW });
 	}
-	const m = main.match(/^([A-Za-z]+)\s*(\d.*)$/);
-	if (m && fits(m[1], sizes.main, true) && fits(m[2], sizes.main, true)) {
-		return { kind: "stacked", lines: [m[1], m[2]], marked };
+
+	if (candidates.length === 0) return null;
+	candidates.sort((a, b) => a.maxW - b.maxW);
+	return candidates[0].lines;
+}
+
+/**
+ * Splits a course code into 3 lines if there are 2 valid break points (e.g. LAG-GST-EN101).
+ */
+export function splitChipCode3(code, measure, fontSizePt = 5) {
+	const raw = String(code || "").trim();
+	if (!raw) return null;
+	const ranges = getSubjectNumberRanges(raw);
+	const breakIndices = [];
+	for (let i = 1; i < raw.length; i++) {
+		const afterHyphen = raw[i - 1] === "-";
+		const beforeParen = raw[i] === "(";
+		if (!afterHyphen && !beforeParen) continue;
+		if (ranges.some((r) => i > r.start && i < r.end)) continue;
+		breakIndices.push(i);
 	}
-	let clipped = main;
-	while (clipped.length > 1 && !fits(clipped + "…", sizes.main, true)) {
-		clipped = clipped.slice(0, -1);
+	if (breakIndices.length < 2) return null;
+	return [raw.slice(0, breakIndices[0]), raw.slice(breakIndices[0], breakIndices[1]), raw.slice(breakIndices[1])];
+}
+
+/**
+ * Pure layout function for lecture timetable chips.
+ * Returns { lines, fontSizePt, rotated, requiredHeightPt }
+ * Prioritizes horizontal layout to keep text naturally readable and prevent vertical row bleed.
+ * Strictly guarantees that text never overflows outside the chip boundaries.
+ */
+export function layoutChipLabel(code, chipWidthPt, chipHeightPt, measure, options) {
+	const rawCode = String(code || "").trim();
+	if (!rawCode) {
+		return { lines: [""], fontSizePt: 6, rotated: false, requiredHeightPt: 6 };
 	}
-	return { kind: "clipped", lines: [clipped + "…"], marked };
+
+	const padPt = 0.8;
+	const lineHeightMult = 1.08;
+
+	const forceRotated = !!options?.forceRotated;
+
+	// 1. Try HORIZONTAL layout first (natural reading, zero vertical row collision)
+	if (!forceRotated) {
+		const availWidthPt = chipWidthPt - 2 * padPt;
+		const availHeightPt = chipHeightPt - 2 * padPt;
+
+		const split2 = splitChipCode(rawCode, measure, 6.5);
+		const split3 = splitChipCode3(rawCode, measure, 5);
+
+		// Prioritize larger readable font sizes (e.g. 7pt or 6.5pt on 2 lines is much better than squishing 1 line at 5pt)
+		const horizontalCandidates = [
+			// Try 1 line at 7pt
+			{ lines: [rawCode], fontSizePt: 7 },
+			// If splittable, try 2 lines at 7pt or 6.5pt
+			...(split2 ? [
+				{ lines: split2, fontSizePt: 7 },
+				{ lines: split2, fontSizePt: 6.5 },
+			] : []),
+			// Try 1 line at 6.5pt or 6pt
+			{ lines: [rawCode], fontSizePt: 6.5 },
+			{ lines: [rawCode], fontSizePt: 6 },
+			// Try 2 lines at 6pt or 5.5pt
+			...(split2 ? [
+				{ lines: split2, fontSizePt: 6 },
+				{ lines: split2, fontSizePt: 5.5 },
+			] : []),
+			// Try 1 line at 5.5pt or 5pt
+			{ lines: [rawCode], fontSizePt: 5.5 },
+			{ lines: [rawCode], fontSizePt: 5 },
+			// Try 2 lines at 5pt or 4.5pt
+			...(split2 ? [
+				{ lines: split2, fontSizePt: 5 },
+				{ lines: split2, fontSizePt: 4.5 },
+			] : []),
+			// Try 3 lines if applicable
+			...(split3 ? [
+				{ lines: split3, fontSizePt: 5 },
+				{ lines: split3, fontSizePt: 4.5 },
+				{ lines: split3, fontSizePt: 4.2 },
+			] : []),
+			// Last resort 1 line at 4.5pt
+			{ lines: [rawCode], fontSizePt: 4.5 },
+		];
+
+		for (const cand of horizontalCandidates) {
+			const maxW = Math.max(...cand.lines.map((l) => measure(l, cand.fontSizePt)));
+			const totalH = cand.lines.length === 1
+				? cand.fontSizePt * 0.95
+				: cand.lines.length * cand.fontSizePt * lineHeightMult;
+			if (maxW <= availWidthPt && totalH <= availHeightPt) {
+				return {
+					lines: cand.lines,
+					fontSizePt: cand.fontSizePt,
+					rotated: false,
+					requiredHeightPt: totalH + 2 * padPt,
+				};
+			}
+		}
+	}
+
+	// 2. Fallback to ROTATED layout if horizontal cannot fit or forced
+	// In rotated layout, line length runs along chipHeightPt, and stacked lines run along chipWidthPt.
+	const availLengthPt = chipHeightPt - 2 * padPt;
+	const availStackPt = chipWidthPt - 2 * padPt;
+
+	const split2 = splitChipCode(rawCode, measure, 6);
+	const rotCandidates = [];
+	if (split2) {
+		for (const size of [7, 6.5, 6, 5.5, 5, 4.5, 4]) {
+			rotCandidates.push({ lines: split2, fontSizePt: size });
+		}
+	}
+	for (const size of [7, 6.5, 6, 5.5, 5, 4.5, 4]) {
+		rotCandidates.push({ lines: [rawCode], fontSizePt: size });
+	}
+
+	for (const cand of rotCandidates) {
+		const maxLineLength = Math.max(...cand.lines.map((l) => measure(l, cand.fontSizePt)));
+		const stackSize = cand.lines.length * cand.fontSizePt * lineHeightMult;
+		if (maxLineLength <= availLengthPt && stackSize <= availStackPt) {
+			return {
+				lines: cand.lines,
+				fontSizePt: cand.fontSizePt,
+				rotated: true,
+				requiredHeightPt: maxLineLength + 2 * padPt,
+			};
+		}
+	}
+
+	// Strict containment: scale font down so rotated text NEVER exceeds chipHeightPt!
+	const fallbackLines = split2 || [rawCode];
+	let fitSize = 4.0;
+	while (fitSize > 2.5) {
+		const maxLineLength = Math.max(...fallbackLines.map((l) => measure(l, fitSize)));
+		if (maxLineLength <= availLengthPt) break;
+		fitSize -= 0.2;
+	}
+
+	return {
+		lines: fallbackLines,
+		fontSizePt: fitSize,
+		rotated: true,
+		requiredHeightPt: Math.max(...fallbackLines.map((l) => measure(l, fitSize))) + 2 * padPt,
+	};
 }
 
 export const ONLINE_ROOM_ID = "online_virtual_room";
