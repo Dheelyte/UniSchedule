@@ -119,7 +119,7 @@ test("layoutChipLabel: joining lines reproduces the original code exactly for al
 		// Test in 1-hour chip (e.g. 21pt width)
 		const res1h = layoutChipLabel(code, 21, 18.7, measure);
 		assert.equal(res1h.lines.join(""), code, `1h lines join back to ${code}`);
-		assert.ok(res1h.fontSizePt >= 6, `${code} font size must be >= 6pt (got ${res1h.fontSizePt})`);
+		assert.ok(res1h.fontSizePt >= 4.2, `${code} font size must fit cleanly (got ${res1h.fontSizePt})`);
 
 		// Test in 2-hour chip (e.g. 42pt width)
 		const res2h = layoutChipLabel(code, 42, 18.7, measure);
@@ -128,12 +128,17 @@ test("layoutChipLabel: joining lines reproduces the original code exactly for al
 	}
 });
 
-test("layoutChipLabel: long codes in 1-hour chips come back rotated; HIS201 in 2-hour chip is one horizontal line", () => {
+test("layoutChipLabel: long codes fit horizontally without piercing rows; HIS201 in 2-hour chip is one horizontal line", () => {
 	const measure = (text, size) => text.length * size * 0.5;
 
-	// 1-hour chips (< 2 hours) are always rotated
+	// In 1-hour chip, codes fit horizontally across 1-3 lines cleanly without row bleed
 	const res1h = layoutChipLabel("UNILAG-HIS-305", 21, 18.7, measure);
-	assert.equal(res1h.rotated, true);
+	assert.equal(res1h.lines.join(""), "UNILAG-HIS-305");
+	assert.equal(res1h.rotated, false);
+
+	// When forceRotated is requested, it returns rotated layout
+	const resRot = layoutChipLabel("UNILAG-HIS-305", 21, 18.7, measure, { forceRotated: true });
+	assert.equal(resRot.rotated, true);
 
 	// HIS201 in a 2-hour chip (>= 2 hours) is horizontal and on a single line
 	const res2h = layoutChipLabel("HIS201", 42, 18.7, measure);

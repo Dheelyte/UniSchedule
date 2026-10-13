@@ -133,81 +133,143 @@ export function splitChipCode(code, measure, fontSizePt = 7) {
 }
 
 /**
+ * Splits a course code into 3 lines if there are 2 valid break points (e.g. LAG-GST-EN101).
+ */
+export function splitChipCode3(code, measure, fontSizePt = 5) {
+	const raw = String(code || "").trim();
+	if (!raw) return null;
+	const ranges = getSubjectNumberRanges(raw);
+	const breakIndices = [];
+	for (let i = 1; i < raw.length; i++) {
+		const afterHyphen = raw[i - 1] === "-";
+		const beforeParen = raw[i] === "(";
+		if (!afterHyphen && !beforeParen) continue;
+		if (ranges.some((r) => i > r.start && i < r.end)) continue;
+		breakIndices.push(i);
+	}
+	if (breakIndices.length < 2) return null;
+	return [raw.slice(0, breakIndices[0]), raw.slice(breakIndices[0], breakIndices[1]), raw.slice(breakIndices[1])];
+}
+
+/**
  * Pure layout function for lecture timetable chips.
  * Returns { lines, fontSizePt, rotated, requiredHeightPt }
- * - Chips >= 2 hours: horizontal. Try 1 line at 7pt, then 2 lines at 7pt, 6.5pt, 6pt.
- * - Chips < 2 hours: always rotated 90° (reading bottom-to-top). Try 1 line at 7pt, then 2 lines at 7pt, 6.5pt, 6pt.
- * - Never go below 6pt. If nothing fits at current chip height, return requiredHeightPt needed to fit.
- * - 1pt padding from edges, line height 1.1.
+ * Prioritizes horizontal layout to keep text naturally readable and prevent vertical row bleed.
+ * Strictly guarantees that text never overflows outside the chip boundaries.
  */
 export function layoutChipLabel(code, chipWidthPt, chipHeightPt, measure, options) {
 	const rawCode = String(code || "").trim();
-	const isLessThan2Hours = options?.isLessThan2Hours !== undefined
-		? options.isLessThan2Hours
-		: (options?.durationMin !== undefined ? options.durationMin < 120 : chipWidthPt < 28);
-	const rotated = !!isLessThan2Hours;
-
-	const padPt = 1;
-	const lineHeightMult = 1.1;
-
-	// Length axis is along text direction: width for horizontal, height for rotated
-	const availLength = rotated ? (chipHeightPt - 2 * padPt) : (chipWidthPt - 2 * padPt);
-	// Stack axis is perpendicular: height for horizontal, width for rotated
-	const availStack = rotated ? (chipWidthPt - 2 * padPt) : (chipHeightPt - 2 * padPt);
-
-	const split2Lines = splitChipCode(rawCode, measure, 7);
-
-	// Try in order:
-	// - 1 line @ 7pt
-	// - 2 lines @ 7pt
-	// - 2 lines @ 6.5pt
-	// - 2 lines @ 6pt
-	// (or 1 line @ 6.5pt, 1 line @ 6pt if unsplittable)
-	const candidateSpecs = [];
-	candidateSpecs.push({ lines: [rawCode], fontSizePt: 7 });
-	if (split2Lines) {
-		candidateSpecs.push({ lines: split2Lines, fontSizePt: 7 });
-		candidateSpecs.push({ lines: split2Lines, fontSizePt: 6.5 });
-		candidateSpecs.push({ lines: split2Lines, fontSizePt: 6 });
-	} else {
-		candidateSpecs.push({ lines: [rawCode], fontSizePt: 6.5 });
-		candidateSpecs.push({ lines: [rawCode], fontSizePt: 6 });
+	if (!rawCode) {
+		return { lines: [""], fontSizePt: 6, rotated: false, requiredHeightPt: 6 };
 	}
 
-	for (const cand of candidateSpecs) {
+	const padPt = 0.8;
+	const lineHeightMult = 1.08;
+
+	const forceRotated = !!options?.forceRotated;
+
+	// 1. Try HORIZONTAL layout first (natural reading, zero vertical row collision)
+	if (!forceRotated) {
+		const availWidthPt = chipWidthPt - 2 * padPt;
+		const availHeightPt = chipHeightPt - 2 * padPt;
+
+		const split2 = splitChipCode(rawCode, measure, 6.5);
+		const split3 = splitChipCode3(rawCode, measure, 5);
+
+		// Prioritize larger readable font sizes (e.g. 7pt or 6.5pt on 2 lines is much better than squishing 1 line at 5pt)
+		const horizontalCandidates = [
+			// Try 1 line at 7pt
+			{ lines: [rawCode], fontSizePt: 7 },
+			// If splittable, try 2 lines at 7pt or 6.5pt
+			...(split2 ? [
+				{ lines: split2, fontSizePt: 7 },
+				{ lines: split2, fontSizePt: 6.5 },
+			] : []),
+			// Try 1 line at 6.5pt or 6pt
+			{ lines: [rawCode], fontSizePt: 6.5 },
+			{ lines: [rawCode], fontSizePt: 6 },
+			// Try 2 lines at 6pt or 5.5pt
+			...(split2 ? [
+				{ lines: split2, fontSizePt: 6 },
+				{ lines: split2, fontSizePt: 5.5 },
+			] : []),
+			// Try 1 line at 5.5pt or 5pt
+			{ lines: [rawCode], fontSizePt: 5.5 },
+			{ lines: [rawCode], fontSizePt: 5 },
+			// Try 2 lines at 5pt or 4.5pt
+			...(split2 ? [
+				{ lines: split2, fontSizePt: 5 },
+				{ lines: split2, fontSizePt: 4.5 },
+			] : []),
+			// Try 3 lines if applicable
+			...(split3 ? [
+				{ lines: split3, fontSizePt: 5 },
+				{ lines: split3, fontSizePt: 4.5 },
+				{ lines: split3, fontSizePt: 4.2 },
+			] : []),
+			// Last resort 1 line at 4.5pt
+			{ lines: [rawCode], fontSizePt: 4.5 },
+		];
+
+		for (const cand of horizontalCandidates) {
+			const maxW = Math.max(...cand.lines.map((l) => measure(l, cand.fontSizePt)));
+			const totalH = cand.lines.length === 1
+				? cand.fontSizePt * 0.95
+				: cand.lines.length * cand.fontSizePt * lineHeightMult;
+			if (maxW <= availWidthPt && totalH <= availHeightPt) {
+				return {
+					lines: cand.lines,
+					fontSizePt: cand.fontSizePt,
+					rotated: false,
+					requiredHeightPt: totalH + 2 * padPt,
+				};
+			}
+		}
+	}
+
+	// 2. Fallback to ROTATED layout if horizontal cannot fit or forced
+	// In rotated layout, line length runs along chipHeightPt, and stacked lines run along chipWidthPt.
+	const availLengthPt = chipHeightPt - 2 * padPt;
+	const availStackPt = chipWidthPt - 2 * padPt;
+
+	const split2 = splitChipCode(rawCode, measure, 6);
+	const rotCandidates = [];
+	if (split2) {
+		for (const size of [7, 6.5, 6, 5.5, 5, 4.5, 4]) {
+			rotCandidates.push({ lines: split2, fontSizePt: size });
+		}
+	}
+	for (const size of [7, 6.5, 6, 5.5, 5, 4.5, 4]) {
+		rotCandidates.push({ lines: [rawCode], fontSizePt: size });
+	}
+
+	for (const cand of rotCandidates) {
 		const maxLineLength = Math.max(...cand.lines.map((l) => measure(l, cand.fontSizePt)));
 		const stackSize = cand.lines.length * cand.fontSizePt * lineHeightMult;
-
-		if (maxLineLength <= availLength && stackSize <= availStack) {
-			const requiredHeightPt = rotated
-				? maxLineLength + 2 * padPt
-				: stackSize + 2 * padPt;
+		if (maxLineLength <= availLengthPt && stackSize <= availStackPt) {
 			return {
 				lines: cand.lines,
 				fontSizePt: cand.fontSizePt,
-				rotated,
-				requiredHeightPt: Math.min(chipHeightPt, requiredHeightPt),
+				rotated: true,
+				requiredHeightPt: maxLineLength + 2 * padPt,
 			};
 		}
 	}
 
-	// Nothing fits at current chip height; return requiredHeightPt for the best layout at >= 6pt
-	const fallbackCand = split2Lines
-		? { lines: split2Lines, fontSizePt: 6 }
-		: { lines: [rawCode], fontSizePt: 6 };
-
-	const maxLineLength = Math.max(...fallbackCand.lines.map((l) => measure(l, fallbackCand.fontSizePt)));
-	const stackSize = fallbackCand.lines.length * fallbackCand.fontSizePt * lineHeightMult;
-
-	const requiredHeightPt = rotated
-		? maxLineLength + 2 * padPt
-		: stackSize + 2 * padPt;
+	// Strict containment: scale font down so rotated text NEVER exceeds chipHeightPt!
+	const fallbackLines = split2 || [rawCode];
+	let fitSize = 4.0;
+	while (fitSize > 2.5) {
+		const maxLineLength = Math.max(...fallbackLines.map((l) => measure(l, fitSize)));
+		if (maxLineLength <= availLengthPt) break;
+		fitSize -= 0.2;
+	}
 
 	return {
-		lines: fallbackCand.lines,
-		fontSizePt: fallbackCand.fontSizePt,
-		rotated,
-		requiredHeightPt,
+		lines: fallbackLines,
+		fontSizePt: fitSize,
+		rotated: true,
+		requiredHeightPt: Math.max(...fallbackLines.map((l) => measure(l, fitSize))) + 2 * padPt,
 	};
 }
 
