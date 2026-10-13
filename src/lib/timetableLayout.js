@@ -139,3 +139,107 @@ export function buildFacultyRooms(
 	});
 	return hasOnline ? [onlineRoom, ...physicalRooms] : physicalRooms;
 }
+
+/**
+ * Merges adjacent, contiguous, or close-interval schedules for the same course in the same venue on the same day.
+ * When a course is scheduled over multiple entries (e.g. 8am-9am and 9am-10am), this merges them into a single
+ * continuous schedule covering the combined time window (8am-10am), rather than picking just one or discarding
+ * the subsequent occurrence.
+ *
+ * Distinct sessions with large gaps (e.g. morning lecture and afternoon tutorial) are preserved as separate sessions.
+ *
+ * @param {Array<Object>} schedules - Array of schedule objects
+ * @param {number|Object} [options=15] - Maximum gap in minutes allowed between consecutive sessions to be merged, or options object
+ * @param {number} [options.maxGapMinutes=15]
+ * @param {Object} [options.room=null] - If provided, treats all schedules as matching this room
+ * @returns {Array<Object>} Merged schedules
+ */
+export function mergeAdjacentCourseSchedules(schedules, options = 15) {
+	if (!Array.isArray(schedules) || schedules.length === 0) {
+		return [];
+	}
+
+	const maxGapMinutes = typeof options === "number" ? options : (options?.maxGapMinutes ?? 15);
+	const targetRoom = typeof options === "object" ? options?.room ?? null : null;
+
+	const getCourseKey = (s) => {
+		const code = s.courseCode || s.courseId || "N/A";
+		return String(code).trim().toUpperCase();
+	};
+
+	const getDayKey = (s) => {
+		return String(s.day || "").replace("legacy:", "").trim().toLowerCase();
+	};
+
+	const getRoomKey = (s) => {
+		if (targetRoom && targetRoom.id != null) return String(targetRoom.id);
+		if (isScheduleOnline(s)) return ONLINE_ROOM_ID;
+		if (Array.isArray(s.roomIds) && s.roomIds.length > 0) {
+			return s.roomIds.slice().sort().join(",");
+		}
+		if (s.roomId != null) return String(s.roomId);
+		return "";
+	};
+
+	const groups = new Map();
+	for (const s of schedules) {
+		if (!s || !s.startTime || !s.endTime) continue;
+		const courseKey = getCourseKey(s);
+		const dayKey = getDayKey(s);
+		const roomKey = getRoomKey(s);
+		const groupKey = `${dayKey}::${roomKey}::${courseKey}`;
+		if (!groups.has(groupKey)) {
+			groups.set(groupKey, []);
+		}
+		groups.get(groupKey).push(s);
+	}
+
+	const result = [];
+
+	for (const [, items] of groups) {
+		const sorted = [...items].sort((a, b) => {
+			const startDiff = timeToMinutes(a.startTime) - timeToMinutes(b.startTime);
+			if (startDiff !== 0) return startDiff;
+			return timeToMinutes(a.endTime) - timeToMinutes(b.endTime);
+		});
+
+		let current = null;
+
+		for (const item of sorted) {
+			if (!current) {
+				current = { ...item };
+				continue;
+			}
+
+			const currentEndMin = timeToMinutes(current.endTime);
+			const itemStartMin = timeToMinutes(item.startTime);
+			const itemEndMin = timeToMinutes(item.endTime);
+
+			if (itemStartMin <= currentEndMin + maxGapMinutes) {
+				if (itemEndMin > currentEndMin) {
+					current.endTime = item.endTime;
+				}
+				const prevIds = current.mergedScheduleIds || (current.id != null ? [current.id] : []);
+				if (item.id != null && !prevIds.includes(item.id)) {
+					current.mergedScheduleIds = [...prevIds, item.id];
+				}
+			} else {
+				result.push(current);
+				current = { ...item };
+			}
+		}
+
+		if (current) {
+			result.push(current);
+		}
+	}
+
+	result.sort((a, b) => {
+		const startDiff = timeToMinutes(a.startTime) - timeToMinutes(b.startTime);
+		if (startDiff !== 0) return startDiff;
+		return timeToMinutes(a.endTime) - timeToMinutes(b.endTime);
+	});
+
+	return result;
+}
+

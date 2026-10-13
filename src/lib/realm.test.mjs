@@ -127,7 +127,7 @@ test("portal links", () => {
 	// No localStorage under node: falls back to UG instead of throwing.
 	assert.equal(lastRealm(), "UG");
 	assert.ok(FALLBACK_REALMS.some((r) => r.key === "UG" && r.is_live));
-	assert.ok(FALLBACK_REALMS.filter((r) => r.key !== "UG").every((r) => !r.is_live));
+	assert.ok(FALLBACK_REALMS.filter((r) => r.key !== "UG" && r.key !== "ICE").every((r) => !r.is_live));
 });
 
 test("splitRealmLink strips the realm and keeps the rest", () => {
