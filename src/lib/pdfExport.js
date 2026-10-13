@@ -10,6 +10,7 @@ import {
 	isScheduleOnline,
 	scheduleMatchesRoom,
 	buildFacultyRooms,
+	mergeAdjacentCourseSchedules,
 } from "@/lib/timetableLayout";
 import { UG_CONFIG, DEFAULT_REALM, hourRange, lecturePdfDays } from "@/lib/realm";
 import { robotoCondensedRegular, robotoCondensedBold } from "@/lib/fonts/robotoCondensed";
@@ -722,18 +723,18 @@ export function exportTimetablePDF({
 		const tableW = pageW - 2 * m;
 		const remainingW = tableW - venueColW - facultyColW;
 
-		// Lecture: one room's classes on one day, de-duplicated by course code
+		// Lecture: one room's classes on one day, with adjacent/contiguous entries
+		// for the same course merged into a continuous schedule covering the whole duration,
 		// and lane-assigned so overlapping classes stack instead of shrinking.
 		const getLectureRoomDayLanes = (room, targetSchedules, dayVal) => {
-			const seen = new Set();
-			const unique = targetSchedules.filter((si) => {
-				if (!scheduleMatchesRoom(si, room) || si.day !== dayVal) return false;
-				const code = si.courseCode || si.courseId || "N/A";
-				if (seen.has(code)) return false;
-				seen.add(code);
-				return true;
+			const targetDay = String(dayVal || "").replace("legacy:", "").trim().toLowerCase();
+			const matching = targetSchedules.filter((si) => {
+				if (!scheduleMatchesRoom(si, room)) return false;
+				const itemDay = String(si.day || "").replace("legacy:", "").trim().toLowerCase();
+				return itemDay === targetDay;
 			});
-			return assignLanes(unique);
+			const merged = mergeAdjacentCourseSchedules(matching, { room });
+			return assignLanes(merged);
 		};
 
 		// Dynamic row height calculator for A3 (based on a custom list of schedules)
@@ -1729,8 +1730,9 @@ export function exportTimetablePDF({
 		const labelLines = pdf.splitTextToSize(label, 42 - 4); // roomLabelW is 42
 		const labelHeight = 8 + (Math.max(1, labelLines.length) - 1) * 4;
 
-		const roomSchedules = blockSchedules.filter((s) =>
-			scheduleMatchesRoom(s, room)
+		const roomSchedules = mergeAdjacentCourseSchedules(
+			blockSchedules.filter((s) => scheduleMatchesRoom(s, room)),
+			{ room }
 		);
 
 		const itemsByWindow = new Map();
@@ -2079,8 +2081,9 @@ export function exportTimetablePDF({
 				}
 
 				// Draw events in this room
-				const roomSchedules = block.schedules.filter((s) =>
-					scheduleMatchesRoom(s, room),
+				const roomSchedules = mergeAdjacentCourseSchedules(
+					block.schedules.filter((s) => scheduleMatchesRoom(s, room)),
+					{ room }
 				);
 
 				const itemsByWindow = new Map();

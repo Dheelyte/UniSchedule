@@ -10,6 +10,7 @@ import {
 	isScheduleOnline,
 	scheduleMatchesRoom,
 	buildFacultyRooms,
+	mergeAdjacentCourseSchedules,
 } from "./timetableLayout.js";
 
 const cls = (id, startTime, endTime) => ({ id, startTime, endTime });
@@ -147,3 +148,122 @@ test("buildFacultyRooms places online venue first when faculty has online course
 	const roomsOnlyPhysical = buildFacultyRooms(onlyPhysicalSchedules, activeRooms, onlineRoom);
 	assert.deepEqual(roomsOnlyPhysical, [r1]);
 });
+
+test("mergeAdjacentCourseSchedules: merges back-to-back entries for the same course in same venue", () => {
+	const schedules = [
+		{ id: 1, courseCode: "AAA111", day: "Monday", roomId: 10, startTime: "08:00", endTime: "09:00" },
+		{ id: 2, courseCode: "AAA111", day: "Monday", roomId: 10, startTime: "09:00", endTime: "10:00" },
+	];
+	const merged = mergeAdjacentCourseSchedules(schedules);
+	assert.equal(merged.length, 1);
+	assert.equal(merged[0].courseCode, "AAA111");
+	assert.equal(merged[0].startTime, "08:00");
+	assert.equal(merged[0].endTime, "10:00");
+	assert.deepEqual(merged[0].mergedScheduleIds, [1, 2]);
+});
+
+test("mergeAdjacentCourseSchedules: merges multiple consecutive entries (3 hours straight)", () => {
+	const schedules = [
+		{ id: 1, courseCode: "AAA111", day: "Monday", roomId: 10, startTime: "08:00", endTime: "09:00" },
+		{ id: 2, courseCode: "AAA111", day: "Monday", roomId: 10, startTime: "09:00", endTime: "10:00" },
+		{ id: 3, courseCode: "AAA111", day: "Monday", roomId: 10, startTime: "10:00", endTime: "11:00" },
+	];
+	const merged = mergeAdjacentCourseSchedules(schedules);
+	assert.equal(merged.length, 1);
+	assert.equal(merged[0].startTime, "08:00");
+	assert.equal(merged[0].endTime, "11:00");
+	assert.deepEqual(merged[0].mergedScheduleIds, [1, 2, 3]);
+});
+
+test("mergeAdjacentCourseSchedules: merges entries with close enough interval (within 15 minutes)", () => {
+	const schedules = [
+		{ id: 1, courseCode: "AAA111", day: "Monday", roomId: 10, startTime: "08:00", endTime: "08:50" },
+		{ id: 2, courseCode: "AAA111", day: "Monday", roomId: 10, startTime: "09:00", endTime: "09:50" },
+	];
+	const merged = mergeAdjacentCourseSchedules(schedules);
+	assert.equal(merged.length, 1);
+	assert.equal(merged[0].startTime, "08:00");
+	assert.equal(merged[0].endTime, "09:50");
+});
+
+test("mergeAdjacentCourseSchedules: preserves distinct sessions separated by a large interval", () => {
+	const schedules = [
+		{ id: 1, courseCode: "AAA111", day: "Monday", roomId: 10, startTime: "08:00", endTime: "09:00" },
+		{ id: 2, courseCode: "AAA111", day: "Monday", roomId: 10, startTime: "09:00", endTime: "10:00" },
+		{ id: 3, courseCode: "AAA111", day: "Monday", roomId: 10, startTime: "14:00", endTime: "16:00" },
+	];
+	const merged = mergeAdjacentCourseSchedules(schedules);
+	assert.equal(merged.length, 2);
+	assert.equal(merged[0].startTime, "08:00");
+	assert.equal(merged[0].endTime, "10:00");
+	assert.equal(merged[1].startTime, "14:00");
+	assert.equal(merged[1].endTime, "16:00");
+});
+
+test("mergeAdjacentCourseSchedules: preserves two separate non-overlapping sessions on the same day in same venue", () => {
+	// A course scheduled twice on the same day in the same room at entirely different times
+	const schedules = [
+		{ id: 1, courseCode: "AAA111", day: "Monday", roomId: 10, startTime: "08:00", endTime: "10:00" },
+		{ id: 2, courseCode: "AAA111", day: "Monday", roomId: 10, startTime: "14:00", endTime: "16:00" },
+	];
+	const merged = mergeAdjacentCourseSchedules(schedules);
+	assert.equal(merged.length, 2);
+	assert.equal(merged[0].startTime, "08:00");
+	assert.equal(merged[0].endTime, "10:00");
+	assert.equal(merged[1].startTime, "14:00");
+	assert.equal(merged[1].endTime, "16:00");
+
+	// When passed to assignLanes, both sessions are placed in the room
+	const placed = assignLanes(merged);
+	assert.equal(placed.length, 2);
+	assert.equal(placed[0].startTime, "08:00");
+	assert.equal(placed[1].startTime, "14:00");
+});
+
+test("mergeAdjacentCourseSchedules: does not merge different courses in the same room", () => {
+	const schedules = [
+		{ id: 1, courseCode: "AAA111", day: "Monday", roomId: 10, startTime: "08:00", endTime: "09:00" },
+		{ id: 2, courseCode: "BBB222", day: "Monday", roomId: 10, startTime: "09:00", endTime: "10:00" },
+	];
+	const merged = mergeAdjacentCourseSchedules(schedules);
+	assert.equal(merged.length, 2);
+	assert.equal(merged[0].courseCode, "AAA111");
+	assert.equal(merged[1].courseCode, "BBB222");
+});
+
+test("mergeAdjacentCourseSchedules: does not merge across different rooms", () => {
+	const schedules = [
+		{ id: 1, courseCode: "AAA111", day: "Monday", roomId: 10, startTime: "08:00", endTime: "09:00" },
+		{ id: 2, courseCode: "AAA111", day: "Monday", roomId: 20, startTime: "09:00", endTime: "10:00" },
+	];
+	const merged = mergeAdjacentCourseSchedules(schedules);
+	assert.equal(merged.length, 2);
+	assert.equal(merged[0].roomId, 10);
+	assert.equal(merged[1].roomId, 20);
+});
+
+test("mergeAdjacentCourseSchedules: does not merge across different days", () => {
+	const schedules = [
+		{ id: 1, courseCode: "AAA111", day: "Monday", roomId: 10, startTime: "08:00", endTime: "09:00" },
+		{ id: 2, courseCode: "AAA111", day: "Tuesday", roomId: 10, startTime: "09:00", endTime: "10:00" },
+	];
+	const merged = mergeAdjacentCourseSchedules(schedules);
+	assert.equal(merged.length, 2);
+});
+
+test("mergeAdjacentCourseSchedules: handles out-of-order input correctly", () => {
+	const schedules = [
+		{ id: 2, courseCode: "AAA111", day: "Monday", roomId: 10, startTime: "09:00", endTime: "10:00" },
+		{ id: 1, courseCode: "AAA111", day: "Monday", roomId: 10, startTime: "08:00", endTime: "09:00" },
+	];
+	const merged = mergeAdjacentCourseSchedules(schedules);
+	assert.equal(merged.length, 1);
+	assert.equal(merged[0].startTime, "08:00");
+	assert.equal(merged[0].endTime, "10:00");
+});
+
+test("mergeAdjacentCourseSchedules: empty or invalid inputs", () => {
+	assert.deepEqual(mergeAdjacentCourseSchedules([]), []);
+	assert.deepEqual(mergeAdjacentCourseSchedules(null), []);
+});
+
