@@ -200,6 +200,26 @@ test("mergeAdjacentCourseSchedules: preserves distinct sessions separated by a l
 	assert.equal(merged[1].endTime, "16:00");
 });
 
+test("mergeAdjacentCourseSchedules: preserves two separate non-overlapping sessions on the same day in same venue", () => {
+	// A course scheduled twice on the same day in the same room at entirely different times
+	const schedules = [
+		{ id: 1, courseCode: "AAA111", day: "Monday", roomId: 10, startTime: "08:00", endTime: "10:00" },
+		{ id: 2, courseCode: "AAA111", day: "Monday", roomId: 10, startTime: "14:00", endTime: "16:00" },
+	];
+	const merged = mergeAdjacentCourseSchedules(schedules);
+	assert.equal(merged.length, 2);
+	assert.equal(merged[0].startTime, "08:00");
+	assert.equal(merged[0].endTime, "10:00");
+	assert.equal(merged[1].startTime, "14:00");
+	assert.equal(merged[1].endTime, "16:00");
+
+	// When passed to assignLanes, both sessions are placed in the room
+	const placed = assignLanes(merged);
+	assert.equal(placed.length, 2);
+	assert.equal(placed[0].startTime, "08:00");
+	assert.equal(placed[1].startTime, "14:00");
+});
+
 test("mergeAdjacentCourseSchedules: does not merge different courses in the same room", () => {
 	const schedules = [
 		{ id: 1, courseCode: "AAA111", day: "Monday", roomId: 10, startTime: "08:00", endTime: "09:00" },
