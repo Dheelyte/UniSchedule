@@ -9,6 +9,7 @@ import {
 	minutesFromDayStart,
 	isOutsideWindow,
 	isAllowedLectureDay,
+	lecturePdfDays,
 	isAllowedExamDate,
 	weekdayOf,
 	loginPath,
@@ -17,8 +18,10 @@ import {
 } from "./realm.js";
 import { DAYS, EXAM_DAYS, OPERATING_HOURS, isOutsideOperatingHours } from "./utils.js";
 
+const WEEK = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+
 const ICE_CONFIG = {
-	lecture_days: ["Friday", "Saturday", "Sunday"],
+	lecture_days: WEEK,
 	exam_days: ["Friday", "Saturday", "Sunday"],
 	day_start: "07:00",
 	day_end: "21:00",
@@ -92,7 +95,9 @@ test("isOutsideWindow uses the realm's window", () => {
 
 test("lecture days and exam dates follow the config", () => {
 	assert.equal(isAllowedLectureDay("Sunday", ICE_CONFIG), true);
-	assert.equal(isAllowedLectureDay("Monday", ICE_CONFIG), false);
+	assert.equal(isAllowedLectureDay("Monday", ICE_CONFIG), true);
+	// A day outside a realm's list is still not allowed.
+	assert.equal(isAllowedLectureDay("Monday", { ...ICE_CONFIG, lecture_days: ["Friday", "Saturday", "Sunday"] }), false);
 	assert.equal(isAllowedLectureDay("Monday", UG_CONFIG), true);
 	assert.equal(isAllowedLectureDay("Sunday", UG_CONFIG), false);
 	// 2026-10-09 is a Friday.
@@ -126,8 +131,8 @@ test("portal links", () => {
 	assert.equal(loginPath(), "/login?realm=UG");
 	// No localStorage under node: falls back to UG instead of throwing.
 	assert.equal(lastRealm(), "UG");
-	assert.ok(FALLBACK_REALMS.some((r) => r.key === "UG" && r.is_live));
-	assert.ok(FALLBACK_REALMS.filter((r) => r.key !== "UG" && r.key !== "ICE").every((r) => !r.is_live));
+	// The list /realms falls back to when the API can't be reached: UG and ICE are live.
+	assert.deepEqual(FALLBACK_REALMS.filter((r) => r.is_live).map((r) => r.key), ["UG", "ICE"]);
 });
 
 test("splitRealmLink strips the realm and keeps the rest", () => {
@@ -135,4 +140,27 @@ test("splitRealmLink strips the realm and keeps the rest", () => {
 	assert.deepEqual(splitRealmLink("/requests?tab=open&realm=UG"), { path: "/requests?tab=open", realm: "UG" });
 	assert.deepEqual(splitRealmLink("/timetable/lectures"), { path: "/timetable/lectures", realm: null });
 	assert.deepEqual(splitRealmLink("/a?x=1#top"), { path: "/a?x=1#top", realm: null });
+});
+
+test("a UG lecture PDF prints the same day columns as before", () => {
+	// The rule that was written inline in pdfExport.js before realms could teach all week.
+	const before = (days, usedDays) =>
+		days.filter((day) => !(day === "Saturday" || day === "Sunday") || usedDays.includes(day));
+
+	// Every combination of days that have classes, including a Sunday UG doesn't list.
+	for (let mask = 0; mask < 1 << WEEK.length; mask++) {
+		const used = WEEK.filter((_, i) => mask & (1 << i));
+		const days = WEEK.filter((d) => UG_CONFIG.lecture_days.includes(d) || used.includes(d));
+		assert.deepEqual(lecturePdfDays(days, used, UG_CONFIG), before(days, used), used.join(","));
+		assert.deepEqual(lecturePdfDays(days, used), before(days, used));
+	}
+	assert.deepEqual(lecturePdfDays(UG_CONFIG.lecture_days, [], UG_CONFIG), ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]);
+	assert.deepEqual(lecturePdfDays(UG_CONFIG.lecture_days, ["Saturday"], UG_CONFIG), UG_CONFIG.lecture_days);
+});
+
+test("a realm that teaches on any day prints only the days with classes", () => {
+	assert.deepEqual(lecturePdfDays(WEEK, ["Tuesday", "Sunday", "Tuesday"], ICE_CONFIG), ["Tuesday", "Sunday"]);
+	assert.deepEqual(lecturePdfDays(WEEK, ["Friday"], ICE_CONFIG), ["Friday"]);
+	assert.deepEqual(lecturePdfDays(WEEK, WEEK, ICE_CONFIG), WEEK);
+	assert.deepEqual(lecturePdfDays(WEEK, [], ICE_CONFIG), []);
 });

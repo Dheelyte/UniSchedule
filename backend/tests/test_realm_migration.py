@@ -7,6 +7,7 @@ shared onto faculties, departments and rooms of its own.
 Alembic runs as a subprocess against its own scratch database, so downgrades
 never touch the database the rest of the suite uses.
 """
+import json
 import os
 import subprocess
 import sys
@@ -24,6 +25,7 @@ pytestmark = pytest.mark.slow
 PREVIOUS_HEAD = "2f166d445031"
 REALMS_REVISION = "n4i5j6k7l8m9"
 SEPARATION_REVISION = "o5j6k7l8m9n0"
+ANY_DAY_REVISION = "p6k7l8m9n0o1"
 SCRATCH_DB = "unilag_timetable_migration_test"
 # conftest has already refused any TEST_DATABASE_URL that isn't a local *_test database.
 SCRATCH_URL = _url.set(database=SCRATCH_DB).render_as_string(hide_password=False)
@@ -212,7 +214,7 @@ async def test_existing_faculties_and_rooms_stay_in_ug_untouched(scratch):
         FROM rooms ORDER BY id
     """)
 
-    _alembic("upgrade", "head")
+    _alembic("upgrade", SEPARATION_REVISION)
 
     # No id, name or value changed, nothing was added, and everything is UG's.
     assert await _rows(scratch, "SELECT id, name, is_special FROM faculties ORDER BY id") == faculties
@@ -356,3 +358,33 @@ async def test_data_another_realm_entered_while_shared_moves_onto_its_own(scratc
         ([999], None),
     ]
     assert await _rows(scratch, "SELECT room_ids, faculty_id FROM change_requests WHERE realm_key = 'ICE'") == [([copy["id"]], "ICE-ENG")]
+
+
+# --- ICE lectures on any day ---------------------------------------------------
+
+async def test_only_ice_lecture_days_change(scratch):
+    _alembic("upgrade", SEPARATION_REVISION)
+    # ICE has been made live and renamed since it was seeded; neither may be undone.
+    await scratch.execute("UPDATE realms SET is_live = true, name = 'ICE (part-time)' WHERE key = 'ICE'")
+    before = {row["key"]: dict(row) for row in await scratch.fetch("SELECT key, name, is_live, sort_order, config::text AS config FROM realms")}
+    assert json.loads(before["ICE"]["config"])["lecture_days"] == ["Friday", "Saturday", "Sunday"]
+
+    _alembic("upgrade", ANY_DAY_REVISION)
+    after = {row["key"]: dict(row) for row in await scratch.fetch("SELECT key, name, is_live, sort_order, config::text AS config FROM realms")}
+
+    # Every other realm's row is the same, to the byte.
+    for key in ("UG", "PG", "FOUNDATION"):
+        assert after[key] == before[key], key
+    # ICE: only the lecture days differ.
+    old, new = json.loads(before["ICE"]["config"]), json.loads(after["ICE"]["config"])
+    assert new == {**old, "lecture_days": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]}
+    assert new["exam_days"] == ["Friday", "Saturday", "Sunday"]
+    assert (new["day_start"], new["day_end"], new["slot_minutes"], new["strict"]) == ("07:00", "21:00", 15, True)
+    assert {k: v for k, v in after["ICE"].items() if k != "config"} == {k: v for k, v in before["ICE"].items() if k != "config"}
+    assert after["ICE"]["is_live"] is True
+
+    _alembic("downgrade", SEPARATION_REVISION)
+    restored = {row["key"]: dict(row) for row in await scratch.fetch("SELECT key, name, is_live, sort_order, config::text AS config FROM realms")}
+    assert {key: json.loads(row["config"]) for key, row in restored.items()} == {key: json.loads(row["config"]) for key, row in before.items()}
+    assert restored["ICE"]["is_live"] is True
+    _alembic("upgrade", "head")
