@@ -4,7 +4,8 @@ import {
 	assignLanes,
 	splitCourseCode,
 	computeDayRange,
-	fitChipText,
+	layoutChipLabel,
+	splitChipCode,
 	ONLINE_ROOM_ID,
 	ONLINE_ROOM_NAME,
 	isScheduleOnline,
@@ -78,20 +79,67 @@ test("computeDayRange widens to even hours and reports offenders", () => {
 	assert.deepEqual(r.outOfRange.map((c) => c.id), ["late", "early"]);
 });
 
-test("fitChipText falls back without shrinking the font", () => {
-	const sizes = { main: 7, prefix: 6 };
-	const measure = (text) => text.length; // 1 unit per character
-	assert.equal(fitChipText("UNILAG-HIS206", 10, measure, sizes).kind, "two-line");
-	assert.equal(fitChipText("HIS201", 10, measure, sizes).kind, "single");
-	const mainOnly = fitChipText("UNIVERSITY-HIS206", 8, measure, sizes);
-	assert.equal(mainOnly.kind, "main-only");
-	assert.equal(mainOnly.marked, true);
-	assert.deepEqual(mainOnly.lines, ["HIS206"]);
-	const stacked = fitChipText("UNILAG-HIS206", 4, measure, sizes);
-	assert.deepEqual(stacked.lines, ["HIS", "206"]);
-	assert.equal(stacked.marked, true);
-	assert.equal(fitChipText("HIS201", 4, measure, sizes).marked, false);
-	assert.equal(fitChipText("UNILAG-HIS206", 2, measure, sizes).kind, "clipped");
+test("computeDayRange with trim option trims leading and trailing empty hours", () => {
+	const classes = [cls("a", "09:00", "11:00"), cls("b", "14:00", "16:00")];
+	const r = computeDayRange(classes, 8, 18, { trim: true });
+	assert.equal(r.startH, 9);
+	assert.equal(r.endH, 16);
+});
+
+test("splitChipCode breaks only after a hyphen or before ( and never inside subject+number tokens", () => {
+	const measure = (text) => text.length;
+	assert.deepEqual(splitChipCode("UNILAG-HIS206", measure), ["UNILAG-", "HIS206"]);
+	assert.deepEqual(splitChipCode("UNILAG-HIS-305", measure), ["UNILAG-", "HIS-305"]);
+	assert.deepEqual(splitChipCode("LAG-GST-EN101", measure), ["LAG-GST-", "EN101"]);
+	assert.deepEqual(splitChipCode("CEG211(EE:I)", measure), ["CEG211", "(EE:I)"]);
+	assert.deepEqual(splitChipCode("PPGG325(Lab)", measure), ["PPGG325", "(Lab)"]);
+	assert.deepEqual(splitChipCode("LAG-PHL219", measure), ["LAG-", "PHL219"]);
+	assert.deepEqual(splitChipCode("RUS-CM233", measure), ["RUS-", "CM233"]);
+	assert.deepEqual(splitChipCode("MAT101-A", measure), ["MAT101-", "A"]);
+	assert.equal(splitChipCode("HIS201", measure), null);
+	assert.equal(splitChipCode("PHY225N", measure), null);
+});
+
+test("layoutChipLabel: joining lines reproduces the original code exactly for all code shapes", () => {
+	const codeShapes = [
+		"HIS201",
+		"LAG-PHL219",
+		"RUS-CM233",
+		"UNILAG-HIS206",
+		"UNILAG-HIS-305",
+		"LAG-GST-EN101",
+		"CEG211(EE:I)",
+		"PPGG325(Lab)",
+		"MAT101-A",
+		"PHY225N"
+	];
+	const measure = (text, size) => text.length * size * 0.5;
+
+	for (const code of codeShapes) {
+		// Test in 1-hour chip (e.g. 21pt width)
+		const res1h = layoutChipLabel(code, 21, 18.7, measure);
+		assert.equal(res1h.lines.join(""), code, `1h lines join back to ${code}`);
+		assert.ok(res1h.fontSizePt >= 6, `${code} font size must be >= 6pt (got ${res1h.fontSizePt})`);
+
+		// Test in 2-hour chip (e.g. 42pt width)
+		const res2h = layoutChipLabel(code, 42, 18.7, measure);
+		assert.equal(res2h.lines.join(""), code, `2h lines join back to ${code}`);
+		assert.ok(res2h.fontSizePt >= 6, `${code} font size must be >= 6pt (got ${res2h.fontSizePt})`);
+	}
+});
+
+test("layoutChipLabel: long codes in 1-hour chips come back rotated; HIS201 in 2-hour chip is one horizontal line", () => {
+	const measure = (text, size) => text.length * size * 0.5;
+
+	// 1-hour chips (< 2 hours) are always rotated
+	const res1h = layoutChipLabel("UNILAG-HIS-305", 21, 18.7, measure);
+	assert.equal(res1h.rotated, true);
+
+	// HIS201 in a 2-hour chip (>= 2 hours) is horizontal and on a single line
+	const res2h = layoutChipLabel("HIS201", 42, 18.7, measure);
+	assert.equal(res2h.rotated, false);
+	assert.deepEqual(res2h.lines, ["HIS201"]);
+	assert.equal(res2h.fontSizePt, 7);
 });
 
 test("isScheduleOnline identifies online schedules from various properties", () => {
@@ -266,4 +314,41 @@ test("mergeAdjacentCourseSchedules: empty or invalid inputs", () => {
 	assert.deepEqual(mergeAdjacentCourseSchedules([]), []);
 	assert.deepEqual(mergeAdjacentCourseSchedules(null), []);
 });
+
+test("PDF export: dense faculty layout satisfies all requirements and fixture codes", async () => {
+	const { exportTimetablePDF } = await import("./pdfExport.js");
+	const rooms = Array.from({ length: 20 }, (_, i) => ({ id: 100 + i, name: "Room " + (100 + i), facultyId: 1 }));
+	const codes = [
+		"HIS201", "LAG-PHL219", "RUS-CM233", "UNILAG-HIS206", "UNILAG-HIS-305",
+		"LAG-GST-EN101", "CEG211(EE:I)", "PPGG325(Lab)", "MAT101-A", "PHY225N"
+	];
+	const schedules = codes.map((code, idx) => ({
+		id: idx + 1,
+		courseCode: code,
+		day: "Monday",
+		startTime: "09:00",
+		endTime: idx % 2 === 0 ? "10:00" : "11:00",
+		roomId: 100 + idx,
+		facultyId: 1
+	}));
+	const pdf = exportTimetablePDF({
+		schedules,
+		rooms,
+		faculties: [{ id: 1, name: "Faculty of Arts" }],
+		faculty: "Faculty of Arts",
+		title: "Lecture Timetable",
+		session: "2026/2027",
+		semester: "First Semester",
+		mode: "lecture",
+		paperSize: "a3"
+	});
+
+	assert.ok(pdf, "PDF instance generated");
+	assert.ok(pdf.getNumberOfPages() >= 2, "Dense faculty overflows vertically across multiple pages");
+
+	const pdfString = pdf.output();
+	assert.ok(!pdfString.includes("•"), "No prefix-dropping bullet marker in PDF");
+	assert.ok(!pdfString.includes("…"), "No ellipsis marker in PDF");
+});
+
 
