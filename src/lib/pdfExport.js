@@ -174,7 +174,7 @@ export function exportTimetablePDF({
 	const getTimetableTypeLabel = (titleVal, facultyVal, departmentVal) => {
 		const isAllFaculty = !facultyVal || facultyVal.toLowerCase() === "all faculties" || facultyVal.toLowerCase() === "all";
 		const isAllDept = !departmentVal || departmentVal.toLowerCase() === "all departments" || departmentVal.toLowerCase() === "all";
-		const modeStr = titleVal.toLowerCase().includes("exam") ? "EXAMINATION" : "LECTURE";
+		const modeStr = (mode === "exam" || (titleVal && titleVal.toLowerCase().includes("exam"))) ? "EXAMINATION" : "LECTURE";
 
 		if (isAllFaculty && isAllDept) {
 			return `${realmTitlePrefix}GENERAL UNIVERSITY ${modeStr} TIMETABLE`;
@@ -1270,7 +1270,8 @@ export function exportTimetablePDF({
 			// Title
 			let timetableTitle = getTimetableTypeLabel(title, facName, scopeLabel);
 			if (isGSTSection) {
-				timetableTitle = `${realmTitlePrefix}GENERAL STUDIES EXAMINATION TIMETABLE`;
+				const gstModeStr = (mode === "exam" || (title && title.toLowerCase().includes("exam"))) ? "EXAMINATION" : "LECTURE";
+				timetableTitle = `${realmTitlePrefix}GENERAL STUDIES ${gstModeStr} TIMETABLE`;
 			}
 			pdfA3.setFont("helvetica", "bold");
 			pdfA3.setFontSize(14);

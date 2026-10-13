@@ -356,4 +356,67 @@ test("PDF export: dense faculty layout satisfies all requirements and fixture co
 	assert.ok(!pdfString.includes("…"), "No ellipsis marker in PDF");
 });
 
+test("PDF export: General Studies timetable title displays LECTURE vs EXAMINATION based on mode", async () => {
+	const { exportTimetablePDF } = await import("./pdfExport.js");
+	const rooms = [{ id: 1, name: "DLI BLOCK A S/F ROOM 2", facultyId: 99 }];
+	const faculties = [{ id: 99, name: "Faculty of Management Sciences" }];
+	const schedules = [{
+		id: 1,
+		courseCode: "ENT211",
+		day: "Monday",
+		startTime: "08:00",
+		endTime: "10:00",
+		roomId: 1,
+		facultyId: 99
+	}];
+
+	// Lecture mode
+	const lecturePdf = exportTimetablePDF({
+		schedules,
+		rooms,
+		faculties,
+		title: "Lecture Timetable",
+		session: "2026/2027",
+		semester: "First Semester",
+		mode: "lecture",
+		paperSize: "a3"
+	});
+	const lecturePdfStr = lecturePdf.output();
+	assert.ok(
+		lecturePdfStr.includes("GENERAL STUDIES LECTURE TIMETABLE"),
+		"Lecture mode GST page title must be GENERAL STUDIES LECTURE TIMETABLE"
+	);
+	assert.ok(
+		!lecturePdfStr.includes("GENERAL STUDIES EXAMINATION TIMETABLE"),
+		"Lecture mode must not show EXAMINATION in title"
+	);
+
+	// Exam mode
+	const examSchedules = [{
+		id: 1,
+		courseCode: "ENT211",
+		examDate: "2026-11-02",
+		startTime: "08:00",
+		endTime: "10:00",
+		roomId: 1,
+		facultyId: 99
+	}];
+	const examPdf = exportTimetablePDF({
+		schedules: examSchedules,
+		rooms,
+		faculties,
+		title: "Examination Timetable",
+		session: "2026/2027",
+		semester: "First Semester",
+		mode: "exam",
+		paperSize: "a3"
+	});
+	const examPdfStr = examPdf.output();
+	assert.ok(
+		examPdfStr.includes("GENERAL STUDIES EXAMINATION TIMETABLE"),
+		"Exam mode GST page title must be GENERAL STUDIES EXAMINATION TIMETABLE"
+	);
+});
+
+
 
