@@ -52,10 +52,15 @@ export function exportTimetablePDF({
 	const realmTitlePrefix = otherRealm ? `${String(realmName || realmKey).toUpperCase()} ` : "";
 	const realmFilePrefix = otherRealm ? `${realmKey.toLowerCase()}_` : "";
 
-	// The realm's day window in whole hours (UG: 8 and 18).
+	// Detect ICE realm (Institute of Continuing Education / part-time)
+	const isICE = (realmKey && realmKey.toUpperCase() === "ICE") ||
+		(realmName && realmName.toUpperCase().includes("ICE")) ||
+		(config && (config.day_start === "07:00" || config.day_start === "14:00" || config.slot_minutes === 15));
+
+	// The realm's day window in whole hours (UG: 8 and 18; ICE lectures start at 14:00 / 2pm).
 	const realmHours = hourRange(config);
-	const WINDOW_START_H = realmHours[0];
-	const WINDOW_END_H = realmHours[realmHours.length - 1];
+	let WINDOW_START_H = (isICE && mode === "lecture") ? 14 : realmHours[0];
+	let WINDOW_END_H = (isICE && mode === "lecture") ? Math.max(realmHours[realmHours.length - 1], 22) : realmHours[realmHours.length - 1];
 
 	const WEEK_ORDER = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
@@ -558,15 +563,21 @@ export function exportTimetablePDF({
 		// Defaults to the realm's day window and widens to cover any class outside it.
 		// Trims empty leading and trailing hours across the faculty to recover horizontal space.
 		function getLectureDayRange(facName, facSchedules) {
-			const range = computeDayRange(facSchedules, GRID_START_H, GRID_END_H, { trim: true });
+			const startAnchor = isICE ? 14 : GRID_START_H;
+			const endAnchor = isICE ? Math.max(GRID_END_H, 22) : GRID_END_H;
+			const range = computeDayRange(facSchedules, startAnchor, endAnchor, { trim: !isICE });
+			let startH = isICE ? Math.min(14, range.startH) : range.startH;
+			let endH = isICE ? Math.max(22, range.endH) : range.endH;
+			if (startH % 2 !== 0) startH -= 1;
+			if (endH % 2 !== 0) endH += 1;
 			if (range.outOfRange && range.outOfRange.length > 0) {
 				console.warn(
 					`[pdfExport] ${facName}: ${range.outOfRange.length} class(es) outside ` +
-					`${GRID_START_H}:00-${GRID_END_H}:00; grid extended to ${range.startH}:00-${range.endH}:00`,
+					`${startAnchor}:00-${endAnchor}:00; grid extended to ${startH}:00-${endH}:00`,
 					range.outOfRange.map((si) => `${si.courseCode} ${si.day} ${si.startTime}-${si.endTime}`),
 				);
 			}
-			return range;
+			return { ...range, startH: Math.max(0, startH), endH: Math.min(24, endH) };
 		}
 
 		// Lecture chip geometry (mm) and fixed font sizes (pt). Overlapping

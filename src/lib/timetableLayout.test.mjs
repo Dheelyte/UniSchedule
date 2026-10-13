@@ -418,5 +418,50 @@ test("PDF export: General Studies timetable title displays LECTURE vs EXAMINATIO
 	);
 });
 
+test("PDF export: ICE lecture timetable starts at 2pm (14:00) and displays afternoon/evening header segments", async () => {
+	const { exportTimetablePDF } = await import("./pdfExport.js");
+	const rooms = [{ id: 1, name: "ENG 101", facultyId: 5 }];
+	const faculties = [{ id: 5, name: "Faculty of Engineering" }];
+	const iceConfig = {
+		lecture_days: ["Friday", "Saturday", "Sunday"],
+		exam_days: ["Friday", "Saturday", "Sunday"],
+		day_start: "07:00",
+		day_end: "21:00",
+		slot_minutes: 15,
+		exam_slots: [],
+	};
+	const schedules = [{
+		id: 1,
+		courseCode: "ICE-ENG201",
+		day: "Friday",
+		startTime: "14:00",
+		endTime: "16:00",
+		roomId: 1,
+		facultyId: 5
+	}];
+
+	const pdf = exportTimetablePDF({
+		schedules,
+		rooms,
+		faculties,
+		title: "Lecture Timetable",
+		session: "2026/2027",
+		semester: "First Semester",
+		mode: "lecture",
+		paperSize: "a3",
+		realmKey: "ICE",
+		realmName: "ICE",
+		config: iceConfig,
+	});
+
+	assert.ok(pdf, "ICE lecture PDF generated");
+	const pdfStr = pdf.output();
+	// Should include 2 - 4pm header label
+	assert.ok(pdfStr.includes("2 - 4pm"), "ICE timetable includes '2 - 4pm' starting segment");
+	// Should NOT include early morning segments like 6 - 8am
+	assert.ok(!pdfStr.includes("6 - 8am"), "ICE timetable does not start at 6am");
+});
+
+
 
 
