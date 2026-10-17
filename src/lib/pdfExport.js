@@ -540,10 +540,8 @@ export function exportTimetablePDF({
 
 		// Formats a minute-range as a natural clock label, e.g. "8 - 10am",
 		// "11am - 1pm", "3 - 6pm". Drops the repeated am/pm suffix from the
-		// start when both ends share the same period.
-		function formatHourRangeLabel(startMin, endMin) {
-			// Only the end time carries am/pm (e.g. "11 - 1pm", "8 - 10am") to
-			// save horizontal space in narrow segment headers.
+		// start when both ends share the same period, unless fullBoundary is requested.
+		function formatHourRangeLabel(startMin, endMin, fullBoundary = false) {
 			const fmtClock = (min, includePeriod) => {
 				const h = Math.floor(min / 60);
 				const mm = min % 60;
@@ -553,7 +551,30 @@ export function exportTimetablePDF({
 				const base = mm === 0 ? `${h12}` : `${h12}:${String(mm).padStart(2, "0")}`;
 				return includePeriod ? `${base}${period}` : base;
 			};
-			return `${fmtClock(startMin, false)} - ${fmtClock(endMin, true)}`;
+			const sPeriod = startMin < 720 ? "am" : "pm";
+			const ePeriod = endMin < 720 ? "am" : "pm";
+			const includeStartPeriod = fullBoundary || sPeriod !== ePeriod;
+			return `${fmtClock(startMin, includeStartPeriod)} - ${fmtClock(endMin, true)}`;
+		}
+
+		// Formats a narrow minute-range into stacked parts: start, dash, and end.
+		function formatHourRangeStacked(startMin, endMin) {
+			const fmtClock = (min, includePeriod) => {
+				const h = Math.floor(min / 60);
+				const mm = min % 60;
+				const period = h < 12 ? "am" : "pm";
+				let h12 = h % 12;
+				if (h12 === 0) h12 = 12;
+				const base = mm === 0 ? `${h12}` : `${h12}:${String(mm).padStart(2, "0")}`;
+				return includePeriod ? `${base}${period}` : base;
+			};
+			const sPeriod = startMin < 720 ? "am" : "pm";
+			const ePeriod = endMin < 720 ? "am" : "pm";
+			return {
+				start: fmtClock(startMin, sPeriod !== ePeriod),
+				dash: "-",
+				end: fmtClock(endMin, true),
+			};
 		}
 
 		// Lecture-only: hour range shared by every day of one faculty table.
@@ -1386,27 +1407,95 @@ export function exportTimetablePDF({
 						pdfA3.text(slotLabel, slotX + slotWidth / 2, tableStartY + 11.5, { align: "center" });
 					});
 				} else {
-					// Lecture: 2-hour header labels over the hourly grid, with a
-					// tick at each even hour.
-					for (let h = dayRange.startH; h < dayRange.endH; h += 2) {
-						const segStart = h * 60;
-						const segEnd = Math.min(h + 2, dayRange.endH) * 60;
+					// Lecture: header time labels over the grid.
+					// Normal days use 2-hour segments. If a day has a blocked slot (e.g. Jumat 1pm-3pm),
+					// the blocked slot is given an exact, full boundary (e.g. "1pm - 3pm"), and any adjacent
+					// column clipped into by the blocked slot is dynamically partitioned into its remaining
+					// valid time (e.g. "12 - 1pm", "3 - 4pm") with the time displayed stacked top-to-bottom
+					// within the header row.
+					const dayStartMin = dayRange.startH * 60;
+					const dayEndMin = dayRange.endH * 60;
+
+					const dayBlocks = getBlockedSlotsForRange(dayVal, dayStartMin, dayEndMin)
+						.filter((b) => b.start_time && b.end_time)
+						.map((b) => ({
+							...b,
+							bStart: Math.max(dayStartMin, timeToMinutes(b.start_time)),
+							bEnd: Math.min(dayEndMin, timeToMinutes(b.end_time)),
+						}))
+						.filter((b) => b.bEnd > b.bStart)
+						.sort((a, b) => a.bStart - b.bStart);
+
+					// Compute critical boundaries: standard 2-hour ticks + blocked slot boundaries
+					const tickSet = new Set();
+					for (let m = dayStartMin; m <= dayEndMin; m += 120) tickSet.add(m);
+					tickSet.add(dayEndMin);
+
+					dayBlocks.forEach((b) => {
+						for (const t of Array.from(tickSet)) {
+							if (t > b.bStart && t < b.bEnd) {
+								tickSet.delete(t);
+							}
+						}
+						tickSet.add(b.bStart);
+						tickSet.add(b.bEnd);
+					});
+
+					const sortedTicks = Array.from(tickSet).sort((a, b) => a - b);
+
+					for (let i = 0; i < sortedTicks.length - 1; i++) {
+						const segStart = sortedTicks[i];
+						const segEnd = sortedTicks[i + 1];
+						const duration = segEnd - segStart;
+						if (duration <= 0) continue;
+
 						const segX = xForMinute(dayX, segStart);
-						if (h > dayRange.startH) {
-							pdfA3.setDrawColor(148, 163, 184);
+						const segW = xForMinute(dayX, segEnd) - segX;
+
+						const matchingBlock = dayBlocks.find((b) => b.bStart <= segStart && b.bEnd >= segEnd);
+						const isBlocked = !!matchingBlock;
+						const isRemnant = !isBlocked && duration < 90;
+
+						// Vertical divider tick between time slots
+						if (segStart > dayStartMin) {
+							pdfA3.setDrawColor(isBlocked ? 252 : 148, isBlocked ? 165 : 163, isBlocked ? 165 : 184);
 							pdfA3.setLineWidth(0.08);
 							pdfA3.line(segX, tableStartY + 7, segX, tableStartY + 14);
 							resetLine();
 						}
 
-						const eventMatches = getBlockedSlotsForRange(dayVal, segStart, segEnd);
-						const eventName = eventMatches.length > 0 ? eventMatches[0].name : null;
+						// If blocked slot, shade the header cell with light pink
+						if (isBlocked) {
+							pdfA3.setFillColor(254, 242, 242);
+							pdfA3.rect(segX, tableStartY + 7, segW, 7, "F");
+						}
 
-						pdfA3.setFont("helvetica", eventName ? "bold" : "normal");
-						pdfA3.setFontSize(7);
-						pdfA3.setTextColor(15, 23, 42);
-						const segW = xForMinute(dayX, segEnd) - segX;
-						pdfA3.text(formatHourRangeLabel(segStart, segEnd), segX + segW / 2, tableStartY + 11.5, { align: "center" });
+						// Time label rendering strictly within the header row (tableStartY + 7 to tableStartY + 14)
+						if (isRemnant) {
+							// Narrow clipped adjacent column: write time stacked top-to-bottom within the header row
+							const parts = formatHourRangeStacked(segStart, segEnd);
+							pdfA3.setFont("helvetica", "bold");
+							pdfA3.setFontSize(5.5);
+							pdfA3.setTextColor(15, 23, 42);
+
+							const centerX = segX + segW / 2;
+							pdfA3.text(parts.start, centerX, tableStartY + 9.0, { align: "center" });
+							pdfA3.text(parts.dash, centerX, tableStartY + 10.8, { align: "center" });
+							pdfA3.text(parts.end, centerX, tableStartY + 12.6, { align: "center" });
+						} else if (isBlocked) {
+							// Blocked slot header: full boundary (e.g. "1pm - 3pm")
+							pdfA3.setFont("helvetica", "bold");
+							pdfA3.setFontSize(segW < 12 ? 5.5 : 7);
+							pdfA3.setTextColor(185, 28, 28);
+							const blockLabel = formatHourRangeLabel(segStart, segEnd, true);
+							pdfA3.text(blockLabel, segX + segW / 2, tableStartY + 11.5, { align: "center" });
+						} else {
+							// Standard 2-hour horizontal label (e.g. "10 - 12pm")
+							pdfA3.setFont("helvetica", "normal");
+							pdfA3.setFontSize(7);
+							pdfA3.setTextColor(15, 23, 42);
+							pdfA3.text(formatHourRangeLabel(segStart, segEnd), segX + segW / 2, tableStartY + 11.5, { align: "center" });
+						}
 					}
 				}
 			});
