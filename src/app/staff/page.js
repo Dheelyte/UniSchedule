@@ -8,7 +8,10 @@ import { useToast } from '@/components/Toast/Toast';
 import { useConfirm } from '@/components/ConfirmModal/ConfirmContext';
 import styles from './staff.module.css';
 import { TablePageSkeleton } from '@/components/Skeleton/Skeleton';
-import { isCrossRealmRole } from '@/lib/roles';
+import { isCrossRealmRole, isFacultyScopedRole, ROLE_LABELS } from '@/lib/roles';
+
+// Roles a super admin can give a registered account, in the invite list's order.
+const EDITABLE_ROLES = ['FACULTY_EDITOR', 'FACULTY_VIEWER', 'GS_ADMIN', 'SUPER_ADMIN', 'SUPER_VIEWER', 'CITS_ADMIN', 'DEO'];
 
 export default function StaffManagementPage() {
     const { user, loading: authLoading, realmName } = useAuth();
@@ -34,6 +37,11 @@ export default function StaffManagementPage() {
         facultyId: '',
         semesterId: ''
     });
+
+    // The account whose role is being edited, and the form prefilled from it.
+    const [editingUser, setEditingUser] = useState(null);
+    const [isSavingRole, setIsSavingRole] = useState(false);
+    const [roleForm, setRoleForm] = useState({ role: '', facultyId: '', semesterId: '' });
 
     useEffect(() => {
         if (!authLoading) {
@@ -123,6 +131,49 @@ export default function StaffManagementPage() {
             fetchData();
         } catch (e) {
             addToast({ type: 'error', title: 'API Error', message: e.message || 'Failed to revoke permissions.' });
+        }
+    };
+
+    const openEditRole = (u) => {
+        setRoleForm({ role: u.role, facultyId: u.faculty_id || '', semesterId: u.semester_id ? String(u.semester_id) : '' });
+        setEditingUser(u);
+    };
+
+    const closeEditRole = () => {
+        if (!isSavingRole) setEditingUser(null);
+    };
+
+    // What Save would send: a faculty only applies to faculty-scoped roles.
+    const roleFormFacultyId = isFacultyScopedRole(roleForm.role) ? (roleForm.facultyId || null) : null;
+    const roleFormSemesterId = roleForm.semesterId ? parseInt(roleForm.semesterId) : null;
+    const roleFormChanged = !!editingUser && (
+        roleForm.role !== editingUser.role ||
+        roleFormFacultyId !== (editingUser.faculty_id || null) ||
+        roleFormSemesterId !== (editingUser.semester_id || null)
+    );
+    const roleFormMissingFaculty = isFacultyScopedRole(roleForm.role) && !roleForm.facultyId;
+
+    const handleSaveRole = async () => {
+        const from = ROLE_LABELS[editingUser.role] || editingUser.role;
+        const to = ROLE_LABELS[roleForm.role] || roleForm.role;
+        const question = roleForm.role === editingUser.role
+            ? `Update ${editingUser.email}'s ${to} access?`
+            : `Change ${editingUser.email} from ${from} to ${to}?`;
+        if (!await confirm(question)) return;
+        setIsSavingRole(true);
+        try {
+            await apiClient.patch(`/auth/users/${editingUser.id}`, {
+                role: roleForm.role,
+                faculty_id: roleFormFacultyId,
+                semester_id: roleFormSemesterId
+            });
+            addToast({ type: 'success', title: 'Role Updated', message: `${editingUser.email} is now ${to}.` });
+            setEditingUser(null);
+            fetchData();
+        } catch (e) {
+            addToast({ type: 'error', title: 'Update Failed', message: e.message || 'Could not change this role.' });
+        } finally {
+            setIsSavingRole(false);
         }
     };
 
@@ -235,7 +286,12 @@ export default function StaffManagementPage() {
                                         <td style={{ color: '#64748b' }}>{new Date(u.created_at).toLocaleDateString()}</td>
                                         <td>
                                             {user.email !== u.email ? (
-                                                <button className={styles.btnDangerOutlined} onClick={() => handleDeleteUser(u.id, u.email)}>Remove Access</button>
+                                                <div className={styles.rowActions}>
+                                                    {user.role === 'SUPER_ADMIN' && (
+                                                        <button className={styles.btnSecondaryOutlined} onClick={() => openEditRole(u)}>Edit Role</button>
+                                                    )}
+                                                    <button className={styles.btnDangerOutlined} onClick={() => handleDeleteUser(u.id, u.email)}>Remove Access</button>
+                                                </div>
                                             ) : (
                                                 <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Current Session</span>
                                             )}
@@ -328,6 +384,78 @@ export default function StaffManagementPage() {
                             <button className="btn btn-secondary" onClick={() => setIsInviteModalOpen(false)} disabled={isInviting}>Cancel</button>
                             <button className="btn btn-primary" onClick={handleInvite} disabled={!inviteForm.email || ((inviteForm.role === 'FACULTY_EDITOR' || inviteForm.role === 'FACULTY_VIEWER' || inviteForm.role === 'DEO') && user?.role !== 'FACULTY_EDITOR' && !inviteForm.facultyId) || isInviting}>
                                 {isInviting ? 'Sending...' : 'Send Invitation Email'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {editingUser && (
+                <div className="modal-overlay" onClick={closeEditRole}>
+                    <div className="modal" onClick={e => e.stopPropagation()}>
+                        <div className="modal-header">
+                            <h3>Edit Role</h3>
+                            <button className="modal-close" onClick={closeEditRole}>✕</button>
+                        </div>
+                        <div className="modal-body">
+                            <div className={styles.modalFormGroup}>
+                                <label className={styles.modalFormLabel}>Staff Email Address</label>
+                                <input
+                                    className={`${styles.modalFormInput} ${styles.modalReadOnly}`}
+                                    type="email"
+                                    value={editingUser.email}
+                                    readOnly
+                                />
+                            </div>
+
+                            <div className={styles.modalFormGroup}>
+                                <label className={styles.modalFormLabel}>Assigned System Role</label>
+                                <select
+                                    className={styles.modalFormInput}
+                                    value={roleForm.role}
+                                    onChange={e => setRoleForm({ ...roleForm, role: e.target.value })}
+                                >
+                                    {EDITABLE_ROLES.map(role => <option key={role} value={role}>{ROLE_LABELS[role]}</option>)}
+                                </select>
+                            </div>
+
+                            {isFacultyScopedRole(roleForm.role) && (
+                                <div className={styles.modalFormGroup}>
+                                    <label className={styles.modalFormLabel}>Assign Faculty Constraint</label>
+                                    <select
+                                        className={styles.modalFormInput}
+                                        value={roleForm.facultyId}
+                                        onChange={e => setRoleForm({ ...roleForm, facultyId: e.target.value })}
+                                    >
+                                        <option value="">Select Faculty...</option>
+                                        {faculties.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
+                                    </select>
+                                </div>
+                            )}
+
+                            <div className={styles.modalFormGroup}>
+                                <label className={styles.modalFormLabel}>Restrict to Semester (Optional)</label>
+                                <select
+                                    className={styles.modalFormInput}
+                                    value={roleForm.semesterId}
+                                    onChange={e => setRoleForm({ ...roleForm, semesterId: e.target.value })}
+                                >
+                                    <option value="">Global / All Semesters</option>
+                                    {availableSemesters.map(s => <option key={s.id} value={s.id}>{s.name} ({s.sessionName})</option>)}
+                                </select>
+                            </div>
+
+                            <p style={{ fontSize: '0.8rem', color: '#64748b', margin: 0 }}>
+                                {isCrossRealmRole(roleForm.role)
+                                    ? 'This role works across all programmes.'
+                                    : `This account will belong to the ${realmName} portal.`}
+                            </p>
+
+                        </div>
+                        <div className="modal-footer">
+                            <button className="btn btn-secondary" onClick={closeEditRole} disabled={isSavingRole}>Cancel</button>
+                            <button className="btn btn-primary" onClick={handleSaveRole} disabled={!roleFormChanged || roleFormMissingFaculty || isSavingRole}>
+                                {isSavingRole ? 'Saving...' : 'Save Changes'}
                             </button>
                         </div>
                     </div>

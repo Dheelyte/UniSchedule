@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, Response, HTTPException, status
 from core.security import verify_password
 from modules.auth.service import AuthService, PasswordResetService
-from modules.auth.schemas import LoginRequest, InviteRequest, MsgResponse, PasswordReset, PasswordResetCodeCheck, PasswordResetRequest, PasswordResetVerify, RegisterRequest, UserResponse, InvitationResponse, ImpersonateRequest, SwitchRealmRequest
+from modules.auth.schemas import LoginRequest, InviteRequest, MsgResponse, PasswordReset, PasswordResetCodeCheck, PasswordResetRequest, PasswordResetVerify, RegisterRequest, UserResponse, InvitationResponse, ImpersonateRequest, SwitchRealmRequest, UpdateUserRoleRequest
 from core.config import settings
 from api.dependencies.auth import RequireRole, get_current_user, require_real_super_admin
 from modules.auth.models import RoleEnum
@@ -147,6 +147,10 @@ async def delete_user(user_id: int, service: AuthService = Depends(), user: dict
     if not await service.delete_user(user_id, user):
         raise HTTPException(status_code=404, detail="User not found")
     return {"message": "User deleted"}
+
+@router.patch("/users/{user_id}", response_model=UserResponse)
+async def update_user_role(user_id: int, data: UpdateUserRoleRequest, service: AuthService = Depends(), user: dict = Depends(RequireRole([RoleEnum.SUPER_ADMIN.value]))):
+    return await service.update_user_role(user_id, data, user)
 
 @router.delete("/invitations/{inv_id}")
 async def delete_invitation(inv_id: int, service: AuthService = Depends(), user: dict = Depends(RequireRole([RoleEnum.SUPER_ADMIN.value]))):
