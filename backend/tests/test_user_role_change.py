@@ -3,6 +3,7 @@ import pytest
 from fastapi import HTTPException
 from sqlalchemy import select
 
+from core import mail
 from core.database import async_session_maker
 from modules.audit.models import ActivityLog
 from modules.audit.repository import AuditRepository
@@ -11,6 +12,9 @@ from modules.auth.models import RoleEnum, User
 from modules.auth.repository import AuthRepository
 from modules.auth.schemas import UpdateUserRoleRequest
 from modules.auth.service import AuthService
+from modules.notifications.models import Notification
+from modules.notifications.repository import NotificationRepository
+from modules.notifications.service import NotificationService
 from modules.realms.repository import RealmRepository
 from modules.timetable.models import Faculty
 
@@ -29,6 +33,25 @@ async def _me(client) -> dict:
 async def _stored(user_id: int) -> User:
     async with async_session_maker() as session:
         return await session.get(User, user_id)
+
+
+async def _notifications(user_id: int) -> list[Notification]:
+    async with async_session_maker() as session:
+        return (await session.execute(
+            select(Notification).where(Notification.user_id == user_id)
+        )).scalars().all()
+
+
+@pytest.fixture(autouse=True)
+def sent_emails(monkeypatch):
+    """Capture notification emails instead of sending them: (recipients, title, message) tuples."""
+    sent: list[tuple[list[str], str, str]] = []
+
+    async def _capture(emails, title, message, link=None):
+        sent.append((sorted(emails), title, message))
+
+    monkeypatch.setattr(mail.EmailService, "send_generic_notification", staticmethod(_capture))
+    return sent
 
 
 @pytest.fixture(autouse=True)
@@ -148,6 +171,7 @@ async def test_demoting_the_last_super_admin_is_400(make_user):
             repo=AuthRepository(session),
             audit_service=AuditService(AuditRepository(session), AuthRepository(session)),
             realm_repo=RealmRepository(session),
+            notification_service=NotificationService(NotificationRepository(session), AuthRepository(session)),
         )
         with pytest.raises(HTTPException) as error:
             await service.update_user_role(last["id"], UpdateUserRoleRequest(role=RoleEnum.SUPER_VIEWER), caller)
@@ -215,7 +239,7 @@ async def test_role_change_is_audited(admin, make_user):
     }
 
 
-async def test_no_change_writes_no_audit_log(admin, make_user):
+async def test_no_change_writes_no_audit_log(admin, make_user, sent_emails):
     viewer = await make_user(RoleEnum.FACULTY_VIEWER, faculty_id="ENG")
     body = await _ok(await _patch(admin, viewer["id"], "FACULTY_VIEWER", "ENG"))
     assert body["role"] == "FACULTY_VIEWER"
@@ -225,3 +249,49 @@ async def test_no_change_writes_no_audit_log(admin, make_user):
             select(ActivityLog).where(ActivityLog.action == "user.role_change")
         )).scalars().all()
     assert logs == []
+    assert await _notifications(viewer["id"]) == []
+    assert sent_emails == []
+
+
+# --- Telling the account holder --------------------------------------------
+
+async def test_role_change_notifies_the_user_in_app_and_by_email(admin, make_user, sent_emails):
+    viewer = await make_user(RoleEnum.FACULTY_VIEWER, faculty_id="ENG", email="jane@example.com")
+    await _ok(await _patch(admin, viewer["id"], "FACULTY_EDITOR", "ENG"))
+
+    expected = (
+        "Your role has been changed from Faculty Viewer to Faculty Editor for Engineering. "
+        "The change applies the next time you use UniSchedule."
+    )
+    [notification] = await _notifications(viewer["id"])
+    assert (notification.title, notification.message) == ("Your UniSchedule role has changed", expected)
+    assert sent_emails == [(["jane@example.com"], "Your UniSchedule role has changed", expected)]
+
+
+async def test_same_role_with_new_scope_says_access_was_updated(admin, make_user, sent_emails):
+    editor = await make_user(RoleEnum.FACULTY_EDITOR, faculty_id="ENG")
+    await _ok(await _patch(admin, editor["id"], "FACULTY_EDITOR", "SCI"))
+
+    [notification] = await _notifications(editor["id"])
+    assert notification.message.startswith("Your Faculty Editor access has been updated for Science.")
+
+
+async def test_global_role_message_names_no_faculty(admin, make_user):
+    editor = await make_user(RoleEnum.FACULTY_EDITOR, faculty_id="ENG")
+    await _ok(await _patch(admin, editor["id"], "GS_ADMIN"))
+
+    [notification] = await _notifications(editor["id"])
+    assert notification.message.startswith("Your role has been changed from Faculty Editor to GS Admin. ")
+
+
+async def test_a_mail_outage_does_not_undo_the_change(admin, make_user, monkeypatch):
+    async def _fail(*args, **kwargs):
+        raise ConnectionError("SMTP is down")
+
+    monkeypatch.setattr(mail.EmailService, "send_generic_notification", staticmethod(_fail))
+    viewer = await make_user(RoleEnum.FACULTY_VIEWER, faculty_id="ENG")
+
+    body = await _ok(await _patch(admin, viewer["id"], "FACULTY_EDITOR", "ENG"))
+    assert body["role"] == "FACULTY_EDITOR"
+    assert (await _stored(viewer["id"])).role == RoleEnum.FACULTY_EDITOR
+    assert len(await _notifications(viewer["id"])) == 1

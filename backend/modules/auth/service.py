@@ -1,3 +1,4 @@
+import logging
 import secrets
 from datetime import datetime, timezone, timedelta
 
@@ -10,8 +11,11 @@ from core.security import TokenGenerator, verify_password, create_access_token, 
 from core.config import settings
 from modules.auth.schemas import UpdateUserRoleRequest
 from modules.audit.service import AuditService
+from modules.notifications.service import NotificationService
 from modules.realms.defaults import DEFAULT_REALM_KEY
 from modules.realms.repository import RealmRepository
+
+logger = logging.getLogger(__name__)
 
 # Roles a super admin may assume (everything except SUPER_ADMIN itself).
 IMPERSONABLE_ROLES = {
@@ -25,6 +29,16 @@ IMPERSONABLE_ROLES = {
 FACULTY_SCOPED_ROLES = {RoleEnum.FACULTY_EDITOR, RoleEnum.FACULTY_VIEWER}
 # Accounts with these roles must belong to a faculty.
 FACULTY_BOUND_ROLES = FACULTY_SCOPED_ROLES | {RoleEnum.DEO}
+# How roles are named to staff. Mirrors ROLE_LABELS in src/lib/roles.js.
+ROLE_LABELS = {
+    RoleEnum.SUPER_ADMIN: "Super Admin",
+    RoleEnum.SUPER_VIEWER: "Super Viewer",
+    RoleEnum.FACULTY_EDITOR: "Faculty Editor",
+    RoleEnum.FACULTY_VIEWER: "Faculty Viewer",
+    RoleEnum.GS_ADMIN: "GS Admin",
+    RoleEnum.CITS_ADMIN: "Super Administrator (CITS)",
+    RoleEnum.DEO: "Departmental Examination Officer",
+}
 
 
 class AuthService:
@@ -33,10 +47,12 @@ class AuthService:
         repo: AuthRepository = Depends(),
         audit_service: AuditService = Depends(),
         realm_repo: RealmRepository = Depends(),
+        notification_service: NotificationService = Depends(),
     ):
         self.repo = repo
         self.audit_service = audit_service
         self.realm_repo = realm_repo
+        self.notification_service = notification_service
 
     @staticmethod
     def _plain_token(user: User, realm_key: str) -> str:
@@ -270,11 +286,12 @@ class AuthService:
         if data.role in FACULTY_BOUND_ROLES:
             if not data.faculty_id:
                 raise HTTPException(status_code=400, detail="A faculty is required for this role")
-            if not await self.repo.faculty_exists(data.faculty_id, realm_key=current_user["realm"]):
+            faculty = await self.repo.get_faculty(data.faculty_id, realm_key=current_user["realm"])
+            if not faculty:
                 raise HTTPException(status_code=404, detail="Faculty not found")
             faculty_id = data.faculty_id
         else:
-            faculty_id = None
+            faculty, faculty_id = None, None
 
         if user.role == data.role and user.faculty_id == faculty_id and user.semester_id == data.semester_id:
             return user
@@ -309,7 +326,29 @@ class AuthService:
                 "to_realm_key": user.realm_key,
             },
         )
+        await self._notify_role_change(user, from_role, faculty)
         return user
+
+    async def _notify_role_change(self, user: User, from_role: RoleEnum, faculty) -> None:
+        """Tell the account holder in-app and by email; a mail outage must not undo the change."""
+        to = ROLE_LABELS[user.role]
+        if user.role == from_role:
+            message = f"Your {to} access has been updated"
+        else:
+            message = f"Your role has been changed from {ROLE_LABELS[from_role]} to {to}"
+        if faculty:
+            message += f" for {faculty.name}"
+        message += ". The change applies the next time you use UniSchedule."
+        try:
+            await self.notification_service.notify(
+                user_ids=[user.id],
+                title="Your UniSchedule role has changed",
+                message=message,
+                link="/",
+                send_email=True,
+            )
+        except Exception:
+            logger.exception("Could not notify user %s of their role change", user.id)
 
     async def delete_invitation(self, inv_id: int, current_user: dict) -> bool:
         invitation = await self.repo.get_invitation_by_id(inv_id)
