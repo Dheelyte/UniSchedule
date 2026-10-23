@@ -173,3 +173,16 @@ def login():
         return response
 
     return _login
+
+
+@pytest.fixture
+async def signed_in(make_client, make_user, login):
+    """Factory: create a user and return (client signed in as them, user)."""
+
+    async def _signed_in(role, *, realm="UG", login_realm=None, faculty_id=None):
+        user = await make_user(role, faculty_id=faculty_id, realm=realm)
+        client = make_client()
+        await login(client, user["email"], realm=login_realm)
+        return client, user
+
+    return _signed_in

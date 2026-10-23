@@ -19,6 +19,11 @@ class InviteRequest(BaseModel):
     faculty_id: str | None = None
     semester_id: int | None = None
 
+class UpdateUserRoleRequest(BaseModel):
+    role: RoleEnum
+    faculty_id: str | None = None
+    semester_id: int | None = None
+
 class RegisterRequest(BaseModel):
     password: str
 

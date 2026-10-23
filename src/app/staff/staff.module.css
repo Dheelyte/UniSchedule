@@ -82,6 +82,33 @@
     border-color: #ef4444;
 }
 
+.btnSecondaryOutlined {
+    color: #334155;
+    background: transparent;
+    border: 1px solid #cbd5e1;
+    padding: 6px 12px;
+    border-radius: 6px;
+    font-size: 0.85rem;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.btnSecondaryOutlined:hover {
+    background: #f8fafc;
+    border-color: #64748b;
+}
+
+.rowActions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.modalReadOnly {
+    background: #f8fafc;
+    color: #64748b;
+}
+
 /* Sections */
 .section {
     background: white;

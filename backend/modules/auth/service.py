@@ -8,6 +8,7 @@ from modules.auth.repository import AuthRepository, PasswordRepository, is_in_re
 from modules.auth.models import PasswordResetToken, User, RoleEnum, Invitation, CROSS_REALM_ROLES, stored_realm_key
 from core.security import TokenGenerator, verify_password, create_access_token, get_password_hash, hash_code
 from core.config import settings
+from modules.auth.schemas import UpdateUserRoleRequest
 from modules.audit.service import AuditService
 from modules.realms.defaults import DEFAULT_REALM_KEY
 from modules.realms.repository import RealmRepository
@@ -22,6 +23,8 @@ IMPERSONABLE_ROLES = {
 }
 # Assumed roles that must be scoped to a specific faculty.
 FACULTY_SCOPED_ROLES = {RoleEnum.FACULTY_EDITOR, RoleEnum.FACULTY_VIEWER}
+# Accounts with these roles must belong to a faculty.
+FACULTY_BOUND_ROLES = FACULTY_SCOPED_ROLES | {RoleEnum.DEO}
 
 
 class AuthService:
@@ -255,6 +258,58 @@ class AuthService:
             description=f"Deleted user {email} ({role})",
         )
         return True
+
+    async def update_user_role(self, user_id: int, data: UpdateUserRoleRequest, current_user: dict) -> User:
+        user = await self.repo.get_user_by_id(user_id)
+        # An account in another realm behaves like a missing one.
+        if not user or not is_in_realm(user.role, user.realm_key, current_user["realm"]):
+            raise HTTPException(status_code=404, detail="User not found")
+        if str(user.id) == str(current_user.get("sub", "")):
+            raise HTTPException(status_code=400, detail="You cannot change your own role")
+
+        if data.role in FACULTY_BOUND_ROLES:
+            if not data.faculty_id:
+                raise HTTPException(status_code=400, detail="A faculty is required for this role")
+            if not await self.repo.faculty_exists(data.faculty_id, realm_key=current_user["realm"]):
+                raise HTTPException(status_code=404, detail="Faculty not found")
+            faculty_id = data.faculty_id
+        else:
+            faculty_id = None
+
+        if user.role == data.role and user.faculty_id == faculty_id and user.semester_id == data.semester_id:
+            return user
+
+        if user.role == RoleEnum.SUPER_ADMIN and data.role != RoleEnum.SUPER_ADMIN:
+            if len(await self.repo.get_users_by_role(RoleEnum.SUPER_ADMIN)) <= 1:
+                raise HTTPException(status_code=400, detail="There must be at least one Super Admin; this is the last one")
+
+        from_role, from_faculty_id, from_realm_key = user.role, user.faculty_id, user.realm_key
+        user.role = data.role
+        user.faculty_id = faculty_id
+        user.semester_id = data.semester_id
+        # Cross-realm roles have no realm; a realm-bound role joins the admin's active realm.
+        user.realm_key = stored_realm_key(data.role, current_user["realm"])
+        await self.repo.db.flush()
+        # Reload: an explicit SQL NULL leaves realm_key expired after the flush.
+        await self.repo.db.refresh(user)
+
+        scope = f" (faculty {faculty_id})" if faculty_id else ""
+        await self.audit_service.log(
+            current_user=current_user,
+            action="user.role_change",
+            entity_type="user",
+            entity_id=user.id,
+            description=f"Changed {user.email} from {from_role.value} to {data.role.value}{scope}",
+            extra={
+                "from_role": from_role.value,
+                "to_role": data.role.value,
+                "from_faculty_id": from_faculty_id,
+                "to_faculty_id": faculty_id,
+                "from_realm_key": from_realm_key,
+                "to_realm_key": user.realm_key,
+            },
+        )
+        return user
 
     async def delete_invitation(self, inv_id: int, current_user: dict) -> bool:
         invitation = await self.repo.get_invitation_by_id(inv_id)
