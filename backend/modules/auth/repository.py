@@ -99,6 +99,12 @@ class AuthRepository:
         )
         return result.scalars().first() is not None
 
+    async def get_faculty(self, faculty_id: str, *, realm_key: str) -> Faculty | None:
+        result = await self.db.execute(
+            select(Faculty).where(Faculty.id == faculty_id, Faculty.realm_key == realm_key)
+        )
+        return result.scalars().first()
+
     async def delete_user(self, user: User) -> None:
         await self.db.delete(user)
         await self.db.flush()
