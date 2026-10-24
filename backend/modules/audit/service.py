@@ -25,9 +25,10 @@ class AuditService:
         entity_type: str | None = None,
         entity_id: str | int | None = None,
         extra: dict | None = None,
-    ) -> None:
+    ) -> ActivityLog | None:
         """Persist an activity log entry. Never raises — audit failures must not
-        break the underlying business operation."""
+        break the underlying business operation. Returns the entry, or None if it
+        couldn't be written."""
         try:
             user_id = None
             user_email = None
@@ -72,9 +73,10 @@ class AuditService:
                 description=description,
                 extra=extra,
             )
-            await self.repo.add(entry)
+            return await self.repo.add(entry)
         except Exception as e:  # pragma: no cover — defensive
             log.exception("Failed to write activity log: %s", e)
+            return None
 
     async def list(
         self,

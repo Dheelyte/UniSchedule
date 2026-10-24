@@ -35,6 +35,8 @@ REALM_TABLES = (
 )
 # Added by the separation revision.
 SEPARATED_TABLES = ("faculties", "rooms")
+# Realm-scoped tables added after realms.
+LATER_TABLES = ("timetable_imports",)
 
 
 def _alembic(*args: str, check: bool = True) -> subprocess.CompletedProcess:
@@ -88,7 +90,7 @@ async def _courses_code_index(conn) -> str:
 
 async def test_upgrade_downgrade_upgrade(scratch):
     _alembic("upgrade", "head")
-    assert await _realm_columns(scratch) == {*REALM_TABLES, *SEPARATED_TABLES}
+    assert await _realm_columns(scratch) == {*REALM_TABLES, *SEPARATED_TABLES, *LATER_TABLES}
     assert await scratch.fetchval("SELECT count(*) FROM realms") == 4
     assert "UNIQUE" not in await _courses_code_index(scratch)
     # The models and the hand-written revisions agree: autogenerate finds nothing to add.
@@ -116,7 +118,7 @@ async def test_upgrade_downgrade_upgrade(scratch):
     assert "UNIQUE" in await _courses_code_index(scratch)
 
     _alembic("upgrade", "head")
-    assert await _realm_columns(scratch) == {*REALM_TABLES, *SEPARATED_TABLES}
+    assert await _realm_columns(scratch) == {*REALM_TABLES, *SEPARATED_TABLES, *LATER_TABLES}
     assert await scratch.fetchval("SELECT count(*) FROM realms") == 4
 
 
