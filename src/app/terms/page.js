@@ -11,7 +11,12 @@ export default function TermsPage() {
     const { user, loading: authLoading, realmConfig } = useAuth();
     // Blocked-slot days and semester names are the realm's.
     const lectureDays = realmConfig.lecture_days;
-    const emptyBlockedForm = { name: '', applies_to: 'LECTURE_ONLY', day_of_week: lectureDays[0], date: '', start_time: '', end_time: '', whole_day: false };
+    const examDays = realmConfig.exam_days;
+    const allDays = [...lectureDays, ...examDays.filter(d => !lectureDays.includes(d))];
+    // Exam blocks are either one date or the same weekday every week of the exams.
+    const emptyBlockedForm = { name: '', applies_to: 'LECTURE_ONLY', repeat: 'once', day_of_week: lectureDays[0], date: '', start_time: '', end_time: '', whole_day: false };
+    const blockedDays = (form) => form.applies_to === 'EXAM_ONLY' ? examDays : form.applies_to === 'BOTH' ? allDays : lectureDays;
+    const usesDate = (form) => form.applies_to === 'EXAM_ONLY' && form.repeat === 'once';
     const router = useRouter();
     const { addToast } = useToast();
 
@@ -27,6 +32,7 @@ export default function TermsPage() {
     // Blocked Slots state
     const [blockedSlots, setBlockedSlots] = useState([]);
     const [showBlockedModal, setShowBlockedModal] = useState(false);
+    const [editingSlot, setEditingSlot] = useState(null);
     const [blockedForm, setBlockedForm] = useState(emptyBlockedForm);
     const [deleteBlockedConfirm, setDeleteBlockedConfirm] = useState(null);
 
@@ -139,27 +145,67 @@ export default function TermsPage() {
     };
 
     // Blocked Slots handlers
-    const handleAddBlockedSlot = async () => {
+    const openAddBlockedSlot = () => {
+        if (editingSlot) {
+            setEditingSlot(null);
+            setBlockedForm(emptyBlockedForm);
+        }
+        setShowBlockedModal(true);
+    };
+
+    const openEditBlockedSlot = (slot) => {
+        const form = {
+            name: slot.name,
+            applies_to: slot.applies_to,
+            repeat: slot.date ? 'once' : 'weekly',
+            day_of_week: slot.day_of_week || '',
+            date: slot.date || '',
+            start_time: slot.start_time?.slice(0, 5) || '',
+            end_time: slot.end_time?.slice(0, 5) || '',
+            whole_day: !slot.start_time,
+        };
+        if (!form.day_of_week) form.day_of_week = blockedDays(form)[0];
+        setEditingSlot(slot);
+        setBlockedForm(form);
+        setShowBlockedModal(true);
+    };
+
+    const closeBlockedModal = () => {
+        setShowBlockedModal(false);
+        // Keep an unsaved new slot as a draft, but not an edit.
+        if (editingSlot) {
+            setEditingSlot(null);
+            setBlockedForm(emptyBlockedForm);
+        }
+    };
+
+    const handleSaveBlockedSlot = async () => {
         if (!blockedForm.name.trim() || !currentSemester) return;
         try {
-            const isExam = blockedForm.applies_to === 'EXAM_ONLY';
+            const isDate = usesDate(blockedForm);
             const payload = {
                 name: blockedForm.name.trim(),
-                day_of_week: isExam ? null : blockedForm.day_of_week,
-                date: isExam ? blockedForm.date : null,
+                day_of_week: isDate ? null : blockedForm.day_of_week,
+                date: isDate ? blockedForm.date : null,
                 start_time: blockedForm.whole_day ? null : blockedForm.start_time,
                 end_time: blockedForm.whole_day ? null : blockedForm.end_time,
                 applies_to: blockedForm.applies_to,
-                semester_id: currentSemester.id,
             };
-            const res = await apiClient.post('/timetable/blocked-slots', payload);
-            setBlockedSlots(prev => [...prev, res]);
+            if (editingSlot) {
+                const res = await apiClient.put(`/timetable/blocked-slots/${editingSlot.id}`, payload);
+                setBlockedSlots(prev => prev.map(s => s.id === res.id ? res : s));
+                addToast({ type: 'success', title: 'Updated', message: `Blocked slot "${res.name}" updated.` });
+            } else {
+                const res = await apiClient.post('/timetable/blocked-slots', { ...payload, semester_id: currentSemester.id });
+                setBlockedSlots(prev => [...prev, res]);
+                addToast({ type: 'success', title: 'Created', message: `Blocked slot "${res.name}" added.` });
+            }
             setShowBlockedModal(false);
+            setEditingSlot(null);
             setBlockedForm(emptyBlockedForm);
-            addToast({ type: 'success', title: 'Created', message: `Blocked slot "${res.name}" added.` });
         } catch (e) {
             console.error(e);
-            addToast({ type: 'error', title: 'Error', message: e.message || 'Failed to create blocked slot.' });
+            addToast({ type: 'error', title: 'Error', message: e.message || `Failed to ${editingSlot ? 'update' : 'create'} blocked slot.` });
         }
     };
 
@@ -291,7 +337,7 @@ export default function TermsPage() {
             <div className={styles.section}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', paddingBottom: '12px', borderBottom: '1px solid var(--color-border)' }}>
                     <h3 style={{ fontSize: '1.1rem', fontWeight: 600, color: 'var(--color-text)', margin: 0 }}>Blocked Slots</h3>
-                    <button className="btn btn-primary" onClick={() => setShowBlockedModal(true)} disabled={!currentSemester}>
+                    <button className="btn btn-primary" onClick={openAddBlockedSlot} disabled={!currentSemester}>
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
                         Add Blocked Slot
                     </button>
@@ -316,7 +362,7 @@ export default function TermsPage() {
                                     <th>Applies To</th>
                                     <th>Day / Date</th>
                                     <th>Time</th>
-                                    <th style={{ width: 80 }}>Actions</th>
+                                    <th style={{ width: 140 }}>Actions</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -328,18 +374,27 @@ export default function TermsPage() {
                                                 {slot.applies_to === 'LECTURE_ONLY' ? ' Lectures' : slot.applies_to === 'EXAM_ONLY' ? 'Exams' : 'Both'}
                                             </span>
                                         </td>
-                                        <td>{slot.date || slot.day_of_week}</td>
+                                        <td>{slot.date || `Every ${slot.day_of_week}`}</td>
                                         <td style={{ color: 'var(--color-text-muted)' }}>
                                             {slot.start_time && slot.end_time ? `${slot.start_time?.slice(0, 5)} – ${slot.end_time?.slice(0, 5)}` : 'Full Day'}
                                         </td>
                                         <td>
-                                            <button
-                                                className="btn btn-secondary"
-                                                style={{ padding: '4px 10px', fontSize: '0.75rem' }}
-                                                onClick={() => setDeleteBlockedConfirm(slot)}
-                                            >
-                                                Delete
-                                            </button>
+                                            <div style={{ display: 'flex', gap: '6px' }}>
+                                                <button
+                                                    className="btn btn-secondary"
+                                                    style={{ padding: '4px 10px', fontSize: '0.75rem' }}
+                                                    onClick={() => openEditBlockedSlot(slot)}
+                                                >
+                                                    Edit
+                                                </button>
+                                                <button
+                                                    className="btn btn-secondary"
+                                                    style={{ padding: '4px 10px', fontSize: '0.75rem' }}
+                                                    onClick={() => setDeleteBlockedConfirm(slot)}
+                                                >
+                                                    Delete
+                                                </button>
+                                            </div>
                                         </td>
                                     </tr>
                                 ))}
@@ -349,13 +404,13 @@ export default function TermsPage() {
                 )}
             </div>
 
-            {/* Add Blocked Slot Modal */}
+            {/* Add / Edit Blocked Slot Modal */}
             {showBlockedModal && (
-                <div className="modal-overlay" onClick={() => setShowBlockedModal(false)}>
+                <div className="modal-overlay" onClick={closeBlockedModal}>
                     <div className="modal" onClick={(e) => e.stopPropagation()}>
                         <div className="modal-header">
-                            <h3>Add Blocked Slot</h3>
-                            <button className="modal-close" onClick={() => setShowBlockedModal(false)}>✕</button>
+                            <h3>{editingSlot ? 'Edit Blocked Slot' : 'Add Blocked Slot'}</h3>
+                            <button className="modal-close" onClick={closeBlockedModal}>✕</button>
                         </div>
                         <div className="modal-body">
                             <div className="form-group">
@@ -374,14 +429,32 @@ export default function TermsPage() {
                                     <select
                                         className="form-select form-input"
                                         value={blockedForm.applies_to}
-                                        onChange={(e) => setBlockedForm({ ...blockedForm, applies_to: e.target.value })}
+                                        onChange={(e) => {
+                                            const next = { ...blockedForm, applies_to: e.target.value };
+                                            const days = blockedDays(next);
+                                            setBlockedForm({ ...next, day_of_week: days.includes(next.day_of_week) ? next.day_of_week : days[0] });
+                                        }}
                                     >
                                         <option value="LECTURE_ONLY">Lecture Timetable</option>
                                         <option value="EXAM_ONLY">Exam Timetable</option>
+                                        <option value="BOTH">Both Timetables</option>
                                     </select>
                                 </div>
+                                {blockedForm.applies_to === 'EXAM_ONLY' && (
+                                    <div className="form-group">
+                                        <label className="form-label">Repeats</label>
+                                        <select
+                                            className="form-select form-input"
+                                            value={blockedForm.repeat}
+                                            onChange={(e) => setBlockedForm({ ...blockedForm, repeat: e.target.value })}
+                                        >
+                                            <option value="once">One date</option>
+                                            <option value="weekly">Every week</option>
+                                        </select>
+                                    </div>
+                                )}
                                 <div className="form-group">
-                                    {blockedForm.applies_to === 'EXAM_ONLY' ? (
+                                    {usesDate(blockedForm) ? (
                                         <>
                                             <label className="form-label">Date</label>
                                             <input
@@ -393,13 +466,13 @@ export default function TermsPage() {
                                         </>
                                     ) : (
                                         <>
-                                            <label className="form-label">Day of Week</label>
+                                            <label className="form-label">{blockedForm.applies_to === 'LECTURE_ONLY' ? 'Day of Week' : 'Every'}</label>
                                             <select
                                                 className="form-select form-input"
                                                 value={blockedForm.day_of_week}
                                                 onChange={(e) => setBlockedForm({ ...blockedForm, day_of_week: e.target.value })}
                                             >
-                                                {lectureDays.map(d => <option key={d} value={d}>{d}</option>)}
+                                                {blockedDays(blockedForm).map(d => <option key={d} value={d}>{d}</option>)}
                                             </select>
                                         </>
                                     )}
@@ -439,13 +512,13 @@ export default function TermsPage() {
                             )}
                         </div>
                         <div className="modal-footer">
-                            <button className="btn btn-secondary" onClick={() => setShowBlockedModal(false)}>Cancel</button>
+                            <button className="btn btn-secondary" onClick={closeBlockedModal}>Cancel</button>
                             <button
                                 className="btn btn-primary"
-                                onClick={handleAddBlockedSlot}
-                                disabled={!blockedForm.name.trim() || (!blockedForm.whole_day && (!blockedForm.start_time || !blockedForm.end_time)) || (blockedForm.applies_to === 'EXAM_ONLY' ? !blockedForm.date : !blockedForm.day_of_week)}
+                                onClick={handleSaveBlockedSlot}
+                                disabled={!blockedForm.name.trim() || (!blockedForm.whole_day && (!blockedForm.start_time || !blockedForm.end_time)) || (usesDate(blockedForm) ? !blockedForm.date : !blockedForm.day_of_week)}
                             >
-                                Add Blocked Slot
+                                {editingSlot ? 'Save Changes' : 'Add Blocked Slot'}
                             </button>
                         </div>
                     </div>

@@ -190,6 +190,10 @@ async def test_ice_blocked_slots_must_sit_on_ice_days(campus):
 
     await _ok(await ice["admin"].post(url, json={"name": "Service", "day_of_week": "Sunday", "applies_to": "BOTH", **semester}))
     await _ok(await ice["admin"].post(url, json={"name": "Convocation", "date": SUNDAY, "applies_to": "EXAM_ONLY", **semester}))
+    # A weekly exam block follows the same rule.
+    response = await ice["admin"].post(url, json={"name": "Every Monday", "day_of_week": "Monday", "applies_to": "EXAM_ONLY", **semester})
+    assert response.status_code == 400, response.text
+    await _ok(await ice["admin"].post(url, json={"name": "Every Sunday", "day_of_week": "Sunday", "applies_to": "EXAM_ONLY", **semester}))
 
 
 async def test_ug_gets_no_new_day_or_time_validation(campus):

@@ -275,6 +275,9 @@ async def test_another_realms_id_behaves_exactly_like_a_missing_id(world):
                 "schedule course": (admin.post(f"{API}/timetable/schedule-items", json=_lecture(
                     mine, course_id=course_id, start_time="16:00:00", end_time="17:00:00",
                 )), 404),
+                "update slot": (admin.put(f"{API}/timetable/blocked-slots/{slot_id}", json={
+                    "name": "Mine now", "day_of_week": "Thursday", "applies_to": "LECTURE_ONLY",
+                }), 404),
                 "delete slot": (admin.delete(f"{API}/timetable/blocked-slots/{slot_id}"), 404),
                 "block semester": (admin.post(f"{API}/timetable/blocked-slots", json={
                     "name": "Mine now", "day_of_week": "Thursday", "applies_to": "LECTURE_ONLY", **semester,
