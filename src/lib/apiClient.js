@@ -20,8 +20,10 @@ function getApiBaseUrl() {
 export const apiClient = {
 	async request(endpoint, options = {}) {
 		const url = `${getApiBaseUrl()}${endpoint}`;
+		// A FormData body sets its own multipart Content-Type, boundary included.
+		const isForm = typeof FormData !== "undefined" && options.body instanceof FormData;
 		const headers = {
-			"Content-Type": "application/json",
+			...(isForm ? {} : { "Content-Type": "application/json" }),
 			...options.headers,
 		};
 
@@ -72,6 +74,10 @@ export const apiClient = {
 			body: JSON.stringify(data),
 			...options,
 		});
+	},
+
+	postForm(endpoint, formData, options = {}) {
+		return this.request(endpoint, { method: "POST", body: formData, ...options });
 	},
 
 	put(endpoint, data, options = {}) {
