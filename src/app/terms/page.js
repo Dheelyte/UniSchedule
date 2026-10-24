@@ -4,6 +4,8 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import { apiClient } from '@/lib/apiClient';
 import { useToast } from '@/components/Toast/Toast';
+import { useConfirm } from '@/components/ConfirmModal/ConfirmContext';
+import { TERMS_CHANGED_EVENT, newerSessionThan, sortSessions } from '@/lib/terms';
 import styles from './terms.module.css';
 import { TermsSkeleton } from '@/components/Skeleton/Skeleton';
 
@@ -19,6 +21,7 @@ export default function TermsPage() {
     const usesDate = (form) => form.applies_to === 'EXAM_ONLY' && form.repeat === 'once';
     const router = useRouter();
     const { addToast } = useToast();
+    const confirm = useConfirm();
 
     const [sessions, setSessions] = useState([]);
     const [semestersMap, setSemestersMap] = useState({});
@@ -36,9 +39,11 @@ export default function TermsPage() {
     const [blockedForm, setBlockedForm] = useState(emptyBlockedForm);
     const [deleteBlockedConfirm, setDeleteBlockedConfirm] = useState(null);
 
+    // Older sessions can be added for archiving past timetables.
+    const FIRST_SESSION_YEAR = 2000;
     const currentYear = new Date().getFullYear();
-    const sessionOptions = Array.from({ length: 6 }, (_, i) => {
-        const y = currentYear - 3 + i;
+    const sessionOptions = Array.from({ length: currentYear + 2 - FIRST_SESSION_YEAR + 1 }, (_, i) => {
+        const y = currentYear + 2 - i;
         return `${y}/${y + 1}`;
     }).filter(opt => !sessions.some(s => s.name === opt));
 
@@ -49,13 +54,15 @@ export default function TermsPage() {
     const fetchInitialData = async () => {
         setLoading(true);
         try {
-            const sessList = await apiClient.get('/calendar/sessions');
+            const sessList = sortSessions(await apiClient.get('/calendar/sessions'));
             setSessions(sessList);
+            setSemestersMap({});
+            setBlockedSlots([]);
             const current = sessList.find(s => s.is_current);
             if (current) {
                 setExpandedSessions(new Set([current.id]));
                 const semList = await apiClient.get(`/calendar/sessions/${current.id}/semesters`);
-                setSemestersMap(prev => ({ ...prev, [current.id]: semList }));
+                setSemestersMap({ [current.id]: semList });
                 // Load blocked slots for current semester
                 const currentSem = semList.find(s => s.is_current);
                 if (currentSem) {
@@ -109,18 +116,12 @@ export default function TermsPage() {
         if (!sessionName.trim()) return;
         try {
             const res = await apiClient.post('/calendar/sessions', { name: sessionName.trim() });
-            setSessions(prev => [res, ...prev.map(s => ({ ...s, is_current: false }))]);
+            // New sessions are inactive until set as current.
+            setSessions(prev => sortSessions([...prev, res]));
             setSessionName('');
-            setExpandedSessions(new Set([res.id]));
-            setSemestersMap(prev => {
-                const updated = {};
-                for (const id in prev) {
-                    updated[id] = (prev[id] || []).map(s => ({ ...s, is_current: false }));
-                }
-                updated[res.id] = [];
-                return updated;
-            });
-            addToast({ type: 'success', title: 'Created', message: 'Academic session created.' });
+            setExpandedSessions(prev => new Set([...prev, res.id]));
+            setSemestersMap(prev => ({ ...prev, [res.id]: [] }));
+            addToast({ type: 'success', title: 'Created', message: `${res.name} created. Set it as current when you're ready to use it.` });
         } catch (e) {
             console.error(e);
             addToast({ type: 'error', title: 'Error', message: 'Failed to create session.' });
@@ -133,7 +134,7 @@ export default function TermsPage() {
             const res = await apiClient.post('/calendar/semesters', { name: semName, session_id: sessId });
             setSemestersMap(prev => ({
                 ...prev,
-                [sessId]: [...(prev[sessId] || []).map(s => ({ ...s, is_current: false })), res]
+                [sessId]: [...(prev[sessId] || []), res]
             }));
             setSemName('');
             setAddingSemFor(null);
@@ -141,6 +142,47 @@ export default function TermsPage() {
         } catch (e) {
             console.error(e);
             addToast({ type: 'error', title: 'Error', message: 'Failed to create semester.' });
+        }
+    };
+
+    const handleSetCurrentSession = async (sess) => {
+        const newest = newerSessionThan(sess, sessions);
+        const ok = await confirm({
+            title: `Make ${sess.name} the current session?`,
+            message: newest
+                ? `${sess.name} is a past session. Its timetables are final, and ${newest.name} is the latest session. Only switch to ${sess.name} to view or correct its archive, and switch back when you're done.`
+                : `Everyone will see and schedule against ${sess.name}. Its newest semester becomes the current semester.`,
+            confirmLabel: newest ? 'Switch to past session' : 'Set as current',
+            tone: newest ? 'danger' : 'primary',
+        });
+        if (!ok) return;
+        try {
+            await apiClient.put(`/calendar/sessions/${sess.id}/current`);
+            window.dispatchEvent(new Event(TERMS_CHANGED_EVENT));
+            addToast({ type: newest ? 'warning' : 'success', title: 'Current session changed', message: `${sess.name} is now the current session.` });
+            await fetchInitialData();
+        } catch (e) {
+            console.error(e);
+            addToast({ type: 'error', title: 'Error', message: e.message || 'Failed to change the current session.' });
+        }
+    };
+
+    const handleSetCurrentSemester = async (sess, sem) => {
+        const ok = await confirm({
+            title: `Make ${sem.name} the current semester?`,
+            message: `Everyone will see and schedule against ${sess.name} ${sem.name}.`,
+            confirmLabel: 'Set as current',
+            tone: 'primary',
+        });
+        if (!ok) return;
+        try {
+            await apiClient.put(`/calendar/semesters/${sem.id}/current`);
+            window.dispatchEvent(new Event(TERMS_CHANGED_EVENT));
+            addToast({ type: 'success', title: 'Current semester changed', message: `${sem.name} is now the current semester.` });
+            await fetchInitialData();
+        } catch (e) {
+            console.error(e);
+            addToast({ type: 'error', title: 'Error', message: e.message || 'Failed to change the current semester.' });
         }
     };
 
@@ -246,6 +288,13 @@ export default function TermsPage() {
                 {sessions.length === 0 && (
                     <p style={{ color: 'var(--color-text-muted)', padding: '12px 0' }}>No sessions established.</p>
                 )}
+                {sessions.length > 0 && !currentSemester && (
+                    <p className={styles.notice}>
+                        {currentSession
+                            ? `No current semester. Add a semester to ${currentSession.name} and set it as current to start scheduling.`
+                            : 'No current session. Open a session and set it as current to start scheduling.'}
+                    </p>
+                )}
                 <div className={styles.accordion}>
                     {sessions.map(s => {
                         const isOpen = expandedSessions.has(s.id);
@@ -286,6 +335,15 @@ export default function TermsPage() {
                                                     <span className={`badge ${sem.is_current ? styles.badgeSuccess : styles.badgeNeutral}`}>
                                                         {sem.is_current ? 'Current' : 'Inactive'}
                                                     </span>
+                                                    {s.is_current && !sem.is_current && (
+                                                        <button
+                                                            className="btn btn-secondary"
+                                                            style={{ padding: '2px 10px', fontSize: '0.75rem' }}
+                                                            onClick={() => handleSetCurrentSemester(s, sem)}
+                                                        >
+                                                            Set as current
+                                                        </button>
+                                                    )}
                                                 </div>
                                             ))}
                                         </div>
@@ -321,9 +379,14 @@ export default function TermsPage() {
                                                 )}
                                             </>
                                         ) : (
-                                            <p style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)', marginTop: '8px' }}>
-                                                🔒 View only - semesters can only be added to the current session.
-                                            </p>
+                                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', marginTop: '8px' }}>
+                                                <p style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)', margin: 0 }}>
+                                                    🔒 View only - set this session as current to add semesters or edit its timetables.
+                                                </p>
+                                                <button className="btn btn-secondary" onClick={() => handleSetCurrentSession(s)}>
+                                                    Set as current session
+                                                </button>
+                                            </div>
                                         )}
                                     </div>
                                 )}

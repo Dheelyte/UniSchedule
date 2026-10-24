@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import Sidebar from "@/components/Sidebar/Sidebar";
 import TopBar from "@/components/TopBar/TopBar";
 import ImpersonationBanner from "@/components/ImpersonationBanner/ImpersonationBanner";
+import PastSessionBanner from "@/components/PastSessionBanner/PastSessionBanner";
 import { AppProvider } from "@/context/AppContext";
 import { ToastProvider } from "@/components/Toast/Toast";
 import { ConfirmProvider } from "@/components/ConfirmModal/ConfirmContext";
@@ -111,6 +112,7 @@ function LayoutInner({ children }) {
 			)}
 			<main className={mainClass}>
 				<ImpersonationBanner />
+				<PastSessionBanner />
 				{children}
 			</main>
 		</AppProvider>
