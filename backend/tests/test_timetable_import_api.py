@@ -77,7 +77,9 @@ async def faculty(make_client, make_user, login) -> dict:
         for code in ("CVE201", "CVE202", "CVE203", "PHY101", "GST111")
     }
     session = await _ok(await admin.post(f"{API}/calendar/sessions", json={"name": "2026/2027"}))
+    await _ok(await admin.put(f"{API}/calendar/sessions/{session['id']}/current"))
     semester = await _ok(await admin.post(f"{API}/calendar/semesters", json={"name": "First Semester", "session_id": session["id"]}))
+    semester = await _ok(await admin.put(f"{API}/calendar/semesters/{semester['id']}/current"))
     return {"admin": admin, "rooms": rooms, "courses": courses, "semester": semester}
 
 
@@ -460,6 +462,8 @@ async def last_year(faculty) -> dict:
     """An earlier session with a First Semester timetable, while a new session's First Semester is current."""
     admin, rooms, courses = faculty["admin"], faculty["rooms"], faculty["courses"]
     old_session = await _ok(await admin.post(f"{API}/calendar/sessions", json={"name": "2025/2026"}))
+    # Semesters are added to the current session only.
+    await _ok(await admin.put(f"{API}/calendar/sessions/{old_session['id']}/current"))
     old = await _ok(await admin.post(f"{API}/calendar/semesters", json={"name": "First Semester", "session_id": old_session["id"]}))
     from core.database import async_session_maker
     from modules.timetable.models import ScheduleItem
@@ -473,7 +477,7 @@ async def last_year(faculty) -> dict:
             item("CVE202", "ENG", room_ids=[rooms["RM 101"]["id"]], type="exam", exam_date=date(2026, 3, 4), start_time=time(9), end_time=time(12)),
             item("CVE203", "ENG", room_ids=[rooms["RM 101"]["id"]], type="exam", exam_date=date(2026, 3, 9), start_time=time(9), end_time=time(12)),
         ])
-        # Creating a semester makes it current; the new session's stays the one being scheduled.
+        # Switch back: the new session's semester stays the one being scheduled.
         from sqlalchemy import text
         current = faculty["semester"]
         await db.execute(text("UPDATE semesters SET is_current = (id = :id)"), {"id": current["id"]})
