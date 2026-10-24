@@ -16,10 +16,18 @@ export function sortSessions(sessions) {
 	);
 }
 
-// The newest session, when `session` is older than it; otherwise null.
-export function newerSessionThan(session, sessions) {
+// The newest session after `session` that already has semesters, or null.
+// Sessions created ahead of time, with no semesters yet, don't make the
+// current one a past session.
+export async function newerSessionInUse(session, sessions, fetchSemesters) {
 	const year = sessionStartYear(session?.name);
 	if (year === null) return null;
-	const newest = sortSessions(sessions)[0];
-	return newest && (sessionStartYear(newest.name) ?? 0) > year ? newest : null;
+	const newer = sortSessions(sessions).filter(
+		(s) => (sessionStartYear(s.name) ?? 0) > year,
+	);
+	for (const s of newer) {
+		const semesters = await fetchSemesters(s.id);
+		if (semesters?.length) return s;
+	}
+	return null;
 }

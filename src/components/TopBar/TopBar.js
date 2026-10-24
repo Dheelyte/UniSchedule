@@ -37,7 +37,7 @@ const pageTitles = {
 		subtitle: "Manage staff accounts and permissions",
 	},
 	"/terms": {
-		title: "Academic Terms",
+		title: "Academic Session",
 		subtitle: "Configure academic sessions and semesters",
 	},
 };

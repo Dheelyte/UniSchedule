@@ -4,10 +4,10 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useAuth } from "@/context/AuthContext";
 import { apiClient } from "@/lib/apiClient";
-import { TERMS_CHANGED_EVENT, newerSessionThan } from "@/lib/terms";
+import { TERMS_CHANGED_EVENT, newerSessionInUse } from "@/lib/terms";
 import styles from "./PastSessionBanner.module.css";
 
-// Shown on every page while the current session is older than the newest one,
+// Shown on every page while a newer session than the current one is in use,
 // so nobody edits an archived timetable thinking it is the live one.
 export default function PastSessionBanner() {
 	const { user } = useAuth();
@@ -16,16 +16,18 @@ export default function PastSessionBanner() {
 	useEffect(() => {
 		if (!user) return;
 		let mounted = true;
-		const load = () =>
-			apiClient
-				.get("/calendar/sessions")
-				.then((sessions) => {
-					if (!mounted) return;
-					const current = (sessions || []).find((s) => s.is_current);
-					const newest = newerSessionThan(current, sessions || []);
-					setState(newest ? { current, newest } : null);
-				})
-				.catch(() => {});
+		const load = async () => {
+			try {
+				const sessions = (await apiClient.get("/calendar/sessions")) || [];
+				const current = sessions.find((s) => s.is_current);
+				const newest = await newerSessionInUse(current, sessions, (id) =>
+					apiClient.get(`/calendar/sessions/${id}/semesters`),
+				);
+				if (mounted) setState(newest ? { current, newest } : null);
+			} catch {
+				// The banner is advisory; leave it hidden if the calendar can't load.
+			}
+		};
 		load();
 		window.addEventListener(TERMS_CHANGED_EVENT, load);
 		return () => {
@@ -61,7 +63,7 @@ export default function PastSessionBanner() {
 			</span>
 			{user?.role === "SUPER_ADMIN" && (
 				<Link href="/terms" className={styles.action}>
-					Manage terms
+					Manage sessions
 				</Link>
 			)}
 		</div>

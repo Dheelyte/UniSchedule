@@ -5,7 +5,7 @@ import { useAuth } from '@/context/AuthContext';
 import { apiClient } from '@/lib/apiClient';
 import { useToast } from '@/components/Toast/Toast';
 import { useConfirm } from '@/components/ConfirmModal/ConfirmContext';
-import { TERMS_CHANGED_EVENT, newerSessionThan, sortSessions } from '@/lib/terms';
+import { TERMS_CHANGED_EVENT, newerSessionInUse, sortSessions } from '@/lib/terms';
 import styles from './terms.module.css';
 import { TermsSkeleton } from '@/components/Skeleton/Skeleton';
 
@@ -72,7 +72,7 @@ export default function TermsPage() {
             }
         } catch (e) {
             console.error(e);
-            addToast({ type: 'error', title: 'Error', message: 'Failed to load term configuration.' });
+            addToast({ type: 'error', title: 'Error', message: 'Failed to load academic sessions.' });
         }
         setLoading(false);
     };
@@ -82,7 +82,7 @@ export default function TermsPage() {
             if (!user) { router.push('/login'); return; }
             if (user.role !== 'SUPER_ADMIN') {
                 router.push('/');
-                addToast({ type: 'error', title: 'Unauthorized', message: 'Only Super Admins can manage terms.' });
+                addToast({ type: 'error', title: 'Unauthorized', message: 'Only Super Admins can manage academic sessions.' });
                 return;
             }
             // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -146,7 +146,10 @@ export default function TermsPage() {
     };
 
     const handleSetCurrentSession = async (sess) => {
-        const newest = newerSessionThan(sess, sessions);
+        const newest = await newerSessionInUse(sess, sessions, async (id) => {
+            if (semestersMap[id]) return semestersMap[id];
+            return apiClient.get(`/calendar/sessions/${id}/semesters`).catch(() => []);
+        });
         const ok = await confirm({
             title: `Make ${sess.name} the current session?`,
             message: newest
