@@ -264,9 +264,9 @@ class BlockedSlotCreate(BaseModel):
     @model_validator(mode='after')
     def validate_fields(self):
         if self.applies_to == "EXAM_ONLY":
-            if not self.date:
-                raise ValueError("date is required for exam blocked slots")
-            self.day_of_week = None
+            # One exam date, or the same weekday every week of the exams.
+            if bool(self.date) == bool(self.day_of_week):
+                raise ValueError("exam blocked slots need either a date or a day_of_week")
             self.type = "EXTRACURRICULAR"
         else:
             if not self.day_of_week:

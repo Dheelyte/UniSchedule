@@ -11,7 +11,12 @@ export default function TermsPage() {
     const { user, loading: authLoading, realmConfig } = useAuth();
     // Blocked-slot days and semester names are the realm's.
     const lectureDays = realmConfig.lecture_days;
-    const emptyBlockedForm = { name: '', applies_to: 'LECTURE_ONLY', day_of_week: lectureDays[0], date: '', start_time: '', end_time: '', whole_day: false };
+    const examDays = realmConfig.exam_days;
+    const allDays = [...lectureDays, ...examDays.filter(d => !lectureDays.includes(d))];
+    // Exam blocks are either one date or the same weekday every week of the exams.
+    const emptyBlockedForm = { name: '', applies_to: 'LECTURE_ONLY', repeat: 'once', day_of_week: lectureDays[0], date: '', start_time: '', end_time: '', whole_day: false };
+    const blockedDays = (form) => form.applies_to === 'EXAM_ONLY' ? examDays : form.applies_to === 'BOTH' ? allDays : lectureDays;
+    const usesDate = (form) => form.applies_to === 'EXAM_ONLY' && form.repeat === 'once';
     const router = useRouter();
     const { addToast } = useToast();
 
@@ -142,11 +147,11 @@ export default function TermsPage() {
     const handleAddBlockedSlot = async () => {
         if (!blockedForm.name.trim() || !currentSemester) return;
         try {
-            const isExam = blockedForm.applies_to === 'EXAM_ONLY';
+            const isDate = usesDate(blockedForm);
             const payload = {
                 name: blockedForm.name.trim(),
-                day_of_week: isExam ? null : blockedForm.day_of_week,
-                date: isExam ? blockedForm.date : null,
+                day_of_week: isDate ? null : blockedForm.day_of_week,
+                date: isDate ? blockedForm.date : null,
                 start_time: blockedForm.whole_day ? null : blockedForm.start_time,
                 end_time: blockedForm.whole_day ? null : blockedForm.end_time,
                 applies_to: blockedForm.applies_to,
@@ -328,7 +333,7 @@ export default function TermsPage() {
                                                 {slot.applies_to === 'LECTURE_ONLY' ? ' Lectures' : slot.applies_to === 'EXAM_ONLY' ? 'Exams' : 'Both'}
                                             </span>
                                         </td>
-                                        <td>{slot.date || slot.day_of_week}</td>
+                                        <td>{slot.date || `Every ${slot.day_of_week}`}</td>
                                         <td style={{ color: 'var(--color-text-muted)' }}>
                                             {slot.start_time && slot.end_time ? `${slot.start_time?.slice(0, 5)} – ${slot.end_time?.slice(0, 5)}` : 'Full Day'}
                                         </td>
@@ -374,14 +379,32 @@ export default function TermsPage() {
                                     <select
                                         className="form-select form-input"
                                         value={blockedForm.applies_to}
-                                        onChange={(e) => setBlockedForm({ ...blockedForm, applies_to: e.target.value })}
+                                        onChange={(e) => {
+                                            const next = { ...blockedForm, applies_to: e.target.value };
+                                            const days = blockedDays(next);
+                                            setBlockedForm({ ...next, day_of_week: days.includes(next.day_of_week) ? next.day_of_week : days[0] });
+                                        }}
                                     >
                                         <option value="LECTURE_ONLY">Lecture Timetable</option>
                                         <option value="EXAM_ONLY">Exam Timetable</option>
+                                        <option value="BOTH">Both Timetables</option>
                                     </select>
                                 </div>
+                                {blockedForm.applies_to === 'EXAM_ONLY' && (
+                                    <div className="form-group">
+                                        <label className="form-label">Repeats</label>
+                                        <select
+                                            className="form-select form-input"
+                                            value={blockedForm.repeat}
+                                            onChange={(e) => setBlockedForm({ ...blockedForm, repeat: e.target.value })}
+                                        >
+                                            <option value="once">One date</option>
+                                            <option value="weekly">Every week</option>
+                                        </select>
+                                    </div>
+                                )}
                                 <div className="form-group">
-                                    {blockedForm.applies_to === 'EXAM_ONLY' ? (
+                                    {usesDate(blockedForm) ? (
                                         <>
                                             <label className="form-label">Date</label>
                                             <input
@@ -393,13 +416,13 @@ export default function TermsPage() {
                                         </>
                                     ) : (
                                         <>
-                                            <label className="form-label">Day of Week</label>
+                                            <label className="form-label">{blockedForm.applies_to === 'LECTURE_ONLY' ? 'Day of Week' : 'Every'}</label>
                                             <select
                                                 className="form-select form-input"
                                                 value={blockedForm.day_of_week}
                                                 onChange={(e) => setBlockedForm({ ...blockedForm, day_of_week: e.target.value })}
                                             >
-                                                {lectureDays.map(d => <option key={d} value={d}>{d}</option>)}
+                                                {blockedDays(blockedForm).map(d => <option key={d} value={d}>{d}</option>)}
                                             </select>
                                         </>
                                     )}
@@ -443,7 +466,7 @@ export default function TermsPage() {
                             <button
                                 className="btn btn-primary"
                                 onClick={handleAddBlockedSlot}
-                                disabled={!blockedForm.name.trim() || (!blockedForm.whole_day && (!blockedForm.start_time || !blockedForm.end_time)) || (blockedForm.applies_to === 'EXAM_ONLY' ? !blockedForm.date : !blockedForm.day_of_week)}
+                                disabled={!blockedForm.name.trim() || (!blockedForm.whole_day && (!blockedForm.start_time || !blockedForm.end_time)) || (usesDate(blockedForm) ? !blockedForm.date : !blockedForm.day_of_week)}
                             >
                                 Add Blocked Slot
                             </button>

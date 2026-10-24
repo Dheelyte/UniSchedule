@@ -1122,7 +1122,7 @@ class TimetableService:
         config = current_user["realm_config"]
         if config["strict"]:
             if data.applies_to == "EXAM_ONLY":
-                _assert_day_allowed(current_user, "exam", WEEKDAYS[data.date.weekday()])
+                _assert_day_allowed(current_user, "exam", WEEKDAYS[data.date.weekday()] if data.date else data.day_of_week)
             elif data.applies_to == "LECTURE_ONLY" or data.day_of_week not in config["exam_days"]:
                 # A block for both timetables may sit on a day either of them uses.
                 _assert_day_allowed(current_user, "lecture", data.day_of_week)
