@@ -5,7 +5,7 @@ from modules.calendar.repository import CalendarRepository
 from modules.timetable.models import Faculty, Room, Course, ScheduleItem, Department, CourseScope, BlockedSlot, TimetableLock, CourseEnrollment, ChangeRequest, ChangeRequestAction, ChangeRequestStatus, ConflictDismissal
 from modules.timetable.schemas import (
     FacultyCreate, RoomCreate, CourseCreate, ScheduleItemCreate, DepartmentCreate, ScheduleItemUpdate,
-    FacultyUpdate, DepartmentUpdate, RoomUpdate, CourseUpdate, BlockedSlotCreate, RoomReorderRequest,
+    FacultyUpdate, DepartmentUpdate, RoomUpdate, CourseUpdate, BlockedSlotCreate, BlockedSlotUpdate, RoomReorderRequest,
     ChangeRequestCreate, ConflictDismissalCreate, ConflictDismissalBulkCreate, RoomCatalogueAddRequest,
 )
 from modules.auth.models import RoleEnum, CROSS_REALM_ROLES
@@ -1117,15 +1117,32 @@ class TimetableService:
 
     # ---------- Blocked Slots ----------
 
+    @staticmethod
+    def _assert_blocked_slot_days(data: BlockedSlotUpdate, current_user: dict) -> None:
+        config = current_user["realm_config"]
+        if not config["strict"]:
+            return
+        if data.applies_to == "EXAM_ONLY":
+            _assert_day_allowed(current_user, "exam", WEEKDAYS[data.date.weekday()] if data.date else data.day_of_week)
+        elif data.applies_to == "LECTURE_ONLY" or data.day_of_week not in config["exam_days"]:
+            # A block for both timetables may sit on a day either of them uses.
+            _assert_day_allowed(current_user, "lecture", data.day_of_week)
+
+    @staticmethod
+    def _blocked_slot_audit_fields(slot: BlockedSlot) -> dict:
+        return {
+            "name": slot.name,
+            "applies_to": slot.applies_to,
+            "day_of_week": slot.day_of_week,
+            "date": slot.date.isoformat() if slot.date else None,
+            "start_time": str(slot.start_time) if slot.start_time else None,
+            "end_time": str(slot.end_time) if slot.end_time else None,
+            "semester_id": slot.semester_id,
+        }
+
     async def create_blocked_slot(self, data: BlockedSlotCreate, current_user: dict) -> BlockedSlot:
         await self._semester_in_realm(data.semester_id, current_user)
-        config = current_user["realm_config"]
-        if config["strict"]:
-            if data.applies_to == "EXAM_ONLY":
-                _assert_day_allowed(current_user, "exam", WEEKDAYS[data.date.weekday()] if data.date else data.day_of_week)
-            elif data.applies_to == "LECTURE_ONLY" or data.day_of_week not in config["exam_days"]:
-                # A block for both timetables may sit on a day either of them uses.
-                _assert_day_allowed(current_user, "lecture", data.day_of_week)
+        self._assert_blocked_slot_days(data, current_user)
         slot = BlockedSlot(
             name=data.name,
             type=data.type,
@@ -1143,17 +1160,34 @@ class TimetableService:
             entity_type="blocked_slot",
             entity_id=created.id,
             description=f"Added blocked slot '{created.name}' ({created.applies_to})",
-            extra={
-                "name": created.name,
-                "applies_to": created.applies_to,
-                "day_of_week": created.day_of_week,
-                "date": created.date.isoformat() if created.date else None,
-                "start_time": str(created.start_time) if created.start_time else None,
-                "end_time": str(created.end_time) if created.end_time else None,
-                "semester_id": created.semester_id,
-            },
+            extra=self._blocked_slot_audit_fields(created),
         )
         return created
+
+    async def update_blocked_slot(self, id: int, data: BlockedSlotUpdate, current_user: dict) -> BlockedSlot:
+        # Items already scheduled into the new time are left alone, as when a block is added.
+        slot = await self.repo.get_blocked_slot(id, realm_key=current_user["realm"])
+        if not slot:
+            raise HTTPException(status_code=404, detail="Blocked slot not found")
+        self._assert_blocked_slot_days(data, current_user)
+        before = self._blocked_slot_audit_fields(slot)
+        slot.name = data.name
+        slot.type = data.type
+        slot.day_of_week = data.day_of_week
+        slot.date = data.date
+        slot.start_time = data.start_time
+        slot.end_time = data.end_time
+        slot.applies_to = data.applies_to
+        await self.repo.db.flush()
+        await self.audit_service.log(
+            current_user=current_user,
+            action="blocked_slot.update",
+            entity_type="blocked_slot",
+            entity_id=slot.id,
+            description=f"Updated blocked slot '{slot.name}' ({slot.applies_to})",
+            extra={"before": before, "after": self._blocked_slot_audit_fields(slot)},
+        )
+        return slot
 
     async def get_blocked_slots(self, current_user: dict, semester_id: int | None = None) -> list[BlockedSlot]:
         realm_key = current_user["realm"]

@@ -7,7 +7,7 @@ from modules.timetable.schemas import (
     RoomCreate, RoomResponse, RoomUpdate,
     CourseCreate, CourseResponse, CourseUpdate,
     ScheduleItemCreate, ScheduleItemResponse, ScheduleItemUpdate, ExternalBookingResponse,
-    BlockedSlotCreate, BlockedSlotResponse, RoomReorderRequest,
+    BlockedSlotCreate, BlockedSlotUpdate, BlockedSlotResponse, RoomReorderRequest,
     OtherRealmRoomResponse, RoomCatalogueResponse, RoomCatalogueAddRequest, RoomCatalogueAddResponse, RoomHallRequest,
     TimetableLockResponse, TimetableLockUpdate, EditRequestCreate,
     CourseEnrollmentCreate, CourseEnrollmentResponse,
@@ -302,6 +302,15 @@ async def get_blocked_slots(
     user: dict = Depends(get_current_user)
 ):
     return await service.get_blocked_slots(user, semester_id=semester_id)
+
+@router.put("/blocked-slots/{id}", response_model=BlockedSlotResponse)
+async def update_blocked_slot(
+    id: int,
+    data: BlockedSlotUpdate,
+    service: TimetableService = Depends(),
+    user: dict = Depends(RequireRole([RoleEnum.SUPER_ADMIN.value]))
+):
+    return await service.update_blocked_slot(id, data, user)
 
 @router.delete("/blocked-slots/{id}")
 async def delete_blocked_slot(
