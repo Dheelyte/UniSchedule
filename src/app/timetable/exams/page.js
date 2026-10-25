@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState, useEffect, useCallback } from "react";
 import { useApp, ACTION_TYPES } from "@/context/AppContext";
 import { useAuth } from "@/context/AuthContext";
@@ -556,6 +557,16 @@ export default function ExamTimetablePage() {
 								</option>
 							))}
 						</select>
+					)}
+					{user?.role === "SUPER_ADMIN" && isCurrentSemester && !isLocked && (
+						<>
+							<Link className="btn btn-secondary" href="/timetable/import?type=exam">
+								Import <span className="badge badge-primary" style={{ marginLeft: 6, fontSize: "0.65rem" }}>Beta</span>
+							</Link>
+							<Link className="btn btn-secondary" href="/timetable/import?type=exam&source=semester">
+								Copy semester <span className="badge badge-primary" style={{ marginLeft: 6, fontSize: "0.65rem" }}>Beta</span>
+							</Link>
+						</>
 					)}
 					{showRequestChange && (
 						<button

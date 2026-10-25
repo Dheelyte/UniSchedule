@@ -135,6 +135,34 @@ def _assert_fits_window(current_user: dict, item_type: str, day_of_week: str | N
         raise HTTPException(status_code=400, detail=f"Start and end times must be in {step}-minute steps")
 
 
+def blocked_slot_clash(slot, item_type: str, day_of_week: str | None, exam_date: date | None, start_time, end_time) -> str | None:
+    """Why a session can't sit in this blocked slot, or None when it can."""
+    if item_type == "exam" and exam_date:
+        day_of_week = exam_date.strftime("%A")
+    # Check applies_to scope
+    scope = getattr(slot, 'applies_to', 'BOTH')
+    scope_val = scope.value if hasattr(scope, 'value') else str(scope)
+    if item_type == "lecture" and scope_val == "EXAM_ONLY":
+        return None
+    if item_type == "exam" and scope_val == "LECTURE_ONLY":
+        return None
+
+    match_day = False
+    if slot.date and exam_date:
+        match_day = slot.date == exam_date
+    elif slot.day_of_week and day_of_week:
+        match_day = slot.day_of_week == day_of_week
+    if not match_day:
+        return None
+
+    # Whole-day block: no time range → conflict any time
+    if not slot.start_time or not slot.end_time:
+        return f"Time conflict with blocked slot '{slot.name}' (whole day)"
+    if start_time < slot.end_time and end_time > slot.start_time:
+        return f"Time conflict with blocked slot '{slot.name}' ({slot.start_time.strftime('%H:%M')}–{slot.end_time.strftime('%H:%M')})"
+    return None
+
+
 class TimetableService:
     def __init__(
         self,
@@ -751,33 +779,9 @@ class TimetableService:
             
         blocked = await self.repo.get_relevant_blocked_slots(semester_id, day_of_week, exam_date, realm_key=realm_key)
         for slot in blocked:
-            # Check applies_to scope
-            scope = getattr(slot, 'applies_to', 'BOTH')
-            scope_val = scope.value if hasattr(scope, 'value') else str(scope)
-            if item_type == "lecture" and scope_val == "EXAM_ONLY":
-                continue
-            if item_type == "exam" and scope_val == "LECTURE_ONLY":
-                continue
-
-            match_day = False
-            if slot.date and exam_date:
-                match_day = slot.date == exam_date
-            elif slot.day_of_week and day_of_week:
-                match_day = slot.day_of_week == day_of_week
-            if not match_day:
-                continue
-
-            # Whole-day block: no time range → conflict any time
-            if not slot.start_time or not slot.end_time:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Time conflict with blocked slot '{slot.name}' (whole day)"
-                )
-            if start_time < slot.end_time and end_time > slot.start_time:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Time conflict with blocked slot '{slot.name}' ({slot.start_time.strftime('%H:%M')}–{slot.end_time.strftime('%H:%M')})"
-                )
+            clash = blocked_slot_clash(slot, item_type, day_of_week, exam_date, start_time, end_time)
+            if clash:
+                raise HTTPException(status_code=400, detail=clash)
 
     async def _notify_priority_overrides(
         self,
