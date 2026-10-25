@@ -225,8 +225,9 @@ Every read or write of realm-scoped data filters by the active realm.
 
 Calendar rules:
 
-- `create_session` demotes the sessions and semesters **of the same realm only**. Today `calendar/service.py:10-17` demotes everything, so creating an ICE session would stop UG scheduling.
-- `create_semester` requires the session to be in the realm and demotes every semester of the realm, not just of that session. The name must be in `semester_names`.
+- Creating a session or semester never changes which one is current. New sessions and semesters start inactive.
+- `create_semester` requires the session to be in the realm and to be its current session. The name must be in `semester_names`.
+- A super admin picks the current term: `PUT /calendar/sessions/{id}/current` demotes the realm's sessions and semesters, then makes that session and its newest semester current. `PUT /calendar/semesters/{id}/current` switches semester within the current session. Both act on the caller's realm only.
 
 ## 8. Scheduling rules
 

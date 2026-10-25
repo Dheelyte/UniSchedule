@@ -2,10 +2,12 @@ from fastapi import Depends, HTTPException
 from modules.calendar.repository import CalendarRepository
 from modules.calendar.models import AcademicSession, Semester
 from modules.calendar.schemas import SessionCreate, SemesterCreate
+from modules.audit.service import AuditService
 
 class CalendarService:
-    def __init__(self, repo: CalendarRepository = Depends()):
+    def __init__(self, repo: CalendarRepository = Depends(), audit_service: AuditService = Depends()):
         self.repo = repo
+        self.audit_service = audit_service
 
     async def create_session(self, data: SessionCreate, current_user: dict) -> AcademicSession:
         # A new session is inactive until a super admin makes it current.
@@ -14,7 +16,15 @@ class CalendarService:
             is_current=False,
             realm_key=current_user["realm"],
         )
-        return await self.repo.create_session(session)
+        created = await self.repo.create_session(session)
+        await self.audit_service.log(
+            current_user=current_user,
+            action="calendar.session.create",
+            entity_type="academic_session",
+            entity_id=created.id,
+            description=f"Added session {created.name}",
+        )
+        return created
 
     async def get_sessions(self, current_user: dict) -> list[AcademicSession]:
         return await self.repo.get_sessions(realm_key=current_user["realm"])
@@ -36,7 +46,15 @@ class CalendarService:
             is_current=False,
             session_id=data.session_id
         )
-        return await self.repo.create_semester(semester)
+        created = await self.repo.create_semester(semester)
+        await self.audit_service.log(
+            current_user=current_user,
+            action="calendar.semester.create",
+            entity_type="semester",
+            entity_id=created.id,
+            description=f"Added {created.name} to session {session.name}",
+        )
+        return created
 
     async def set_current_session(self, session_id: int, current_user: dict) -> AcademicSession:
         """Make a session current. Its newest semester, if any, becomes the current semester."""
@@ -53,6 +71,14 @@ class CalendarService:
             newest = max(semesters, key=lambda s: s.id)
             await self.repo.mark_semester_current(newest.id, realm_key=realm_key)
         await self.repo.db.refresh(session)
+        await self.audit_service.log(
+            current_user=current_user,
+            action="calendar.session.current",
+            entity_type="academic_session",
+            entity_id=session.id,
+            description=f"Made {session.name} the current session",
+            extra={"current_semester_id": newest.id if semesters else None},
+        )
         return session
 
     async def set_current_semester(self, semester_id: int, current_user: dict) -> Semester:
@@ -66,6 +92,13 @@ class CalendarService:
         await self.repo.disable_current_semesters(realm_key=realm_key)
         await self.repo.mark_semester_current(semester.id, realm_key=realm_key)
         await self.repo.db.refresh(semester)
+        await self.audit_service.log(
+            current_user=current_user,
+            action="calendar.semester.current",
+            entity_type="semester",
+            entity_id=semester.id,
+            description=f"Made {semester.name} of {session.name} the current semester",
+        )
         return semester
 
     async def get_semesters(self, session_id: int, current_user: dict) -> list[Semester]:

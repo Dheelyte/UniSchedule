@@ -283,6 +283,22 @@ async def test_setting_a_session_current_demotes_the_previous_one(admin):
     assert (await _ok(await admin.get(f"{API}/calendar/semesters/current")))["id"] == newer["id"]
 
 
+async def test_changing_the_current_term_is_audited(admin):
+    session = await _ok(await admin.post(f"{API}/calendar/sessions", json={"name": "2025/2026"}))
+    await _ok(await admin.put(f"{API}/calendar/sessions/{session['id']}/current"))
+    semester = await _ok(await admin.post(
+        f"{API}/calendar/semesters", json={"name": "First Semester", "session_id": session["id"]}
+    ))
+    await _ok(await admin.put(f"{API}/calendar/semesters/{semester['id']}/current"))
+
+    logs = await _ok(await admin.get(f"{API}/audit/logs", params={"action_prefix": "calendar."}))
+    actions = {log["action"] for log in logs}
+    assert actions == {
+        "calendar.session.create", "calendar.session.current",
+        "calendar.semester.create", "calendar.semester.current",
+    }
+
+
 async def test_only_super_admins_set_the_current_term(admin, make_client, make_user, login):
     session = await _ok(await admin.post(f"{API}/calendar/sessions", json={"name": "2025/2026"}))
     user = await make_user(RoleEnum.FACULTY_EDITOR, faculty_id="ENG")

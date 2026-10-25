@@ -18,6 +18,7 @@ const ACTION_GROUPS = [
     { value: 'timetable.', label: 'Timetable locks / requests' },
     { value: 'change_request.', label: 'Change requests' },
     { value: 'blocked_slot.', label: 'Blocked slots' },
+    { value: 'calendar.', label: 'Academic sessions' },
     { value: 'faculty.', label: 'Faculties' },
     { value: 'department.', label: 'Departments' },
     { value: 'room.', label: 'Rooms' },
