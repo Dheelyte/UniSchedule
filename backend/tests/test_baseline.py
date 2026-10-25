@@ -121,6 +121,85 @@ async def test_scheduling_into_locked_lecture_timetable_is_423(admin):
     assert response.status_code == 200, response.text
 
 
+async def test_weekly_exam_blocked_slot_blocks_every_matching_weekday(admin):
+    seed = await _seed_timetable(admin)
+    await _ok(await admin.post(f"{API}/timetable/blocked-slots", json={
+        "name": "Jumat",
+        "day_of_week": "Friday",
+        "start_time": "13:00:00",
+        "end_time": "15:00:00",
+        "applies_to": "EXAM_ONLY",
+        "semester_id": seed["semester"]["id"],
+    }))
+
+    # Two different Fridays are both blocked; a Thursday and Friday lectures are not.
+    for friday in ("2026-01-16", "2026-01-23"):
+        response = await admin.post(f"{API}/timetable/schedule-items", json=_lecture(
+            seed, type="exam", day_of_week=None, exam_date=friday, start_time="12:00:00", end_time="14:00:00",
+        ))
+        assert response.status_code == 400, response.text
+        assert "blocked slot 'Jumat'" in response.json()["detail"]
+    await _ok(await admin.post(f"{API}/timetable/schedule-items", json=_lecture(
+        seed, type="exam", day_of_week=None, exam_date="2026-01-15", start_time="12:00:00", end_time="14:00:00",
+    )))
+    await _ok(await admin.post(f"{API}/timetable/schedule-items", json=_lecture(
+        seed, day_of_week="Friday", start_time="13:00:00", end_time="15:00:00",
+    )))
+
+
+async def test_exam_blocked_slot_needs_a_date_or_a_weekday(admin):
+    seed = await _seed_timetable(admin)
+    body = {"name": "Jumat", "applies_to": "EXAM_ONLY", "semester_id": seed["semester"]["id"]}
+    response = await admin.post(f"{API}/timetable/blocked-slots", json=body)
+    assert response.status_code == 422, response.text
+    response = await admin.post(f"{API}/timetable/blocked-slots", json={**body, "date": "2026-01-16", "day_of_week": "Friday"})
+    assert response.status_code == 422, response.text
+
+
+async def test_editing_a_blocked_slot_moves_the_block(admin, make_client, make_user, login):
+    seed = await _seed_timetable(admin)
+    slot = await _ok(await admin.post(f"{API}/timetable/blocked-slots", json={
+        "name": "Jumat", "date": "2026-01-16", "start_time": "13:00:00", "end_time": "15:00:00",
+        "applies_to": "EXAM_ONLY", "semester_id": seed["semester"]["id"],
+    }))
+
+    # One date becomes every Friday, an hour earlier.
+    updated = await _ok(await admin.put(f"{API}/timetable/blocked-slots/{slot['id']}", json={
+        "name": "Jumat Service", "day_of_week": "Friday", "start_time": "12:00:00", "end_time": "14:00:00",
+        "applies_to": "EXAM_ONLY",
+    }))
+    assert updated["id"] == slot["id"]
+    assert (updated["name"], updated["date"], updated["day_of_week"]) == ("Jumat Service", None, "Friday")
+    assert updated["semester_id"] == seed["semester"]["id"]
+
+    response = await admin.post(f"{API}/timetable/schedule-items", json=_lecture(
+        seed, type="exam", day_of_week=None, exam_date="2026-01-23", start_time="12:00:00", end_time="13:00:00",
+    ))
+    assert response.status_code == 400, response.text
+    assert "blocked slot 'Jumat Service'" in response.json()["detail"]
+    # The old hour after the new block is free.
+    await _ok(await admin.post(f"{API}/timetable/schedule-items", json=_lecture(
+        seed, type="exam", day_of_week=None, exam_date="2026-01-16", start_time="14:00:00", end_time="15:00:00",
+    )))
+
+    # Same validation as creating.
+    response = await admin.put(f"{API}/timetable/blocked-slots/{slot['id']}", json={
+        "name": "Jumat", "applies_to": "EXAM_ONLY",
+    })
+    assert response.status_code == 422, response.text
+    response = await admin.put(f"{API}/timetable/blocked-slots/999999", json={
+        "name": "Jumat", "day_of_week": "Friday", "applies_to": "BOTH",
+    })
+    assert response.status_code == 404, response.text
+
+    editor = make_client()
+    await login(editor, (await make_user(RoleEnum.FACULTY_EDITOR, faculty_id="ENG"))["email"])
+    response = await editor.put(f"{API}/timetable/blocked-slots/{slot['id']}", json={
+        "name": "Mine", "day_of_week": "Friday", "applies_to": "BOTH",
+    })
+    assert response.status_code == 403, response.text
+
+
 async def test_scheduling_into_blocked_slot_is_400(admin):
     seed = await _seed_timetable(admin)
 

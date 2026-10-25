@@ -251,7 +251,8 @@ class ExternalBookingResponse(BaseModel):
     is_special_faculty: bool
 
 
-class BlockedSlotCreate(BaseModel):
+class BlockedSlotUpdate(BaseModel):
+    """A blocked slot's editable fields; it stays in its semester."""
     name: str
     type: str | None = None  # Auto-derived; kept for backward compat
     date: date_type | None = None
@@ -259,14 +260,13 @@ class BlockedSlotCreate(BaseModel):
     start_time: time | None = None
     end_time: time | None = None
     applies_to: str = "BOTH"  # BOTH, LECTURE_ONLY, EXAM_ONLY
-    semester_id: int
 
     @model_validator(mode='after')
     def validate_fields(self):
         if self.applies_to == "EXAM_ONLY":
-            if not self.date:
-                raise ValueError("date is required for exam blocked slots")
-            self.day_of_week = None
+            # One exam date, or the same weekday every week of the exams.
+            if bool(self.date) == bool(self.day_of_week):
+                raise ValueError("exam blocked slots need either a date or a day_of_week")
             self.type = "EXTRACURRICULAR"
         else:
             if not self.day_of_week:
@@ -279,6 +279,11 @@ class BlockedSlotCreate(BaseModel):
         if self.start_time and self.end_time and self.start_time >= self.end_time:
             raise ValueError("start_time must be before end_time")
         return self
+
+
+class BlockedSlotCreate(BlockedSlotUpdate):
+    semester_id: int
+
 
 class BlockedSlotResponse(BaseModel):
     id: int
