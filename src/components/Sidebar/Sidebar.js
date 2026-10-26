@@ -96,7 +96,7 @@ const navItems = [
   },
   { type: 'divider', label: 'Management', roles: ['SUPER_ADMIN'] },
   {
-    label: 'Academic Terms',
+    label: 'Academic Sessions',
     href: '/terms',
     roles: ['SUPER_ADMIN'],
     icon: (

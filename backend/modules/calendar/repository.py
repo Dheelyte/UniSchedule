@@ -77,3 +77,17 @@ class CalendarRepository:
             .where(Semester.id.in_(realm_semester_ids(realm_key)))
             .values(is_current=False)
         )
+
+    async def mark_session_current(self, id: int, *, realm_key: str):
+        await self.db.execute(
+            update(AcademicSession)
+            .where(AcademicSession.id == id, AcademicSession.realm_key == realm_key)
+            .values(is_current=True)
+        )
+
+    async def mark_semester_current(self, id: int, *, realm_key: str):
+        await self.db.execute(
+            update(Semester)
+            .where(Semester.id == id, Semester.id.in_(realm_semester_ids(realm_key)))
+            .values(is_current=True)
+        )

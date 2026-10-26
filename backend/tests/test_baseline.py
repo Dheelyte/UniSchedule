@@ -23,9 +23,11 @@ async def _ok(response):
 async def _seed_timetable(admin) -> dict:
     """A current semester plus one faculty, department, room and course."""
     session = await _ok(await admin.post(f"{API}/calendar/sessions", json={"name": "2025/2026"}))
+    await _ok(await admin.put(f"{API}/calendar/sessions/{session['id']}/current"))
     semester = await _ok(await admin.post(
         f"{API}/calendar/semesters", json={"name": "First Semester", "session_id": session["id"]}
     ))
+    await _ok(await admin.put(f"{API}/calendar/semesters/{semester['id']}/current"))
     await _ok(await admin.post(f"{API}/timetable/faculties", json={"id": "ENG", "name": "Engineering"}))
     department = await _ok(await admin.post(
         f"{API}/timetable/departments", json={"name": "Civil Engineering", "faculty_id": "ENG"}
@@ -225,29 +227,84 @@ async def test_scheduling_into_blocked_slot_is_400(admin):
     assert response.status_code == 200, response.text
 
 
-async def test_new_session_demotes_previous_current_semester(admin):
+async def test_creating_terms_does_not_change_the_current_semester(admin):
     first = await _ok(await admin.post(f"{API}/calendar/sessions", json={"name": "2024/2025"}))
+    assert first["is_current"] is False
+    # Semesters can only be added to the current session.
+    response = await admin.post(f"{API}/calendar/semesters", json={"name": "First Semester", "session_id": first["id"]})
+    assert response.status_code == 400, response.text
+
+    await _ok(await admin.put(f"{API}/calendar/sessions/{first['id']}/current"))
     semester = await _ok(await admin.post(
         f"{API}/calendar/semesters", json={"name": "First Semester", "session_id": first["id"]}
     ))
-    assert semester["is_current"] is True
-    current = await _ok(await admin.get(f"{API}/calendar/semesters/current"))
-    assert current["id"] == semester["id"]
+    assert semester["is_current"] is False
+    assert await _ok(await admin.get(f"{API}/calendar/semesters/current")) is None
+    await _ok(await admin.put(f"{API}/calendar/semesters/{semester['id']}/current"))
+    assert (await _ok(await admin.get(f"{API}/calendar/semesters/current")))["id"] == semester["id"]
+
+    # A new session leaves the current one alone.
+    second = await _ok(await admin.post(f"{API}/calendar/sessions", json={"name": "2025/2026"}))
+    assert second["is_current"] is False
+    assert (await _ok(await admin.get(f"{API}/calendar/semesters/current")))["id"] == semester["id"]
+
+
+async def test_setting_a_session_current_demotes_the_previous_one(admin):
+    first = await _ok(await admin.post(f"{API}/calendar/sessions", json={"name": "2024/2025"}))
+    await _ok(await admin.put(f"{API}/calendar/sessions/{first['id']}/current"))
+    older = await _ok(await admin.post(
+        f"{API}/calendar/semesters", json={"name": "First Semester", "session_id": first["id"]}
+    ))
+    newer = await _ok(await admin.post(
+        f"{API}/calendar/semesters", json={"name": "Second Semester", "session_id": first["id"]}
+    ))
+    await _ok(await admin.put(f"{API}/calendar/semesters/{older['id']}/current"))
 
     second = await _ok(await admin.post(f"{API}/calendar/sessions", json={"name": "2025/2026"}))
-    assert second["is_current"] is True
-
+    switched = await _ok(await admin.put(f"{API}/calendar/sessions/{second['id']}/current"))
+    assert switched["is_current"] is True
     assert await _ok(await admin.get(f"{API}/calendar/semesters/current")) is None
-    sessions = {s["id"]: s for s in await _ok(await admin.get(f"{API}/calendar/sessions"))}
-    assert sessions[first["id"]]["is_current"] is False
-    assert sessions[second["id"]]["is_current"] is True
-    semesters = await _ok(await admin.get(f"{API}/calendar/sessions/{first['id']}/semesters"))
-    assert [s["is_current"] for s in semesters] == [False]
+    sessions = {s["id"]: s["is_current"] for s in await _ok(await admin.get(f"{API}/calendar/sessions"))}
+    assert sessions == {first["id"]: False, second["id"]: True}
+    # A semester of a session that isn't current can't be made current.
+    response = await admin.put(f"{API}/calendar/semesters/{newer['id']}/current")
+    assert response.status_code == 400, response.text
 
-    # Scheduling needs a current semester, so it is refused until one is created.
+    # Scheduling needs a current semester, so it is refused until one is set.
     await _ok(await admin.post(f"{API}/timetable/faculties", json={"id": "ENG", "name": "Engineering"}))
     response = await admin.post(f"{API}/timetable/schedule-items", json={
         "course_id": 1, "room_ids": [], "faculty_id": "ENG", "day_of_week": "Monday",
         "start_time": "10:00:00", "end_time": "12:00:00",
     })
     assert response.status_code == 400, response.text
+
+    # Switching back restores the session's newest semester.
+    await _ok(await admin.put(f"{API}/calendar/sessions/{first['id']}/current"))
+    assert (await _ok(await admin.get(f"{API}/calendar/semesters/current")))["id"] == newer["id"]
+
+
+async def test_changing_the_current_term_is_audited(admin):
+    session = await _ok(await admin.post(f"{API}/calendar/sessions", json={"name": "2025/2026"}))
+    await _ok(await admin.put(f"{API}/calendar/sessions/{session['id']}/current"))
+    semester = await _ok(await admin.post(
+        f"{API}/calendar/semesters", json={"name": "First Semester", "session_id": session["id"]}
+    ))
+    await _ok(await admin.put(f"{API}/calendar/semesters/{semester['id']}/current"))
+
+    logs = await _ok(await admin.get(f"{API}/audit/logs", params={"action_prefix": "calendar."}))
+    actions = {log["action"] for log in logs}
+    assert actions == {
+        "calendar.session.create", "calendar.session.current",
+        "calendar.semester.create", "calendar.semester.current",
+    }
+
+
+async def test_only_super_admins_set_the_current_term(admin, make_client, make_user, login):
+    session = await _ok(await admin.post(f"{API}/calendar/sessions", json={"name": "2025/2026"}))
+    user = await make_user(RoleEnum.FACULTY_EDITOR, faculty_id="ENG")
+    viewer = make_client()
+    await login(viewer, user["email"])
+    response = await viewer.put(f"{API}/calendar/sessions/{session['id']}/current")
+    assert response.status_code == 403, response.text
+    response = await admin.put(f"{API}/calendar/sessions/999999/current")
+    assert response.status_code == 404, response.text

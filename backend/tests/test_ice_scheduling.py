@@ -68,9 +68,11 @@ async def campus(make_client, make_user, login) -> dict:
         editor = make_client()
         await login(editor, (await make_user(RoleEnum.FACULTY_EDITOR, faculty_id=faculty, realm=key))["email"])
         session = await _ok(await admin.post(f"{API}/calendar/sessions", json={"name": f"{key} 2025/2026"}))
+        await _ok(await admin.put(f"{API}/calendar/sessions/{session['id']}/current"))
         semester = await _ok(await admin.post(
             f"{API}/calendar/semesters", json={"name": "First Semester", "session_id": session["id"]}
         ))
+        await _ok(await admin.put(f"{API}/calendar/semesters/{semester['id']}/current"))
         course = await _ok(await admin.post(f"{API}/timetable/courses", json={
             "code": f"{key}201", "title": f"{key} Mechanics", "department_id": department["id"], "level": 200,
         }))
@@ -241,9 +243,11 @@ async def weekend_only_pg(make_client, make_user, login):
         department = await _ok(await admin.post(f"{API}/timetable/departments", json={"name": "Civil", "faculty_id": faculty}))
         room = await _ok(await admin.post(f"{API}/timetable/rooms", json={"name": "PG 1", "faculty_id": faculty}))
         session_row = await _ok(await admin.post(f"{API}/calendar/sessions", json={"name": "PG 2025/2026"}))
+        await _ok(await admin.put(f"{API}/calendar/sessions/{session_row['id']}/current"))
         semester = await _ok(await admin.post(
             f"{API}/calendar/semesters", json={"name": "First Semester", "session_id": session_row["id"]}
         ))
+        await _ok(await admin.put(f"{API}/calendar/semesters/{semester['id']}/current"))
         course = await _ok(await admin.post(f"{API}/timetable/courses", json={
             "code": "PG801", "title": "PG Mechanics", "department_id": department["id"], "level": 700,
         }))
@@ -380,7 +384,9 @@ async def test_only_current_semester_items_hold_a_room(campus):
     old = await _ok(await _schedule(ug, _lecture(ug)))
     # A new UG session leaves that lecture in a past semester.
     session = await _ok(await ug["admin"].post(f"{API}/calendar/sessions", json={"name": "UG 2026/2027"}))
-    await _ok(await ug["admin"].post(f"{API}/calendar/semesters", json={"name": "First Semester", "session_id": session["id"]}))
+    await _ok(await ug["admin"].put(f"{API}/calendar/sessions/{session['id']}/current"))
+    semester = await _ok(await ug["admin"].post(f"{API}/calendar/semesters", json={"name": "First Semester", "session_id": session["id"]}))
+    await _ok(await ug["admin"].put(f"{API}/calendar/semesters/{semester['id']}/current"))
 
     await _ok(await _schedule(ice, _lecture(ice)))
     assert await _ok(await ice["admin"].get(f"{API}/timetable/external-bookings")) == []

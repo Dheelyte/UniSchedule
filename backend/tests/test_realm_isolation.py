@@ -75,9 +75,11 @@ async def world(make_client, make_user, login, sent_emails) -> dict:
         await login(editor, editor_user["email"])
 
         session = await _ok(await admin.post(f"{API}/calendar/sessions", json={"name": f"{key} 2025/2026"}))
+        await _ok(await admin.put(f"{API}/calendar/sessions/{session['id']}/current"))
         semester = await _ok(await admin.post(
             f"{API}/calendar/semesters", json={"name": "First Semester", "session_id": session["id"]}
         ))
+        await _ok(await admin.put(f"{API}/calendar/semesters/{semester['id']}/current"))
         course = await _ok(await admin.post(f"{API}/timetable/courses", json={
             "code": "CEG201", "title": f"{key} Mechanics", "department_id": department["id"], "level": 200,
             "scope": "INTERFACULTY",
@@ -362,10 +364,12 @@ async def test_ice_calendar_leaves_ugs_current_semester_alone(world):
     second = await _ok(await ice["admin"].post(
         f"{API}/calendar/semesters", json={"name": "Second Semester", "session_id": ice["session"]["id"]}
     ))
+    await _ok(await ice["admin"].put(f"{API}/calendar/semesters/{second['id']}/current"))
     assert (await _ok(await ice["admin"].get(f"{API}/calendar/semesters/current")))["id"] == second["id"]
     assert (await _ok(await ug["admin"].get(f"{API}/calendar/semesters/current")))["id"] == ug["semester"]["id"]
 
     new_session = await _ok(await ice["admin"].post(f"{API}/calendar/sessions", json={"name": "ICE 2026/2027"}))
+    await _ok(await ice["admin"].put(f"{API}/calendar/sessions/{new_session['id']}/current"))
     assert await _ok(await ice["admin"].get(f"{API}/calendar/semesters/current")) is None
     sessions = {s["id"]: s["is_current"] for s in await _ok(await ice["admin"].get(f"{API}/calendar/sessions"))}
     assert sessions == {ice["session"]["id"]: False, new_session["id"]: True}
@@ -385,6 +389,7 @@ async def test_a_realm_has_one_current_semester_named_from_its_config(world):
     assert (await _ok(await admin.get(f"{API}/calendar/semesters/current")))["id"] == world["UG"]["semester"]["id"]
 
     second = await _ok(await admin.post(f"{API}/calendar/semesters", json={"name": "Second Semester", "session_id": session_id}))
+    await _ok(await admin.put(f"{API}/calendar/semesters/{second['id']}/current"))
     semesters = await _ok(await admin.get(f"{API}/calendar/sessions/{session_id}/semesters"))
     assert {s["id"]: s["is_current"] for s in semesters} == {world["UG"]["semester"]["id"]: False, second["id"]: True}
 
