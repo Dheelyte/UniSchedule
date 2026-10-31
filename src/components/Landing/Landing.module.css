@@ -634,7 +634,7 @@
 	max-width: 1200px;
 	margin: 0 auto;
 	display: grid;
-	grid-template-columns: 1.6fr 1fr 1fr;
+	grid-template-columns: 1.6fr 1fr 1fr 1fr;
 	gap: 48px;
 	padding-bottom: 40px;
 }

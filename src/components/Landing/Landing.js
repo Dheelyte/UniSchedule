@@ -330,6 +330,11 @@ export default function Landing() {
 						</Link>
 						<Link href="/realms">Undergraduate portal</Link>
 					</div>
+
+					<div className={styles.footerLinkCol}>
+						<h4>Project</h4>
+						<Link href="/contributors">Contributors</Link>
+					</div>
 				</div>
 
 				<div className={styles.footerBottom}>
