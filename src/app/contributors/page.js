@@ -144,30 +144,25 @@ function prefersReducedMotion() {
 const githubCache = new Map();
 
 function useGitHubProfile(username) {
-	const [profile, setProfile] = useState(() => githubCache.get(username) || null);
+	// The last lookup that finished, so a stale response never shows for a different user.
+	const [fetched, setFetched] = useState({ username: null, data: null });
 	useEffect(() => {
-		if (!username) {
-			setProfile(null);
-			return;
-		}
-		if (githubCache.has(username)) {
-			setProfile(githubCache.get(username));
-			return;
-		}
+		if (!username || githubCache.has(username)) return;
 		let cancelled = false;
-		setProfile(null);
 		fetch(`https://api.github.com/users/${username}`)
 			.then((res) => (res.ok ? res.json() : null))
 			.then((data) => {
 				if (data) githubCache.set(username, data);
-				if (!cancelled) setProfile(data);
+				if (!cancelled) setFetched({ username, data });
 			})
 			.catch(() => {});
 		return () => {
 			cancelled = true;
 		};
 	}, [username]);
-	return profile;
+	if (!username) return null;
+	if (githubCache.has(username)) return githubCache.get(username);
+	return fetched.username === username ? fetched.data : null;
 }
 
 function Avatar({ person, size, className }) {
