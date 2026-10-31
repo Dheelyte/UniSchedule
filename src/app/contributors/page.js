@@ -387,11 +387,7 @@ export default function ContributorsPage() {
 				</div>
 			</header>
 
-			<section className={styles.hero}>
-				<span className={styles.eyebrow}>
-					<span className={styles.eyebrowDot} />
-					{total} contributors
-				</span>
+			<section className={styles.hero}>			
 				<h1 className={styles.title}>
 					Meet the <span className={styles.titleAccent}>builders</span>
 				</h1>
