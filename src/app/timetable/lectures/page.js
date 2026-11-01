@@ -7,6 +7,7 @@ import { useAuth } from '@/context/AuthContext';
 import { apiClient } from '@/lib/apiClient';
 import { detectAllConflicts, dismissalSignatureSet, toExternalBooking } from '@/lib/conflicts';
 import { exportTimetablePDF } from '@/lib/pdfExport';
+import { exportDailyTimetablePDF } from '@/lib/pdfExportDaily';
 import { exportTimetableCSV } from '@/lib/csvExport';
 import { isGeneralStudiesCourse, GENERAL_STUDIES_FACULTY } from '@/lib/utils';
 import { isRoomActive } from '@/lib/utils';
@@ -239,7 +240,7 @@ export default function LectureTimetablePage() {
         setIsExportModalOpen(true);
     };
 
-    const handleExportConfirm = async ({ session, semester, facultyId, departmentId, level, format = 'pdf', monochrome = false, paperSize = 'a4' }) => {
+    const handleExportConfirm = async ({ session, semester, facultyId, departmentId, level, format = 'pdf', monochrome = false, paperSize = 'a3', layout = 'standard' }) => {
         setIsExportModalOpen(false);
         const deptIdNum = departmentId && departmentId !== 'ALL' ? Number(departmentId) : null;
         const levelNum = level && level !== 'ALL' ? Number(level) : null;
@@ -303,6 +304,36 @@ export default function LectureTimetablePage() {
         }
 
         const blockedSlots = await apiClient.get(`/timetable/blocked-slots?semester_id=${selectedSemesterId}`).catch(() => []);
+
+        // Alternate "1 day per page" layouts (UG 1-hour, ICE 30-minute evening). The
+        // standard export below is unchanged and still the default.
+        if (layout && layout !== 'standard') {
+            exportDailyTimetablePDF({
+                schedules: exportableSchedules,
+                blockedSlots,
+                rooms: state.rooms,
+                faculties: state.faculties,
+                departments: state.departments,
+                enrollments: state.enrollments,
+                title: 'Lecture Timetable',
+                session,
+                semester,
+                faculty: facultyInfo,
+                department: departmentInfo,
+                level: levelInfo,
+                schoolName: 'University of Lagos',
+                monochrome,
+                groupByFaculty,
+                paperSize,
+                isLocked,
+                config: realmConfig,
+                realmKey: realm,
+                realmName,
+                layout,
+            });
+            addToast({ type: 'success', title: 'PDF Exported', message: `Daily lecture timetable downloaded as PDF (${paperSize.toUpperCase()}, 1 day per page).` });
+            return;
+        }
 
         exportTimetablePDF({
             schedules: exportableSchedules,

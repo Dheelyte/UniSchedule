@@ -415,3 +415,111 @@ export function mergeAdjacentCourseSchedules(schedules, options = 15) {
 	return result;
 }
 
+
+// ---------------------------------------------------------------------------
+// Daily (1 day per page) export formats. These sit alongside the standard
+// week grid in pdfExport.js and never change it.
+// ---------------------------------------------------------------------------
+
+/**
+ * Fixed-window grids for the daily export, keyed by the `layout` option.
+ * - daily-hourly:  Undergraduate, 1-hour columns 8am-6pm ("8-9", "9-10", ...).
+ * - daily-ice-30:  ICE, 30-minute columns 4pm-10pm ("4-4:30", "4:30-5", ...).
+ */
+export const DAILY_EXPORT_FORMATS = {
+	"daily-hourly": {
+		key: "daily-hourly",
+		labelStyle: "hour",
+		label: "Daily 1-hour grid (8am - 6pm), 1 day per page",
+		startMin: 8 * 60,
+		endMin: 18 * 60,
+		stepMin: 60,
+		fileTag: "daily_1hr",
+	},
+	"daily-ice-30": {
+		key: "daily-ice-30",
+		labelStyle: "full",
+		label: "Daily 30-min evening grid (4pm - 10pm), 1 day per page",
+		startMin: 16 * 60,
+		endMin: 22 * 60,
+		stepMin: 30,
+		fileTag: "daily_30min",
+	},
+};
+
+/** The daily format for a layout key, or null for the standard layout. */
+export function getDailyExportFormat(layout) {
+	return DAILY_EXPORT_FORMATS[layout] || null;
+}
+
+/** Minutes since midnight as a compact 12-hour clock: 480 -> "8", 990 -> "4:30", 720 -> "12". */
+export function formatCompactClock(min) {
+	const h = Math.floor(min / 60) % 24;
+	const mm = min % 60;
+	const h12 = h % 12 || 12;
+	return mm === 0 ? `${h12}` : `${h12}:${String(mm).padStart(2, "0")}`;
+}
+
+/**
+ * Column header text for one slot.
+ * - "compact": "8-9", "12-1", "4-4:30"
+ * - "hour":    "8 - 9:00am", "12 - 1:00pm", "11am - 12:00pm"   (UG hourly)
+ * - "full":    "4:00 - 4:30pm", "9:30 - 10:00pm"                (ICE half-hourly)
+ * The am/pm suffix sits on the end time; the start time only carries its own
+ * when the slot crosses noon.
+ */
+export function formatSlotLabel(startMin, endMin, style = "compact") {
+	if (style === "compact") return `${formatCompactClock(startMin)}-${formatCompactClock(endMin)}`;
+	const period = (min) => (Math.floor(min / 60) % 24 < 12 ? "am" : "pm");
+	const clock = (min) => {
+		const h12 = Math.floor(min / 60) % 24 % 12 || 12;
+		return `${h12}:${String(min % 60).padStart(2, "0")}`;
+	};
+	const crosses = period(startMin) !== period(endMin);
+	const start = style === "full" ? clock(startMin) : formatCompactClock(startMin);
+	return `${start}${crosses ? period(startMin) : ""} - ${clock(endMin)}${period(endMin)}`;
+}
+
+/**
+ * Equal-width columns from startMin to endMin in stepMin steps, each labelled
+ * per `style` (see formatSlotLabel).
+ */
+export function buildTimeSlots(startMin, endMin, stepMin, style = "compact") {
+	const slots = [];
+	if (!(stepMin > 0) || endMin <= startMin) return slots;
+	for (let s = startMin; s < endMin; s += stepMin) {
+		const e = Math.min(s + stepMin, endMin);
+		slots.push({ startMin: s, endMin: e, label: formatSlotLabel(s, e, style) });
+	}
+	return slots;
+}
+/**
+ * Splits classes against a fixed window. `inside` holds classes that overlap
+ * the window, with times clipped to it (`clipped: true` when cut); `outside`
+ * holds classes that miss it entirely, so the export can list them instead of
+ * silently dropping them.
+ */
+export function clipSchedulesToWindow(classes, startMin, endMin) {
+	const toHHMM = (m) => `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+	const inside = [];
+	const outside = [];
+	(classes || []).forEach((cls) => {
+		const s = timeToMinutes(cls.startTime);
+		const e = timeToMinutes(cls.endTime);
+		if (!(e > s) || e <= startMin || s >= endMin) {
+			outside.push(cls);
+			return;
+		}
+		const cs = Math.max(s, startMin);
+		const ce = Math.min(e, endMin);
+		inside.push({
+			...cls,
+			startTime: toHHMM(cs),
+			endTime: toHHMM(ce),
+			originalStartTime: cls.startTime,
+			originalEndTime: cls.endTime,
+			clipped: cs !== s || ce !== e,
+		});
+	});
+	return { inside, outside };
+}
