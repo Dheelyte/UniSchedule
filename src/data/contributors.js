@@ -50,8 +50,8 @@ export const CONTRIBUTORS = [
 	},
 	{
 		name: 'Oluwapelumi Kolawole',
-		role: '',
-		bio: '',
+		role: 'Full-Stack & Backend Engineer',
+		bio: 'Contributing to database architecture and backend services.',
 		github: 'Peakay6',
 		socials: {
 			linkedin: 'https://www.linkedin.com/in/oluwapelumi-kolawole-29b803211',
