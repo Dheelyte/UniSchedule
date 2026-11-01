@@ -5,8 +5,8 @@
 export const CONTRIBUTORS = [
 	{
 		name: 'Delight Olu-Olagbuji',
-		role: '',
-		bio: '',
+		role: 'Backend Engineer',
+		bio: 'Building scalable systems and handling deployments.',
 		github: 'Dheelyte',
 		socials: {
 			linkedin: 'https://www.linkedin.com/in/delight-olu-olagbuji-990b61314',
@@ -41,8 +41,8 @@ export const CONTRIBUTORS = [
 	},
 	{
 		name: 'Emmanuel Maduakor',
-		role: '',
-		bio: '',
+		role: 'Full Stack Developer',
+		bio: 'Contributing to Multi-tenancy architecture and database deployment.',
 		github: 'maduakoremmanuel',
 		socials: {
 			linkedin: 'https://www.linkedin.com/in/emmanuel-maduakor-816b93373',
