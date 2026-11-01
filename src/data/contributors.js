@@ -14,8 +14,8 @@ export const CONTRIBUTORS = [
 	},
 	{
 		name: 'Olatunde David Durojaiye',
-		role: '',
-		bio: '',
+		role: 'Full-Stack, Data & QA Engineer',
+		bio: 'Full-stack development, database management (SQL), QA testing.',
 		github: 'rubiks001',
 		socials: {
 			linkedin: 'https://www.linkedin.com/in/olatunde-david-durojaiye-bb5985207/',
@@ -50,8 +50,8 @@ export const CONTRIBUTORS = [
 	},
 	{
 		name: 'Oluwapelumi Kolawole',
-		role: 'Full-Stack & Backend Engineer',
-		bio: 'Contributing to database architecture and backend services.',
+		role: 'Full-Stack, Data & Backend Engineer',
+		bio: ' Database architecture, Management and backend services.',
 		github: 'Peakay6',
 		socials: {
 			linkedin: 'https://www.linkedin.com/in/oluwapelumi-kolawole-29b803211',
@@ -62,6 +62,8 @@ export const CONTRIBUTORS = [
 		role: '',
 		bio: '',
 		github: 'Edebros2',
-		socials: {},
+		socials: {
+			linkedin: 'https://www.linkedin.com/in/wisdom-ede-642377255?utm_source=share_via&utm_content=profile&utm_medium=member_android'
+		},
 	},
 ];
