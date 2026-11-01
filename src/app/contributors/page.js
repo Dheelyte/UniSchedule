@@ -232,7 +232,7 @@ function ContributorCard({ person, index, hidden, cardRef, onOpen }) {
 function ContributorDetail({ person, index, total }) {
 	const profile = useGitHubProfile(person.github);
 	const links = socialLinks(person);
-	const bio = person.bio || profile?.bio;
+	const bio =  profile?.bio||person.bio ;
 	const stats = profile
 		? [
 			{ label: 'Public repos', value: profile.public_repos },
