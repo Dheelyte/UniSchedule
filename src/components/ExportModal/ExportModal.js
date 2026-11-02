@@ -1,7 +1,14 @@
 import { useState, useEffect } from "react";
 import { useApp } from "@/context/AppContext";
 import { useAuth } from "@/context/AuthContext";
+import { DAILY_EXPORT_FORMATS } from "@/lib/timetableLayout";
 import styles from "./ExportModal.module.css";
+
+// Daily (1 day per page) layouts offered per realm, alongside the standard grid.
+const dailyLayoutsFor = (realm) =>
+	String(realm || "").toUpperCase() === "ICE"
+		? [DAILY_EXPORT_FORMATS["daily-ice-30"]]
+		: [DAILY_EXPORT_FORMATS["daily-hourly"]];
 
 export default function ExportModal({
 	isOpen,
@@ -12,7 +19,7 @@ export default function ExportModal({
 	semesters = [],
 }) {
 	const { state } = useApp();
-	const { realmConfig } = useAuth();
+	const { realm, realmConfig } = useAuth();
 	const fallbackSemester = realmConfig.semester_names[0];
 
 	// Default values
@@ -25,6 +32,7 @@ export default function ExportModal({
 	const [monochrome, setMonochrome] = useState(true);
 	const [cbtOnly, setCbtOnly] = useState(false);
 	const [gstOnly, setGstOnly] = useState(false);
+	const [layout, setLayout] = useState("standard");
 
 	useEffect(() => {
 		if (isOpen) {
@@ -44,6 +52,7 @@ export default function ExportModal({
 			setMonochrome(true);
 			setCbtOnly(false);
 			setGstOnly(false);
+			setLayout("standard");
 			/* eslint-enable react-hooks/set-state-in-effect */
 		}
 	}, [isOpen, sessions, semesters, fallbackSemester]);
@@ -67,6 +76,7 @@ export default function ExportModal({
 			paperSize,
 			cbtOnly,
 			gstOnly,
+			layout: mode === "lecture" ? layout : "standard",
 		});
 	};
 
@@ -191,6 +201,23 @@ export default function ExportModal({
 							))}
 						</select>
 					</div>
+
+					{mode === "lecture" && (
+						<div className={styles.formGroup}>
+							<label className={styles.label}>Layout (PDF)</label>
+							<select
+								className={styles.input}
+								value={layout}
+								onChange={(e) => setLayout(e.target.value)}>
+								<option value="standard">Standard week grid (default)</option>
+								{dailyLayoutsFor(realm).map((f) => (
+									<option key={f.key} value={f.key}>
+										{f.label}
+									</option>
+								))}
+							</select>
+						</div>
+					)}
 
 					<div className={styles.formGroup}>
 						<label className={styles.label}>Format</label>
