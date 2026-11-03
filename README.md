@@ -149,9 +149,9 @@ Contributions are welcome:
 ## Authors
 
 - Delight Olu-Olagbuji ([@Dheelyte](https://github.com/Dheelyte), [LinkedIn](https://www.linkedin.com/in/delight-olu-olagbuji-990b61314))
+- Olatunde David Durojaiye ([@rubiks001](https://github.com/rubiks001))
 - Madukor Emmanuel ([@maduakoremmanuel](https://github.com/maduakoremmanuel))
 - Gospel ([@devyalchemist](https://github.com/devyalchemist))
-- Olatunde David Durojaiye ([@rubiks001](https://github.com/rubiks001))
 - Oluwapelumi David Kolawole ([@Peakay6](https://github.com/Peakay6))
 - Muhiz Akanni ([@muakone](https://github.com/muakone))
 - Wisdom Ede ([@Edebros2](https://github.com/Edebros2))
