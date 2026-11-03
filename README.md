@@ -1,28 +1,25 @@
 # UniSchedule - University of Lagos Timetable Manager
 
-UniSchedule is a comprehensive timetable management application for the University of Lagos. It features a Next.js 16 React frontend and a FastAPI (Python) backend to handle complex scheduling logic, access control, and PDF exports.
+UniSchedule is a comprehensive timetable management application for the University of Lagos. It features a Next.js 16 React frontend and a FastAPI (Python) backend that handles complex scheduling logic, access control, and PDF exports.
 
 ## Project Structure
 
-- `/` (Root): Next.js frontend web application
+- `/` (root): Next.js frontend web application
 - `/backend`: Python FastAPI server and database management
+- `/docs`: design documents (see `docs/ice-realm/`)
 
 ## Prerequisites
 
-Before setting up the project, assure you have the following installed:
-
 - Node.js (>= 18.x) and npm
 - Python (>= 3.12)
-- PostgeSQL or Docker (for running the database container)
-- `uv` (Fast Python package installer) or `pip`
+- PostgreSQL, or Docker to run the database container
+- `uv` (fast Python package installer), or `pip`
 
 ## Getting Started
 
 ### 1. Backend Setup
 
-The backend logic and database are managed within the `backend/` directory.
-
-1. Navigate to the backend directory:
+1. Go to the backend directory:
 
    ```bash
    cd backend
@@ -36,19 +33,18 @@ The backend logic and database are managed within the `backend/` directory.
 
    The container publishes Postgres on host port **5433** (not the default 5432), so it doesn't clash with a Postgres already installed on your machine.
 
-   _(Alternatively, configure a local PostgreSQL instance with credentials matching `core/config.py`)_
+   _(Alternatively, configure a local PostgreSQL instance with credentials matching `core/config.py`.)_
 
-3. Create the virtual environment and install dependencies using `uv` (recommended):
+3. Create the virtual environment and install dependencies (using `uv` is recommended):
 
    ```bash
    uv venv
    source .venv/bin/activate
    uv sync
-   # or with standard pip: pip install -r requirements.txt (if available)
+   # or with pip: pip install -r requirements.txt (if available)
    ```
 
-4. Provide environment variables:
-   Create a `.env` file inside `/backend` with the following variables:
+4. Create a `.env` file inside `/backend`:
 
    ```env
    DATABASE_URL=postgresql+asyncpg://postgres:password@localhost:5433/unilag_timetable
@@ -58,6 +54,8 @@ The backend logic and database are managed within the `backend/` directory.
    FRONTEND_URL=http://localhost:3000
    ```
 
+   > **Security:** these values are for local development only. Never commit `.env` (make sure it is in `.gitignore`), and use a strong, unique `SECRET_KEY`, database password and super admin password in any shared or deployed environment.
+
 5. Run database migrations:
 
    ```bash
@@ -65,34 +63,34 @@ The backend logic and database are managed within the `backend/` directory.
    ```
 
 6. Start the FastAPI server:
-   ```bash uv run uvicorn main:app --reload
-  
+
+   ```bash
+   uv run uvicorn main:app --reload
    ```
-   The backend API will be available at `http://localhost:8000`.
+
+   The API is available at `http://localhost:8000`.
 
 ### 2. Frontend Setup
 
-The frontend is a Next.js application located at the project root.
-
-1. In a new terminal, navigate to the project root:
+1. In a new terminal, go to the project root:
 
    ```bash
-   cd unilag-timetable
+   cd UniSchedule
    ```
 
-2. Install npm dependencies:
+2. Install dependencies:
 
    ```bash
    npm install
    ```
 
-3. Run the development server:
+3. Start the development server:
 
    ```bash
    npm run dev
    ```
 
-4. Open [http://localhost:3000](http://localhost:3000) with your browser to launch the application.
+4. Open [http://localhost:3000](http://localhost:3000) in your browser.
 
 ## Realms (programmes)
 
@@ -116,11 +114,11 @@ Pull requests run all of the checks below in GitHub Actions (`.github/workflows/
 
 ### Backend
 
-The backend tests need the Postgres container from step 2 above to be running. They never touch your development data: they create and migrate their own database, `unilag_timetable_test`, on `localhost:5433`, and empty its tables before every test.
+The backend tests need the Postgres container from the backend setup to be running. They never touch your development data: they create and migrate their own database, `unilag_timetable_test`, on `localhost:5433`, and empty its tables before every test.
 
 ```bash
 cd backend
-uv sync            # installs the dev group (pytest, pytest-asyncio, httpx)
+uv sync                           # installs the dev group (pytest, pytest-asyncio, httpx)
 uv run pytest -q                  # everything, about 1-2 minutes
 uv run pytest -q -m "not slow"    # skips the migration round trips, under a minute
 ```
@@ -141,14 +139,19 @@ npm run build
 
 ## Contributing
 
-We welcome contributions! Please follow the steps below:
+Contributions are welcome:
 
 1. Clone the repository and create a feature branch (`git checkout -b feature/your-feature-name`).
-2. Make your modifications, ensuring you test the changes locally.
-3. Commit your changes with descriptive messages.
-4. Push your branch and submit a Pull Request.
+2. Make your changes and test them locally.
+3. Commit with descriptive messages.
+4. Push your branch and open a Pull Request.
 
-## Author
+## Authors
 
-- Delight Olu-Olagbuji ([LinkedIn](https://www.linkedin.com/in/delight-olu-olagbuji-990b61314))
-# hsdtechnologies
+- Delight Olu-Olagbuji ([@Dheelyte](https://github.com/Dheelyte), [LinkedIn](https://www.linkedin.com/in/delight-olu-olagbuji-990b61314))
+- Madukor Emmanuel ([@maduakoremmanuel](https://github.com/maduakoremmanuel))
+- Gospel ([@devyalchemist](https://github.com/devyalchemist))
+- Olatunde David Durojaiye ([@rubiks001](https://github.com/rubiks001))
+- Oluwapelumi David Kolawole ([@Peakay6](https://github.com/Peakay6))
+- Muhiz Akanni ([@muakone](https://github.com/muakone))
+- Wisdom Ede ([@Edebros2](https://github.com/Edebros2))
