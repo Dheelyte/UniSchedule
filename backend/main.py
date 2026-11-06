@@ -10,9 +10,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from core.config import settings
 from core.database import get_db, async_session_maker
+from core.security import get_password_hash, AllowedHostMiddlware, SecurityHeadersMiddleware
 from api.v1 import dummy, auth, calendar, timetable, export, notifications, audit, realms, timetable_import
 from modules.auth.models import User, RoleEnum, stored_realm_key
-from core.security import get_password_hash
 
 limiter = Limiter(
     key_func=get_remote_address,
@@ -44,7 +44,7 @@ app = FastAPI(title="Unilag Timetable Manager API", lifespan=lifespan)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_middleware(SlowAPIMiddleware)
-
+app.add_middleware(AllowedHostMiddlware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ALLOWED_ORIGINS,
@@ -52,6 +52,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(SecurityHeadersMiddleware)
 
 app.include_router(dummy.router, prefix="/api/v1")
 app.include_router(auth.router, prefix="/api/v1")

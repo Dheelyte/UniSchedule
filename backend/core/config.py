@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     #Authentication
     COOKIE_SECURE: bool = False
     COOKIE_SAMESITE: str = "lax"
+    COOKIE_DOMAIN: str = ""
 
     PASSWORD_RESET_CODE_EXPIRE_MINUTES: int = Field(default=10)
 
@@ -39,6 +40,7 @@ class Settings(BaseSettings):
         "http://127.0.0.1:3001",
         "http://localhost:3001",
     ]
+    ALLOWED_HOSTS: list[str] = []
 
     # --- Email Configuration ---
     MAIL_USERNAME: str = Field(default="test")
