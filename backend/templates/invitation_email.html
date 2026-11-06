@@ -124,11 +124,12 @@
         </div>
         <div class="content">
             <p>Hello,</p>
-            <p>You have been invited to join the <strong>University of Lagos Timetable Manager</strong>.</p>
+            <p>You have been invited to join the <strong>{{ realm_name }}</strong> portal of the <strong>University of Lagos Timetable Manager</strong>.</p>
 
             <div class="info-box">
                 <div class="info-item"><span class="info-label">Email:</span> {{recipient_email}}</div>
                 <div class="info-item"><span class="info-label">Role:</span> {{role}}</div>
+                <div class="info-item"><span class="info-label">Portal:</span> {{ realm_name }}</div>
                 {% if faculty_name %}
                 <div class="info-item"><span class="info-label">Faculty:</span> {{ faculty_name }}</div>
                 {% endif %}

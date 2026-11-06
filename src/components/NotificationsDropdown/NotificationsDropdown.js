@@ -3,6 +3,9 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { apiClient } from '@/lib/apiClient';
+import { useAuth } from '@/context/AuthContext';
+import { isCrossRealmRole } from '@/lib/roles';
+import { splitRealmLink } from '@/lib/realm';
 import styles from './NotificationsDropdown.module.css';
 
 const POLL_INTERVAL_MS = 600_000;
@@ -12,6 +15,7 @@ export default function NotificationsDropdown() {
     const [notifications, setNotifications] = useState([]);
     const dropdownRef = useRef(null);
     const router = useRouter();
+    const { user, switchRealm } = useAuth();
 
     const refresh = useCallback(() => {
         apiClient.get('/notifications')
@@ -57,7 +61,14 @@ export default function NotificationsDropdown() {
         if (!notif.is_read) markAsRead(notif.id);
         if (notif.link) {
             setIsOpen(false);
-            router.push(notif.link);
+            // A link can name the realm it is about (?realm=KEY). A cross-realm
+            // user working in another realm is moved there first.
+            const { path, realm } = splitRealmLink(notif.link);
+            if (realm && realm !== user?.realm && isCrossRealmRole(user?.real_role)) {
+                switchRealm(realm, path).catch((err) => console.error('Failed to switch realm', err));
+            } else {
+                router.push(path);
+            }
         }
     };
 

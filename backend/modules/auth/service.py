@@ -1,14 +1,21 @@
+import logging
 import secrets
 from datetime import datetime, timezone, timedelta
 
 from fastapi import Depends, HTTPException
 
 from core.mail import EmailService
-from modules.auth.repository import AuthRepository, PasswordRepository
-from modules.auth.models import PasswordResetToken, User, RoleEnum, Invitation
+from modules.auth.repository import AuthRepository, PasswordRepository, is_in_realm
+from modules.auth.models import PasswordResetToken, User, RoleEnum, Invitation, CROSS_REALM_ROLES, stored_realm_key
 from core.security import TokenGenerator, verify_password, create_access_token, get_password_hash, hash_code
 from core.config import settings
+from modules.auth.schemas import UpdateUserRoleRequest
 from modules.audit.service import AuditService
+from modules.notifications.service import NotificationService
+from modules.realms.defaults import DEFAULT_REALM_KEY
+from modules.realms.repository import RealmRepository
+
+logger = logging.getLogger(__name__)
 
 # Roles a super admin may assume (everything except SUPER_ADMIN itself).
 IMPERSONABLE_ROLES = {
@@ -20,12 +27,43 @@ IMPERSONABLE_ROLES = {
 }
 # Assumed roles that must be scoped to a specific faculty.
 FACULTY_SCOPED_ROLES = {RoleEnum.FACULTY_EDITOR, RoleEnum.FACULTY_VIEWER}
+# Accounts with these roles must belong to a faculty.
+FACULTY_BOUND_ROLES = FACULTY_SCOPED_ROLES | {RoleEnum.DEO}
+# How roles are named to staff. Mirrors ROLE_LABELS in src/lib/roles.js.
+ROLE_LABELS = {
+    RoleEnum.SUPER_ADMIN: "Super Admin",
+    RoleEnum.SUPER_VIEWER: "Super Viewer",
+    RoleEnum.FACULTY_EDITOR: "Faculty Editor",
+    RoleEnum.FACULTY_VIEWER: "Faculty Viewer",
+    RoleEnum.GS_ADMIN: "GS Admin",
+    RoleEnum.CITS_ADMIN: "Super Administrator (CITS)",
+    RoleEnum.DEO: "Departmental Examination Officer",
+}
 
 
 class AuthService:
-    def __init__(self, repo: AuthRepository = Depends(), audit_service: AuditService = Depends()):
+    def __init__(
+        self,
+        repo: AuthRepository = Depends(),
+        audit_service: AuditService = Depends(),
+        realm_repo: RealmRepository = Depends(),
+        notification_service: NotificationService = Depends(),
+    ):
         self.repo = repo
         self.audit_service = audit_service
+        self.realm_repo = realm_repo
+        self.notification_service = notification_service
+
+    @staticmethod
+    def _plain_token(user: User, realm_key: str) -> str:
+        """A normal (non-impersonating) session token for `user` in a realm."""
+        return create_access_token(data={
+            "sub": str(user.id),
+            "email": user.email,
+            "role": user.role.value,
+            "faculty_id": user.faculty_id,
+            "realm": realm_key,
+        })
 
     async def impersonate(self, current_user: dict, target_role: RoleEnum, faculty_id: str | None) -> str:
         """Mint an impersonation token for a super admin to act as another role.
@@ -41,7 +79,7 @@ class AuthService:
         if target_role in FACULTY_SCOPED_ROLES:
             if not faculty_id:
                 raise HTTPException(status_code=400, detail=f"{target_role.value} requires a faculty")
-            if not await self.repo.faculty_exists(faculty_id):
+            if not await self.repo.faculty_exists(faculty_id, realm_key=current_user["realm"]):
                 raise HTTPException(status_code=404, detail="Faculty not found")
         else:
             # Global roles carry no single-faculty scope.
@@ -57,6 +95,8 @@ class AuthService:
             "act_as_role": target_role.value,
             "act_as_faculty_id": faculty_id,
             "impersonator_id": impersonator_id,
+            # Acting as another role happens inside the realm already chosen.
+            "realm": current_user.get("realm"),
         })
         await self.audit_service.log(
             current_user=current_user,
@@ -75,9 +115,9 @@ class AuthService:
         user = await self.repo.get_user_by_id(int(user_id))
         if not user:
             raise HTTPException(status_code=401, detail="Account no longer exists")
-        token = create_access_token(data={"sub": str(user.id), "email": user.email, "role": user.role.value, "faculty_id": user.faculty_id})
+        token = self._plain_token(user, current_user.get("realm") or DEFAULT_REALM_KEY)
         await self.audit_service.log(
-            current_user={"sub": str(user.id), "email": user.email, "role": user.role.value, "faculty_id": user.faculty_id},
+            current_user={"sub": str(user.id), "email": user.email, "role": user.role.value, "faculty_id": user.faculty_id, "realm": current_user.get("realm")},
             action="auth.impersonate.stop",
             entity_type="user",
             entity_id=user.id,
@@ -85,16 +125,53 @@ class AuthService:
         )
         return token
 
-    async def authenticate_user(self, email: str, password: str) -> str:
+    async def switch_realm(self, current_user: dict, realm_key: str) -> str:
+        """Re-mint a plain token in another realm, which ends any impersonation.
+
+        Authorized on the real DB-derived role, like impersonation.
+        """
+        if current_user.get("real_role") not in {role.value for role in CROSS_REALM_ROLES}:
+            raise HTTPException(status_code=403, detail="This account belongs to one portal and can't switch")
+        realm = await self.realm_repo.get_realm(realm_key)
+        if not realm:
+            raise HTTPException(status_code=400, detail="Unknown portal")
+        user = await self.repo.get_user_by_id(int(current_user["sub"]))
+        if not user:
+            raise HTTPException(status_code=401, detail="Account no longer exists")
+
+        token = self._plain_token(user, realm.key)
+        await self.audit_service.log(
+            current_user={"sub": str(user.id), "email": user.email, "role": user.role.value, "faculty_id": user.faculty_id},
+            action="auth.switch_realm",
+            entity_type="user",
+            entity_id=user.id,
+            description=f"{user.email} switched to the {realm.name} portal",
+            extra={"from_realm": current_user.get("realm"), "to_realm": realm.key},
+        )
+        return token
+
+    async def authenticate_user(self, email: str, password: str, realm_key: str | None = None) -> str:
         user = await self.repo.get_user_by_email(email)
         if not user or not verify_password(password, user.hashed_password):
             raise HTTPException(status_code=401, detail="Invalid email or password")
         if not user.is_active:
             raise HTTPException(status_code=403, detail="Account disabled")
 
-        token = create_access_token(data={"sub": str(user.id), "email": user.email, "role": user.role.value, "faculty_id": user.faculty_id})
+        # A non-live realm is fine: staff set it up before launch.
+        if realm_key is not None and not await self.realm_repo.get_realm(realm_key):
+            raise HTTPException(status_code=400, detail="Unknown portal")
+        if user.role in CROSS_REALM_ROLES:
+            realm_key = realm_key or DEFAULT_REALM_KEY
+        else:
+            own_key = user.realm_key or DEFAULT_REALM_KEY
+            if realm_key is not None and realm_key != own_key:
+                own = await self.realm_repo.get_realm(own_key)
+                raise HTTPException(status_code=403, detail=f"This account belongs to the {own.name} portal.")
+            realm_key = own_key
+
+        token = self._plain_token(user, realm_key)
         await self.audit_service.log(
-            current_user={"sub": str(user.id), "email": user.email, "role": user.role.value, "faculty_id": user.faculty_id},
+            current_user={"sub": str(user.id), "email": user.email, "role": user.role.value, "faculty_id": user.faculty_id, "realm": realm_key},
             action="auth.login",
             entity_type="user",
             entity_id=user.id,
@@ -102,7 +179,7 @@ class AuthService:
         )
         return token
 
-    async def generate_invite(self, email: str, target_role: RoleEnum, faculty_id: str | None = None, semester_id: int | None = None, current_user: dict | None = None) -> Invitation:
+    async def generate_invite(self, email: str, target_role: RoleEnum, faculty_id: str | None = None, semester_id: int | None = None, *, current_user: dict) -> Invitation:
         existing_user = await self.repo.get_user_by_email(email)
         if existing_user:
             raise HTTPException(status_code=400, detail="User with this email already exists")
@@ -112,6 +189,10 @@ class AuthService:
             if not inv.is_used and inv.expires_at > datetime.now(timezone.utc):
                 raise HTTPException(status_code=400, detail="An active invitation already exists for this email")
 
+        # A faculty belongs to one realm, so the account can only be bound to one of the inviter's.
+        if faculty_id and not await self.repo.faculty_exists(faculty_id, realm_key=current_user["realm"]):
+            raise HTTPException(status_code=404, detail="Faculty not found")
+
         token = secrets.token_urlsafe(32)
         invitation = Invitation(
             email=email,
@@ -119,6 +200,8 @@ class AuthService:
             target_role=target_role,
             faculty_id=faculty_id,
             semester_id=semester_id,
+            # Realm-bound roles join the inviter's active realm; cross-realm roles have none.
+            realm_key=stored_realm_key(target_role, current_user["realm"]),
             expires_at=datetime.now(timezone.utc) + timedelta(days=7)
         )
         created = await self.repo.create_invitation(invitation)
@@ -146,13 +229,14 @@ class AuthService:
             hashed_password=get_password_hash(password),
             role=invite.target_role,
             faculty_id=invite.faculty_id,
-            semester_id=invite.semester_id
+            semester_id=invite.semester_id,
+            realm_key=stored_realm_key(invite.target_role, invite.realm_key or DEFAULT_REALM_KEY),
         )
         created_user = await self.repo.create_user(new_user)
         invite.is_used = True
         await self.repo.db.flush()
         await self.audit_service.log(
-            current_user={"sub": str(created_user.id), "email": created_user.email, "role": created_user.role.value, "faculty_id": created_user.faculty_id},
+            current_user={"sub": str(created_user.id), "email": created_user.email, "role": created_user.role.value, "faculty_id": created_user.faculty_id, "realm": invite.realm_key},
             action="user.register",
             entity_type="user",
             entity_id=created_user.id,
@@ -160,18 +244,25 @@ class AuthService:
         )
         return created_user
 
-    async def get_all_users(self) -> list[User]:
-        return await self.repo.get_all_users()
-    
+    async def get_users(self, *, realm_key: str, faculty_id: str | None = None) -> list[User]:
+        users = await self.repo.get_users(realm_key=realm_key)
+        if faculty_id:
+            users = [u for u in users if u.faculty_id == faculty_id]
+        return users
+
     async def get_user_by_email(self, email: str) -> User:
         return await self.repo.get_user_by_email(email)
 
-    async def get_all_invitations(self) -> list[Invitation]:
-        return await self.repo.get_all_invitations()
+    async def get_invitations(self, *, realm_key: str, faculty_id: str | None = None) -> list[Invitation]:
+        invites = await self.repo.get_invitations(realm_key=realm_key)
+        if faculty_id:
+            invites = [i for i in invites if i.faculty_id == faculty_id]
+        return invites
 
-    async def delete_user(self, user_id: int, current_user: dict | None = None) -> bool:
+    async def delete_user(self, user_id: int, current_user: dict) -> bool:
         user = await self.repo.get_user_by_id(user_id)
-        if not user: return False
+        # An account in another realm behaves like a missing one.
+        if not user or not is_in_realm(user.role, user.realm_key, current_user["realm"]): return False
         email = user.email
         role = user.role.value
         await self.repo.delete_user(user)
@@ -184,9 +275,84 @@ class AuthService:
         )
         return True
 
-    async def delete_invitation(self, inv_id: int, current_user: dict | None = None) -> bool:
+    async def update_user_role(self, user_id: int, data: UpdateUserRoleRequest, current_user: dict) -> User:
+        user = await self.repo.get_user_by_id(user_id)
+        # An account in another realm behaves like a missing one.
+        if not user or not is_in_realm(user.role, user.realm_key, current_user["realm"]):
+            raise HTTPException(status_code=404, detail="User not found")
+        if str(user.id) == str(current_user.get("sub", "")):
+            raise HTTPException(status_code=400, detail="You cannot change your own role")
+
+        if data.role in FACULTY_BOUND_ROLES:
+            if not data.faculty_id:
+                raise HTTPException(status_code=400, detail="A faculty is required for this role")
+            faculty = await self.repo.get_faculty(data.faculty_id, realm_key=current_user["realm"])
+            if not faculty:
+                raise HTTPException(status_code=404, detail="Faculty not found")
+            faculty_id = data.faculty_id
+        else:
+            faculty, faculty_id = None, None
+
+        if user.role == data.role and user.faculty_id == faculty_id and user.semester_id == data.semester_id:
+            return user
+
+        if user.role == RoleEnum.SUPER_ADMIN and data.role != RoleEnum.SUPER_ADMIN:
+            if len(await self.repo.get_users_by_role(RoleEnum.SUPER_ADMIN)) <= 1:
+                raise HTTPException(status_code=400, detail="There must be at least one Super Admin; this is the last one")
+
+        from_role, from_faculty_id, from_realm_key = user.role, user.faculty_id, user.realm_key
+        user.role = data.role
+        user.faculty_id = faculty_id
+        user.semester_id = data.semester_id
+        # Cross-realm roles have no realm; a realm-bound role joins the admin's active realm.
+        user.realm_key = stored_realm_key(data.role, current_user["realm"])
+        await self.repo.db.flush()
+        # Reload: an explicit SQL NULL leaves realm_key expired after the flush.
+        await self.repo.db.refresh(user)
+
+        scope = f" (faculty {faculty_id})" if faculty_id else ""
+        await self.audit_service.log(
+            current_user=current_user,
+            action="user.role_change",
+            entity_type="user",
+            entity_id=user.id,
+            description=f"Changed {user.email} from {from_role.value} to {data.role.value}{scope}",
+            extra={
+                "from_role": from_role.value,
+                "to_role": data.role.value,
+                "from_faculty_id": from_faculty_id,
+                "to_faculty_id": faculty_id,
+                "from_realm_key": from_realm_key,
+                "to_realm_key": user.realm_key,
+            },
+        )
+        await self._notify_role_change(user, from_role, faculty)
+        return user
+
+    async def _notify_role_change(self, user: User, from_role: RoleEnum, faculty) -> None:
+        """Tell the account holder in-app and by email; a mail outage must not undo the change."""
+        to = ROLE_LABELS[user.role]
+        if user.role == from_role:
+            message = f"Your {to} access has been updated"
+        else:
+            message = f"Your role has been changed from {ROLE_LABELS[from_role]} to {to}"
+        if faculty:
+            message += f" for {faculty.name}"
+        message += ". The change applies the next time you use UniSchedule."
+        try:
+            await self.notification_service.notify(
+                user_ids=[user.id],
+                title="Your UniSchedule role has changed",
+                message=message,
+                link="/",
+                send_email=True,
+            )
+        except Exception:
+            logger.exception("Could not notify user %s of their role change", user.id)
+
+    async def delete_invitation(self, inv_id: int, current_user: dict) -> bool:
         invitation = await self.repo.get_invitation_by_id(inv_id)
-        if not invitation: return False
+        if not invitation or not is_in_realm(invitation.target_role, invitation.realm_key, current_user["realm"]): return False
         email = invitation.email
         await self.repo.delete_invitation(invitation)
         await self.audit_service.log(

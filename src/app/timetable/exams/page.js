@@ -1,10 +1,11 @@
 "use client";
 
+import Link from "next/link";
 import { useState, useEffect, useCallback } from "react";
 import { useApp, ACTION_TYPES } from "@/context/AppContext";
 import { useAuth } from "@/context/AuthContext";
 import { apiClient } from "@/lib/apiClient";
-import { detectAllConflicts, dismissalSignatureSet } from "@/lib/conflicts";
+import { detectAllConflicts, dismissalSignatureSet, toExternalBooking } from "@/lib/conflicts";
 import { exportTimetablePDF } from "@/lib/pdfExport";
 import { exportTimetableCSV } from "@/lib/csvExport";
 import { isGeneralStudiesCourse, GENERAL_STUDIES_FACULTY } from "@/lib/utils";
@@ -24,9 +25,11 @@ import styles from "./exams.module.css";
 // Set to false to skip showing conflict warning popups.
 const SHOW_CONFLICTS_BEFORE_EXPORT = false;
 
+const NO_EXTERNAL_BOOKINGS = [];
+
 export default function ExamTimetablePage() {
 	const { getSchedulesWithDetails, state, dispatch, isInitialized } = useApp();
-	const { user } = useAuth();
+	const { user, realm, realmName, realmConfig } = useAuth();
 	const { addToast } = useToast();
 	const confirm = useConfirm();
 
@@ -42,6 +45,8 @@ export default function ExamTimetablePage() {
 	const [isChangeModalOpen, setIsChangeModalOpen] = useState(false);
 	const [changeBusy, setChangeBusy] = useState(false);
 	const [enrollmentsByCourse, setEnrollmentsByCourse] = useState(new Map());
+	// Sessions other realms hold in the shared rooms (their current semesters).
+	const [externalBookings, setExternalBookings] = useState(NO_EXTERNAL_BOOKINGS);
 
 	const handleChangeRequestSubmit = async (payload) => {
 		if (selectedSemesterId === null || changeBusy) return;
@@ -127,6 +132,10 @@ export default function ExamTimetablePage() {
 		async (semId) => {
 			if (semId === null) return;
 			try {
+				apiClient
+					.get("/timetable/external-bookings")
+					.then((rows) => setExternalBookings((rows || []).map(toExternalBooking)))
+					.catch(() => setExternalBookings(NO_EXTERNAL_BOOKINGS));
 				if (isInitialized) {
 					const [
 						scheduleItems,
@@ -300,7 +309,7 @@ export default function ExamTimetablePage() {
 		if (SHOW_CONFLICTS_BEFORE_EXPORT) {
 			const schedules = getSchedulesWithDetails.filter((s) => s.type === "exam");
 			const dismissals = await apiClient.get("/timetable/conflict-dismissals").catch(() => []);
-			const conflictsMap = detectAllConflicts(schedules, null, null, dismissalSignatureSet(dismissals));
+			const conflictsMap = detectAllConflicts(schedules, null, null, dismissalSignatureSet(dismissals), { config: realmConfig, externalBookings });
 			const errorMessages = [
 				...new Set(
 					Array.from(conflictsMap.values())
@@ -329,6 +338,7 @@ export default function ExamTimetablePage() {
 		semester,
 		facultyId,
 		departmentId,
+		level,
 		format = "pdf",
 		monochrome = false,
 		paperSize = "a4",
@@ -338,6 +348,7 @@ export default function ExamTimetablePage() {
 		setIsExportModalOpen(false);
 		const deptIdNum =
 			departmentId && departmentId !== "ALL" ? Number(departmentId) : null;
+		const levelNum = level && level !== "ALL" ? Number(level) : null;
 		const allExams = getSchedulesWithDetails.filter((s) => s.type === "exam");
 		const selectedFaculty =
 			facultyId === "ALL"
@@ -361,6 +372,7 @@ export default function ExamTimetablePage() {
 				return false;
 			}
 			if (deptIdNum !== null && s.departmentId !== deptIdNum) return false;
+			if (levelNum !== null && s.courseLevel !== levelNum) return false;
 			if (cbtOnly) {
 				const course = state.courses.find((c) => c.id === s.courseId);
 				const isCbt = course?.isCbtExam || course?.is_cbt_exam || false;
@@ -375,7 +387,7 @@ export default function ExamTimetablePage() {
 				: s,
 		);
 		const activeRoomIds = new Set(state.rooms.filter(isRoomActive).map((room) => room.id));
-		const exportableSchedules = filteredSchedules.filter((s) => (s.roomIds || []).some((rid) => activeRoomIds.has(rid)));
+		const exportableSchedules = filteredSchedules.filter((s) => s.is_online || s.isOnline || (s.roomIds || []).some((rid) => activeRoomIds.has(rid)));
 		if (exportableSchedules.length === 0) {
 			addToast({
 				type: "error",
@@ -397,6 +409,7 @@ export default function ExamTimetablePage() {
 				? null
 				: state.departments.find((d) => d.id === deptIdNum)?.name ||
 					"Unknown Department";
+		const levelInfo = levelNum === null ? null : `Level ${levelNum}`;
 
 		if (format === "csv") {
 			exportTimetableCSV({
@@ -408,6 +421,9 @@ export default function ExamTimetablePage() {
 				department: departmentInfo,
 				mode: "exam",
 				groupByFaculty,
+				config: realmConfig,
+				realmKey: realm,
+				realmName,
 			});
 			addToast({
 				type: "success",
@@ -434,6 +450,7 @@ export default function ExamTimetablePage() {
 				semester,
 				faculty: facultyInfo,
 				department: departmentInfo,
+				level: levelInfo,
 				schoolName: "University of Lagos",
 				mode: "exam",
 				monochrome,
@@ -442,6 +459,9 @@ export default function ExamTimetablePage() {
 				structured: true,
 				gstOnly,
 				isLocked,
+				config: realmConfig,
+				realmKey: realm,
+				realmName,
 			});
 
 			addToast({
@@ -469,12 +489,16 @@ export default function ExamTimetablePage() {
 			semester,
 			faculty: facultyInfo,
 			department: departmentInfo,
+			level: levelInfo,
 			schoolName: "University of Lagos",
 			mode: "exam",
 			monochrome,
 			groupByFaculty,
 			gstOnly,
 			isLocked,
+			config: realmConfig,
+			realmKey: realm,
+			realmName,
 		});
 		addToast({
 			type: "success",
@@ -534,6 +558,16 @@ export default function ExamTimetablePage() {
 							))}
 						</select>
 					)}
+					{user?.role === "SUPER_ADMIN" && isCurrentSemester && !isLocked && (
+						<>
+							<Link className="btn btn-secondary" href="/timetable/import?type=exam">
+								Import <span className="badge badge-primary" style={{ marginLeft: 6, fontSize: "0.65rem" }}>Beta</span>
+							</Link>
+							<Link className="btn btn-secondary" href="/timetable/import?type=exam&source=semester">
+								Copy semester <span className="badge badge-primary" style={{ marginLeft: 6, fontSize: "0.65rem" }}>Beta</span>
+							</Link>
+						</>
+					)}
 					{showRequestChange && (
 						<button
 							className="btn btn-secondary"
@@ -571,6 +605,7 @@ export default function ExamTimetablePage() {
 				readOnly={readOnly}
 				readOnlyReasons={readOnlyReasons}
 				enrollmentsByCourse={enrollmentsByCourse}
+				externalBookings={isCurrentSemester ? externalBookings : NO_EXTERNAL_BOOKINGS}
 			/>
 			<ExportModal
 				isOpen={isExportModalOpen}

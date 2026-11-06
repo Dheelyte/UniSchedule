@@ -3,9 +3,8 @@
 import { useState, useMemo } from 'react';
 import { apiClient } from '@/lib/apiClient';
 import { useToast } from '@/components/Toast/Toast';
+import { useAuth } from '@/context/AuthContext';
 import styles from './CourseEnrollmentModal.module.css';
-
-const LEVELS = [100, 200, 300, 400, 500, 600, 700];
 
 /**
  * Modal for managing which (department × level) audiences "take" an interfaculty/UW course.
@@ -29,6 +28,8 @@ export default function CourseEnrollmentModal({
     onSaved,
 }) {
     const { addToast } = useToast();
+    const { realmConfig } = useAuth();
+    const levels = realmConfig.levels;
     const [busy, setBusy] = useState(false);
 
     // Form state: dept_id -> { selected: bool, level: number }
@@ -38,10 +39,10 @@ export default function CourseEnrollmentModal({
             const enrolled = currentEnrollments.find((e) => e.department_id === d.id);
             map[d.id] = enrolled
                 ? { selected: true, level: enrolled.level }
-                : { selected: false, level: course.level || 100 };
+                : { selected: false, level: course.level || levels[0] };
         });
         return map;
-    }, [departments, currentEnrollments, course.level]);
+    }, [departments, currentEnrollments, course.level, levels]);
 
     const [form, setForm] = useState(initial);
 
@@ -146,11 +147,11 @@ export default function CourseEnrollmentModal({
                                     </label>
                                     <select
                                         className={styles.levelSelect}
-                                        value={form[d.id]?.level || course.level || 100}
+                                        value={form[d.id]?.level || course.level || levels[0]}
                                         onChange={(e) => setRow(d.id, { level: parseInt(e.target.value, 10) })}
                                         disabled={busy || !form[d.id]?.selected}
                                     >
-                                        {LEVELS.map((l) => (
+                                        {levels.map((l) => (
                                             <option key={l} value={l}>{l}L</option>
                                         ))}
                                     </select>

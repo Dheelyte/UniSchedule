@@ -3,7 +3,8 @@
 import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { useApp, ACTION_TYPES } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
-import { DAYS, EXAM_DAYS, timeToMinutes, isRoomActive } from '@/lib/utils';
+import { timeToMinutes, isRoomActive } from '@/lib/utils';
+import { hourRange, timeOptions as realmTimeOptions, minutesFromDayStart, isAllowedExamDate } from '@/lib/realm';
 import { apiClient } from '@/lib/apiClient';
 import { detectConflicts, detectAllConflicts, dismissalSignatureSet } from '@/lib/conflicts';
 import { useToast } from '@/components/Toast/Toast';
@@ -25,7 +26,23 @@ function formatDateLabel(ds, opts) {
     return parseLocalDate(ds).toLocaleDateString('en-GB', opts);
 }
 
-const HOURS = Array.from({ length: 11 }, (_, i) => i + 8); // 8, 9, 10...18
+const pad2 = (n) => String(n).padStart(2, '0');
+
+/** Minutes since midnight ➜ "HH:MM" */
+function minutesToTime(min) {
+    return `${pad2(Math.floor(min / 60))}:${pad2(min % 60)}`;
+}
+
+/** "18:00" ➜ "6:00 PM" */
+function formatClock(time) {
+    const [h, m] = time.split(':').map(Number);
+    return `${h % 12 || 12}:${pad2(m)} ${h < 12 ? 'AM' : 'PM'}`;
+}
+
+/** ["Friday", "Saturday", "Sunday"] ➜ "Friday, Saturday or Sunday" */
+function listDays(days) {
+    return days.length > 1 ? `${days.slice(0, -1).join(', ')} or ${days[days.length - 1]}` : days[0];
+}
 
 // Color palette for course blocks (light mode)
 const COLORS = [
@@ -45,18 +62,14 @@ function getColor(index) {
     return COLORS[index % COLORS.length];
 }
 
-function timeToCol(time) {
-    const [h, m] = time.split(':').map(Number);
-    return (h - 8) * 2 + (m >= 30 ? 1 : 0);
-}
-
 /**
  * Compute vertical stacking layout for overlapping events in the SAME ROOM.
  */
 function computeVerticalOverlapLayout(events) {
-    if (events.length <= 1) {
+    if (!events || events.length === 0) return new Map();
+    if (events.length === 1) {
         const map = new Map();
-        if (events.length === 1) map.set(events[0].id, { offset: 0, total: 1 });
+        map.set(events[0].id, { offset: 0, total: 1 });
         return map;
     }
 
@@ -68,68 +81,71 @@ function computeVerticalOverlapLayout(events) {
     const lanes = [];
     const assignments = new Map();
 
-    sorted.forEach((ev) => {
+    for (let i = 0; i < sorted.length; i++) {
+        const ev = sorted[i];
         const start = timeToMinutes(ev.startTime);
+        const end = timeToMinutes(ev.endTime);
         let placed = false;
         for (let l = 0; l < lanes.length; l++) {
             if (lanes[l] <= start) {
-                lanes[l] = timeToMinutes(ev.endTime);
-                assignments.set(ev.id, { offset: l, total: 0 });
+                lanes[l] = end;
+                assignments.set(ev.id, { offset: l, total: 1 });
                 placed = true;
                 break;
             }
         }
         if (!placed) {
-            assignments.set(ev.id, { offset: lanes.length, total: 0 });
-            lanes.push(timeToMinutes(ev.endTime));
+            assignments.set(ev.id, { offset: lanes.length, total: 1 });
+            lanes.push(end);
         }
-    });
+    }
 
-    const groups = [];
-    const visited = new Set();
+    let cluster = [];
+    let clusterMaxEnd = -1;
 
-    sorted.forEach((ev) => {
-        if (visited.has(ev.id)) return;
-        const group = [];
-        const queue = [ev];
-        visited.add(ev.id);
-        while (queue.length > 0) {
-            const curr = queue.shift();
-            group.push(curr);
-            sorted.forEach((other) => {
-                if (visited.has(other.id)) return;
-                const overlaps = group.some((g) => {
-                    const gStart = timeToMinutes(g.startTime);
-                    const gEnd = timeToMinutes(g.endTime);
-                    const oStart = timeToMinutes(other.startTime);
-                    const oEnd = timeToMinutes(other.endTime);
-                    return gStart < oEnd && oStart < gEnd;
-                });
-                if (overlaps) {
-                    visited.add(other.id);
-                    queue.push(other);
-                }
-            });
+    const finalizeCluster = (items) => {
+        let maxLanes = 1;
+        for (let i = 0; i < items.length; i++) {
+            const assign = assignments.get(items[i].id);
+            if (assign && assign.offset + 1 > maxLanes) maxLanes = assign.offset + 1;
         }
-        groups.push(group);
-    });
+        for (let i = 0; i < items.length; i++) {
+            const assign = assignments.get(items[i].id);
+            if (assign) assign.total = maxLanes;
+        }
+    };
 
-    groups.forEach((group) => {
-        const maxOffset = Math.max(...group.map((e) => assignments.get(e.id).offset)) + 1;
-        group.forEach((e) => {
-            assignments.get(e.id).total = maxOffset;
-        });
-    });
+    for (let i = 0; i < sorted.length; i++) {
+        const ev = sorted[i];
+        const start = timeToMinutes(ev.startTime);
+        const end = timeToMinutes(ev.endTime);
+        if (cluster.length === 0 || start < clusterMaxEnd) {
+            cluster.push(ev);
+            if (end > clusterMaxEnd) clusterMaxEnd = end;
+        } else {
+            finalizeCluster(cluster);
+            cluster = [ev];
+            clusterMaxEnd = end;
+        }
+    }
+    if (cluster.length > 0) finalizeCluster(cluster);
 
     return assignments;
 }
 
-export default function TimetableGrid({ mode = 'lecture', semesterId = null, semesterName = null, readOnly = false, readOnlyReasons = [], blockedSlots = [], enrollmentsByCourse = null, cbtOnly = false }) {
+const NO_EXTERNAL_BOOKINGS = [];
+
+export default function TimetableGrid({ mode = 'lecture', semesterId = null, semesterName = null, readOnly = false, readOnlyReasons = [], blockedSlots = [], enrollmentsByCourse = null, cbtOnly = false, externalBookings = NO_EXTERNAL_BOOKINGS }) {
     const { state, dispatch, getSchedulesWithDetails } = useApp();
     const { faculties, departments, courses, rooms } = state;
     const { addToast } = useToast();
     const confirm = useConfirm();
-    const { user } = useAuth();
+    const { user, realmConfig: config } = useAuth();
+
+    // The realm's day window: one grid column per hour from day_start to day_end.
+    const hourCols = useMemo(() => hourRange(config).slice(0, -1), [config]);
+    const dayEndMin = timeToMinutes(config.day_end);
+    const conflictOptions = useMemo(() => ({ config, externalBookings }), [config, externalBookings]);
     const isOwnItem = useCallback((schedule) => {
         if (!schedule) return false;
         if (isViewerRole(user?.role)) return false;
@@ -156,11 +172,12 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
         return roomLabel;
     }, [faculties]);
 
-    const activeDays = mode === 'exam' ? EXAM_DAYS : DAYS;
+    const activeDays = mode === 'exam' ? config.exam_days : config.lecture_days;
 
     // Filters
     const [filterFaculty, setFilterFaculty] = useState('');
     const [filterDept, setFilterDept] = useState('');
+    const [hideEmptyRooms, setHideEmptyRooms] = useState(false);
 
     // State for selected day
     const [currentDay, setCurrentDay] = useState(activeDays[0]);
@@ -177,10 +194,11 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
     const [modalForm, setModalForm] = useState({
         courseId: '',
         roomIds: [''],
-        day: 'Monday',
+        day: config.lecture_days[0],
         examDate: '',
-        startTime: '08:00',
-        endTime: '10:00',
+        startTime: config.day_start,
+        endTime: minutesToTime(Math.min(timeToMinutes(config.day_start) + 120, timeToMinutes(config.day_end))),
+        isOnline: false,
     });
 
     const [isSaving, setIsSaving] = useState(false);
@@ -262,8 +280,8 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
     const canManageConflicts = !readOnly && !isViewerRole(user?.role);
 
     const conflictMap = useMemo(() => {
-        return detectAllConflicts(allModeSchedules, enrollmentsByCourse, departmentsById, dismissedSignatures);
-    }, [allModeSchedules, enrollmentsByCourse, departmentsById, dismissedSignatures]);
+        return detectAllConflicts(allModeSchedules, enrollmentsByCourse, departmentsById, dismissedSignatures, conflictOptions);
+    }, [allModeSchedules, enrollmentsByCourse, departmentsById, dismissedSignatures, conflictOptions]);
 
     // First schedule item (in render order) that has at least one error-severity conflict.
     const firstConflictItem = useMemo(() => {
@@ -311,19 +329,6 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
         flashTimerRef.current = setTimeout(() => setFlashScheduleId(null), 2400);
     };
 
-    // Rooms to render: own-faculty rooms + any room referenced by a visible schedule item.
-    // Global-scope users see everything; this trims the grid for FACULTY editors/viewers.
-    const displayedRooms = useMemo(() => {
-        const activeRooms = rooms.filter(isRoomActive);
-        if (cbtOnly) {
-            return activeRooms.filter((r) => r.name && r.name.toUpperCase().includes('CBT'));
-        }
-        if (hasGlobalScope(user?.role) || !user?.faculty_id) return activeRooms;
-        const referenced = new Set();
-        allModeSchedules.forEach((s) => (s.roomIds || []).forEach((rid) => referenced.add(rid)));
-        return activeRooms.filter((r) => r.faculty_id === user.faculty_id || r.faculty_id === null || referenced.has(r.id));
-    }, [rooms, allModeSchedules, user?.role, user?.faculty_id, cbtOnly]);
-
     // Filtered mode schedules (respecting faculty, dept, week) but independent of day
     const filteredModeSchedules = useMemo(() => {
         const deptId = filterDept ? Number(filterDept) : null;
@@ -333,6 +338,26 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
             return true;
         });
     }, [allModeSchedules, filterFaculty, filterDept]);
+
+    // Rooms to render: own-faculty rooms + any room referenced by a visible schedule item.
+    // Global-scope users see everything; this trims the grid for FACULTY editors/viewers.
+    const displayedRooms = useMemo(() => {
+        const activeRooms = rooms.filter(isRoomActive);
+        if (cbtOnly) {
+            return activeRooms.filter((r) => r.name && r.name.toUpperCase().includes('CBT'));
+        }
+        let finalRooms = activeRooms;
+        if (!hasGlobalScope(user?.role) && user?.faculty_id) {
+            const referenced = new Set();
+            allModeSchedules.forEach((s) => (s.roomIds || []).forEach((rid) => referenced.add(rid)));
+            finalRooms = activeRooms.filter((r) => r.faculty_id === user.faculty_id || r.faculty_id === null || referenced.has(r.id));
+        } else if (filterFaculty) {
+            const referenced = new Set();
+            filteredModeSchedules.forEach((s) => (s.roomIds || []).forEach((rid) => referenced.add(rid)));
+            finalRooms = activeRooms.filter((r) => r.faculty_id === filterFaculty || r.faculty_id === null || referenced.has(r.id));
+        }
+        return finalRooms;
+    }, [rooms, allModeSchedules, filteredModeSchedules, user?.role, user?.faculty_id, cbtOnly, filterFaculty]);
 
     // Schedules for ONLY the current day/date
     const daySchedules = useMemo(() => {
@@ -345,6 +370,51 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
         }
         return filteredModeSchedules.filter(s => s.day === currentDay);
     }, [filteredModeSchedules, currentDay, currentDate, mode]);
+
+    // Other realms' sessions of this type on the current day/date. They are
+    // drawn read-only and never counted as this realm's items.
+    const dayExternalBookings = useMemo(() => {
+        return externalBookings.filter((b) => {
+            if (b.type !== mode) return false;
+            return mode === 'exam' ? b.examDate === currentDate : b.day === currentDay;
+        });
+    }, [externalBookings, mode, currentDay, currentDate]);
+
+    // Pre-index schedules by room ID for O(1) cell and layout lookups
+    const schedulesByRoom = useMemo(() => {
+        const map = new Map();
+        for (let i = 0; i < daySchedules.length; i++) {
+            const s = daySchedules[i];
+            const rids = s.roomIds?.length ? s.roomIds : (s.roomId ? [s.roomId] : []);
+            for (let j = 0; j < rids.length; j++) {
+                const rid = rids[j];
+                let list = map.get(rid);
+                if (!list) {
+                    list = [];
+                    map.set(rid, list);
+                }
+                list.push(s);
+            }
+            if (s.is_online || s.isOnline) {
+                let onlineList = map.get('online_virtual_room');
+                if (!onlineList) {
+                    onlineList = [];
+                    map.set('online_virtual_room', onlineList);
+                }
+                onlineList.push(s);
+            }
+        }
+        return map;
+    }, [daySchedules]);
+
+    const visibleRooms = useMemo(() => {
+        const list = [...displayedRooms];
+        if (schedulesByRoom.has('online_virtual_room')) {
+            list.unshift({ id: 'online_virtual_room', name: '🌐 Online Classes', capacity: '—', isVirtual: true });
+        }
+        if (!hideEmptyRooms) return list;
+        return list.filter((r) => schedulesByRoom.has(r.id));
+    }, [displayedRooms, hideEmptyRooms, schedulesByRoom]);
 
     // Blocked slots relevant for the current day/date
     const activeBlockedSlots = useMemo(() => {
@@ -382,6 +452,33 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
         });
     }, [blockedSlots, mode, currentDay, currentDate]);
 
+    // Pre-calculate blocked slot overlays for each hour cell once instead of 4,000+ times
+    const blockedSlotsByHour = useMemo(() => {
+        const map = {};
+        for (const hour of hourCols) {
+            const cellStart = hour * 60;
+            const cellEnd = (hour + 1) * 60;
+            map[hour] = activeBlockedSlots.filter(slot => {
+                if (slot.type === 'HOLIDAY') return true;
+                if (!slot.start_time || !slot.end_time) return true;
+                const slotStart = timeToMinutes(slot.start_time.slice(0, 5));
+                const slotEnd = timeToMinutes(slot.end_time.slice(0, 5));
+                return slotStart < cellEnd && slotEnd > cellStart;
+            }).map((slot, si) => {
+                let leftPct = 0;
+                let widthPct = 100;
+                if (slot.type !== 'HOLIDAY' && slot.start_time && slot.end_time) {
+                    const slotStart = timeToMinutes(slot.start_time.slice(0, 5));
+                    const slotEnd = timeToMinutes(slot.end_time.slice(0, 5));
+                    leftPct = Math.max(0, ((slotStart - cellStart) / 60) * 100);
+                    widthPct = Math.min(100, ((Math.min(slotEnd, cellEnd) - Math.max(slotStart, cellStart)) / 60) * 100);
+                }
+                return { slot, si, leftPct, widthPct };
+            });
+        }
+        return map;
+    }, [activeBlockedSlots, hourCols]);
+
     const courseColorMap = useMemo(() => {
         const map = {};
         let idx = 0;
@@ -393,17 +490,16 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
         return map;
     }, [daySchedules]);
 
-    // Pre-compute overlapping per room for the current day
+    // Pre-compute overlapping per room for the current day only for rooms with schedules
     const overlapLayoutMap = useMemo(() => {
-        const roomMap = {};
-        rooms.forEach((room) => {
-            const roomSchedules = daySchedules.filter((s) =>
-                s.roomIds?.includes(room.id) || s.roomId === room.id
-            );
-            roomMap[room.id] = computeVerticalOverlapLayout(roomSchedules);
-        });
+        const roomMap = new Map();
+        for (const [roomId, roomSchedules] of schedulesByRoom.entries()) {
+            if (roomSchedules && roomSchedules.length > 0) {
+                roomMap.set(roomId, computeVerticalOverlapLayout(roomSchedules));
+            }
+        }
         return roomMap;
-    }, [daySchedules, rooms]);
+    }, [schedulesByRoom]);
 
     const modalCourses = useMemo(() => {
         let filteredCourses = courses;
@@ -452,8 +548,7 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
     const handleCellClick = (roomId, hour) => {
         if (readOnly) return;
         const startTime = `${hour.toString().padStart(2, '0')}:00`;
-        const endH = Math.min(hour + 2, 18);
-        const endTime = `${endH.toString().padStart(2, '0')}:00`;
+        const endTime = minutesToTime(Math.min((hour + 2) * 60, dayEndMin));
         setEditing(null);
         setModalConflicts([]);
         setModalForm({
@@ -463,6 +558,7 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
             examDate: currentDate,
             startTime,
             endTime,
+            isOnline: false,
         });
         setShowModal(true);
     };
@@ -479,13 +575,18 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
             roomIds: (schedule.roomIds && schedule.roomIds.length > 0)
                 ? schedule.roomIds
                 : (schedule.roomId ? [schedule.roomId] : ['']),
-            day: schedule.day || 'Monday',
+            day: schedule.day || config.lecture_days[0],
             examDate: schedule.examDate || currentDate,
             startTime: trimSec(schedule.startTime),
             endTime: trimSec(schedule.endTime),
+            isOnline: schedule.isOnline || schedule.is_online || false,
         });
         setShowModal(true);
     };
+
+    // Names of the chosen rooms, for conflict messages about the candidate itself.
+    const roomNamesOf = (roomIds) =>
+        (roomIds || []).map((rid) => rooms.find((r) => r.id === rid)?.name).filter(Boolean).join(', ') || undefined;
 
     const enrichCandidate = (formData) => {
         const c = courses.find((cc) => cc.id === formData.courseId);
@@ -493,6 +594,7 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
         const fac = dept ? faculties.find((f) => f.id === dept.facultyId) : null;
         return {
             ...formData,
+            roomNames: roomNamesOf(formData.roomIds),
             type: mode,
             courseId: formData.courseId,
             courseDepartmentId: c?.departmentId ?? null,
@@ -500,17 +602,19 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
             courseScope: c?.scope ?? null,
             facultyId: dept?.facultyId ?? null,
             isSpecialFaculty: !!(fac?.is_special ?? fac?.isSpecial),
+            is_online: formData.isOnline,
         };
     };
 
     const validateForm = (formData) => {
-        if (!formData.courseId || !formData.roomIds?.some((r) => r)) return;
+        if (!formData.courseId || (!formData.isOnline && !formData.roomIds?.some((r) => r))) return;
         const result = detectConflicts(
             enrichCandidate(formData),
             allModeSchedules,
             editing?.id || null,
             enrollmentsByCourse,
             departmentsById,
+            conflictOptions,
         );
         setModalConflicts(result.conflicts);
     };
@@ -539,9 +643,14 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
 
     const handleSave = async () => {
         const validRoomIds = modalForm.roomIds.filter((r) => r);
-        if (!modalForm.courseId || validRoomIds.length === 0) return;
+        if (!modalForm.courseId || (!modalForm.isOnline && validRoomIds.length === 0)) return;
 
         const formWithCleanRooms = { ...modalForm, roomIds: validRoomIds };
+
+        if (config.strict && mode === 'exam' && !isAllowedExamDate(modalForm.examDate, config)) {
+            addToast({ type: 'error', title: 'Date Not Allowed', message: `Exams in this programme can only be held on a ${listDays(config.exam_days)}.` });
+            return;
+        }
 
         const result = detectConflicts(
             enrichCandidate(formWithCleanRooms),
@@ -549,7 +658,15 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
             editing?.id || null,
             enrollmentsByCourse,
             departmentsById,
+            conflictOptions,
         );
+
+        // A room another programme holds can't be ignored: the alerts in this
+        // modal explain the clash, and one of the two sessions has to move.
+        if (result.conflicts.some((c) => c.external && c.severity === 'error')) {
+            setModalConflicts(result.conflicts);
+            return;
+        }
 
         const candidateCourse = courses.find((c) => c.id === modalForm.courseId);
         // Conflicts the user chose to ignore — recorded as dismissals after saving.
@@ -594,7 +711,7 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
             }
         }
 
-        const payload = { ...formWithCleanRooms, type: mode };
+        const payload = { ...formWithCleanRooms, is_online: modalForm.isOnline, type: mode };
 
         let savedItemId = null;
         setIsSaving(true);
@@ -605,10 +722,11 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
                     day_of_week: mode === 'exam' ? null : payload.day,
                     exam_date: mode === 'exam' ? payload.examDate : null,
                     start_time: payload.startTime,
-                    end_time: payload.endTime
+                    end_time: payload.endTime,
+                    is_online: payload.is_online
                 };
                 await apiClient.put(`/timetable/schedule-items/${editing.id}`, apiPayload);
-                dispatch({ type: ACTION_TYPES.UPDATE_SCHEDULE, payload: { id: editing.id, ...payload, examDate: payload.examDate } });
+                dispatch({ type: ACTION_TYPES.UPDATE_SCHEDULE, payload: { id: editing.id, ...payload, isOnline: payload.is_online, is_online: payload.is_online, examDate: payload.examDate } });
                 savedItemId = editing.id;
                 addToast({ type: 'success', title: 'Schedule Updated', message: `${courses.find(c => c.id === modalForm.courseId)?.code || 'Course'} updated successfully.` });
             } else {
@@ -623,6 +741,7 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
                     start_time: payload.startTime,
                     end_time: payload.endTime,
                     type: payload.type,
+                    is_online: payload.is_online,
                 };
                 const res = await apiClient.post('/timetable/schedule-items', { ...apiPayload, semester_id: semesterId });
                 dispatch({
@@ -637,6 +756,8 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
                         endTime: payload.endTime,
                         type: payload.type,
                         semester_id: semesterId,
+                        isOnline: payload.is_online,
+                        is_online: payload.is_online,
                     }
                 });
                 savedItemId = res.id;
@@ -719,8 +840,8 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
         const newStartMin = hour * 60;
         const newEndMin = newStartMin + duration;
 
-        if (newEndMin > 18 * 60) {
-            addToast({ type: 'warning', title: 'Cannot Drop', message: 'The course would extend past 6:00 PM.' });
+        if (newEndMin > dayEndMin) {
+            addToast({ type: 'warning', title: 'Cannot Drop', message: `The course would extend past ${formatClock(config.day_end)}.` });
             setDragItem(null);
             return;
         }
@@ -739,6 +860,7 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
         const candidate = {
             courseId: dragItem.courseId,
             roomIds: [roomId],
+            roomNames: rooms.find((r) => r.id === roomId)?.name,
             day: mode === 'exam' ? null : currentDay,
             examDate: mode === 'exam' ? currentDate : null,
             startTime: newStartTime,
@@ -751,7 +873,7 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
             isSpecialFaculty: dragItem.isSpecialFaculty ?? false,
         };
 
-        const result = detectConflicts(candidate, allModeSchedules, dragItem.id, enrollmentsByCourse, departmentsById);
+        const result = detectConflicts(candidate, allModeSchedules, dragItem.id, enrollmentsByCourse, departmentsById, conflictOptions);
 
         if (result.hasConflict) {
             result.conflicts.filter((c) => c.severity === 'error').forEach((c) => {
@@ -809,13 +931,10 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
         }
 
         setDragItem(null);
-    }, [dragItem, allModeSchedules, mode, dispatch, addToast, currentDay, currentDate, enrollmentsByCourse]);
+    }, [dragItem, allModeSchedules, mode, dispatch, addToast, currentDay, currentDate, enrollmentsByCourse, conflictOptions, config, dayEndMin, rooms]);
 
-    const timeOptions = [];
-    for (let h = 8; h <= 18; h++) {
-        timeOptions.push(`${h.toString().padStart(2, '0')}:00`);
-        if (h < 18) timeOptions.push(`${h.toString().padStart(2, '0')}:30`);
-    }
+    const timeOptions = realmTimeOptions(config);
+    const hasExternalClash = modalConflicts.some((c) => c.external && c.severity === 'error');
 
     const visibleConflictCount = daySchedules.filter((s) => conflictMap.has(s.id)).length;
 
@@ -879,6 +998,15 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
                             {filteredDepts.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
                         </select>
                     </div>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem', cursor: 'pointer', userSelect: 'none', color: 'var(--color-text-secondary)', marginLeft: '8px' }}>
+                        <input
+                            type="checkbox"
+                            checked={hideEmptyRooms}
+                            onChange={(e) => setHideEmptyRooms(e.target.checked)}
+                            style={{ cursor: 'pointer' }}
+                        />
+                        Hide empty rooms
+                    </label>
                 </div>
                 <div className={styles.filterRight}>
                     <span className={styles.scheduleCount}>
@@ -945,6 +1073,10 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
                                 onClick={() => {
                                     const input = document.getElementById('exam-date-adder');
                                     const val = input?.value;
+                                    if (val && config.strict && !isAllowedExamDate(val, config)) {
+                                        addToast({ type: 'warning', title: 'Date Not Allowed', message: `Exams in this programme can only be held on a ${listDays(config.exam_days)}.` });
+                                        return;
+                                    }
                                     if (val) {
                                         if (!allActiveDates.includes(val)) {
                                             setAddedDates(prev => [...prev, val]);
@@ -981,17 +1113,17 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
 
             {/* Grid */}
             <div className={styles.gridWrapper} id="timetable-grid">
-                {/* 1 room column, then 1 column per half-hour from 8:00 to 18:00 (20 columns total) */}
+                {/* 1 room column, then 2 columns per hour of the realm's day (UG: 8:00 to 18:00, 20 columns) */}
                 <div
                     className={styles.grid}
-                    style={{ '--grid-columns': `180px repeat(20, 1fr)` }}
+                    style={{ '--grid-columns': `180px repeat(${hourCols.length * 2}, 1fr)` }}
                 >
                     {/* Header row */}
                     <div className={styles.cornerCell}>
                         <span className={styles.cornerLabel}>Room / Time</span>
                     </div>
                     {/* Time slots (only showing 8:00, 9:00, etc. but spanning 2 columns) */}
-                    {HOURS.slice(0, 10).map((hour) => (
+                    {hourCols.map((hour) => (
                         <div key={hour} className={styles.timeHeader} style={{ gridColumn: 'span 2' }}>
                             <span className={styles.timePrimary}>
                                 {hour.toString().padStart(2, '0')}:00 - {(hour + 1).toString().padStart(2, '0')}:00
@@ -1000,36 +1132,44 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
                     ))}
 
                     {/* Room rows */}
-                    {displayedRooms.map((room) => {
-                        const roomSchedules = daySchedules.filter((s) =>
-                            s.roomIds?.includes(room.id) || s.roomId === room.id
-                        );
-                        const layoutMap = overlapLayoutMap[room.id] || new Map();
+                    {visibleRooms.map((room) => {
+                        const roomSchedules = schedulesByRoom.get(room.id) || [];
+                        const layoutMap = overlapLayoutMap.get(room.id) || new Map();
+                        const roomExternal = dayExternalBookings.filter((b) => b.roomIds.includes(room.id));
 
                         return (
                             <div key={room.id} className={styles.roomRow}>
                                 {/* Room label */}
                                 <div className={styles.roomLabel}>
-                                    <span className={styles.roomName}>{getRoomDisplayName(room)}</span>
-                                    <span className={styles.roomCapacity}>Capacity: {room.capacity}</span>
+                                    <span className={styles.roomName}>{room.isVirtual ? room.name : getRoomDisplayName(room)}</span>
+                                    <span className={styles.roomCapacity}>{room.isVirtual ? 'Virtual' : `Capacity: ${room.capacity}`}</span>
                                 </div>
 
                                 {/* Hourly cells for grid lining & drop zones (spanning 2 columns each) */}
-                                {HOURS.slice(0, 10).map((hour) => {
-                                    const cellStartCol = (hour - 8) * 2;
-                                    const cellEndCol = cellStartCol + 2;
+                                {hourCols.map((hour, hourIdx) => {
+                                    // Positions are minutes from the realm's day_start.
+                                    const cellStartMin = hourIdx * 60;
+                                    const cellEndMin = cellStartMin + 60;
 
-                                    const cellEvents = roomSchedules.filter((s) => {
-                                        const startCol = timeToCol(s.startTime);
+                                    const cellEvents = roomSchedules.length === 0 ? [] : roomSchedules.filter((s) => {
+                                        const startMin = minutesFromDayStart(s.startTime, config);
                                         // Return true if it STARTS in this hour block (so we only render it once)
-                                        return startCol >= cellStartCol && startCol < cellEndCol;
+                                        return startMin >= cellStartMin && startMin < cellEndMin;
                                     });
 
-                                    const isCellEmpty = !roomSchedules.some((s) => {
-                                        const startCol = timeToCol(s.startTime);
-                                        const endCol = timeToCol(s.endTime);
-                                        return startCol < cellEndCol && endCol > cellStartCol;
+                                    const isCellEmpty = roomSchedules.length === 0 || !roomSchedules.some((s) => {
+                                        const startMin = minutesFromDayStart(s.startTime, config);
+                                        const endMin = minutesFromDayStart(s.endTime, config);
+                                        return startMin < cellEndMin && endMin > cellStartMin;
                                     });
+
+                                    // Another realm's booking, clamped to this grid's window and
+                                    // drawn once, in the hour where its visible part starts.
+                                    const cellExternal = roomExternal.map((b) => ({
+                                        booking: b,
+                                        startMin: Math.max(0, minutesFromDayStart(b.startTime, config)),
+                                        endMin: Math.min(hourCols.length * 60, minutesFromDayStart(b.endTime, config)),
+                                    })).filter((e) => e.endMin > e.startMin && e.startMin >= cellStartMin && e.startMin < cellEndMin);
 
                                     return (
                                         <div
@@ -1042,8 +1182,8 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
                                             onDragLeave={handleCellDragLeave}
                                             onDrop={(e) => handleDrop(room.id, hour, e)}
                                         >
-                                            {isCellEmpty && !readOnly && <span className={styles.cellHint}>+ Add</span>}
-                                            {!readOnly && (
+                                            {isCellEmpty && !readOnly && !room.isVirtual && <span className={styles.cellHint}>+ Add</span>}
+                                            {!readOnly && !room.isVirtual && (
                                                 <button
                                                     className={styles.quickAddBtn}
                                                     onClick={(e) => {
@@ -1057,57 +1197,51 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
                                             )}
 
                                             {/* Blocked slot overlays */}
-                                            {activeBlockedSlots.filter(slot => {
-                                                if (slot.type === 'HOLIDAY') return true; // Full day
-                                                if (!slot.start_time || !slot.end_time) return true; // Whole-day block
-                                                const slotStart = timeToMinutes(slot.start_time.slice(0, 5));
-                                                const slotEnd = timeToMinutes(slot.end_time.slice(0, 5));
-                                                const cellStart = hour * 60;
-                                                const cellEnd = (hour + 1) * 60;
-                                                return slotStart < cellEnd && slotEnd > cellStart;
-                                            }).map((slot, si) => {
-                                                let leftPct = 0;
-                                                let widthPct = 100;
-                                                if (slot.type !== 'HOLIDAY' && slot.start_time && slot.end_time) {
-                                                    const slotStart = timeToMinutes(slot.start_time.slice(0, 5));
-                                                    const slotEnd = timeToMinutes(slot.end_time.slice(0, 5));
-                                                    const cellStart = hour * 60;
-                                                    const cellEnd = (hour + 1) * 60;
-                                                    leftPct = Math.max(0, ((slotStart - cellStart) / 60) * 100);
-                                                    widthPct = Math.min(100, ((Math.min(slotEnd, cellEnd) - Math.max(slotStart, cellStart)) / 60) * 100);
-                                                }
-                                                return (
-                                                    <div
-                                                        key={`blocked-${slot.id}-${si}`}
-                                                        style={{
-                                                            position: 'absolute',
-                                                            top: 0,
-                                                            left: `${leftPct}%`,
-                                                            width: `${widthPct}%`,
-                                                            height: '100%',
-                                                            background: 'repeating-linear-gradient(45deg, rgba(239,68,68,0.10), rgba(239,68,68,0.10) 4px, rgba(239,68,68,0.05) 4px, rgba(239,68,68,0.05) 8px)',
-                                                            borderTop: '2px solid rgba(239,68,68,0.35)',
-                                                            borderBottom: '2px solid rgba(239,68,68,0.35)',
-                                                            zIndex: 1,
-                                                            pointerEvents: 'none',
-                                                            display: 'flex',
-                                                            alignItems: 'center',
-                                                            justifyContent: 'center',
-                                                        }}
-                                                        title={`Blocked: ${slot.name}`}
-                                                    >
-                                                        <span style={{ fontSize: '0.6rem', color: 'rgba(239,68,68,0.7)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                                                            {slot.name}
-                                                        </span>
-                                                    </div>
-                                                );
-                                            })}
+                                            {(blockedSlotsByHour[hour] || []).map(({ slot, si, leftPct, widthPct }) => (
+                                                <div
+                                                    key={`blocked-${slot.id}-${si}`}
+                                                    style={{
+                                                        position: 'absolute',
+                                                        top: 0,
+                                                        left: `${leftPct}%`,
+                                                        width: `${widthPct}%`,
+                                                        height: '100%',
+                                                        background: 'repeating-linear-gradient(45deg, rgba(239,68,68,0.10), rgba(239,68,68,0.10) 4px, rgba(239,68,68,0.05) 4px, rgba(239,68,68,0.05) 8px)',
+                                                        borderTop: '2px solid rgba(239,68,68,0.35)',
+                                                        borderBottom: '2px solid rgba(239,68,68,0.35)',
+                                                        zIndex: 1,
+                                                        pointerEvents: 'none',
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        justifyContent: 'center',
+                                                    }}
+                                                    title={`Blocked: ${slot.name}`}
+                                                >
+                                                    <span style={{ fontSize: '0.6rem', color: 'rgba(239,68,68,0.7)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                                                        {slot.name}
+                                                    </span>
+                                                </div>
+                                            ))}
+
+                                            {/* Rooms held by another realm: read-only */}
+                                            {cellExternal.map(({ booking, startMin, endMin }) => (
+                                                <div
+                                                    key={booking.id}
+                                                    className={styles.externalBooking}
+                                                    style={{
+                                                        left: `${((startMin - cellStartMin) / 60) * 100}%`,
+                                                        width: `calc(${((endMin - startMin) / 60) * 100}% - 4px)`,
+                                                    }}
+                                                >
+                                                    <span className={styles.externalLabel}>{booking.realmName} · {booking.courseCode}</span>
+                                                    <span className={styles.eventRoom}>{booking.startTime}–{booking.endTime}</span>
+                                                </div>
+                                            ))}
 
                                             {/* Schedule blocks that START in this hour block */}
                                             {cellEvents.map((s) => {
-                                                const startCol = timeToCol(s.startTime);
-                                                const endCol = timeToCol(s.endTime);
-                                                const span = endCol - startCol;
+                                                const startMin = minutesFromDayStart(s.startTime, config);
+                                                const endMin = minutesFromDayStart(s.endTime, config);
                                                 const color = courseColorMap[s.courseId] || COLORS[0];
 
                                                 const hasConflict = conflictMap.has(s.id);
@@ -1118,11 +1252,9 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
                                                 const rowHeight = 100 / layout.total;
                                                 const topOffset = layout.offset * rowHeight;
 
-                                                // startCol is 0-20. cellStartCol is the col index of this cell.
-                                                // So inside this cell, relative position is based on the 30-min granular offset.
-                                                // 1 span = 1 column (30 mins) = 50% width of the 1-hour cell.
-                                                const leftPct = ((startCol - cellStartCol) / 2) * 100;
-                                                const widthPct = (span / 2) * 100;
+                                                // Inside this 1-hour cell, 60 minutes = 100% of its width.
+                                                const leftPct = ((startMin - cellStartMin) / 60) * 100;
+                                                const widthPct = ((endMin - startMin) / 60) * 100;
 
                                                 const isFlashing = flashScheduleId === s.id;
                                                 return (
@@ -1145,11 +1277,11 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
                                                             transition: 'outline 0.2s, box-shadow 0.2s',
                                                             zIndex: isFlashing ? 5 : undefined,
                                                         }}
-                                                        draggable={!readOnly && isOwnItem(s)}
+                                                        draggable={!readOnly && isOwnItem(s) && !room.isVirtual}
                                                         onDragStart={(e) => handleDragStart(s, e)}
                                                         onDragEnd={handleDragEnd}
                                                         onClick={(e) => handleEventClick(s, e)}
-                                                        title={hasConflict ? itemConflicts.map((c) => c.message).join('\n') : `${s.courseCode} - ${s.roomNames}${!isOwnItem(s) ? ' (read-only — owned by another faculty)' : ''}`}
+                                                        title={hasConflict ? (itemConflicts.length <= 5 ? itemConflicts.map((c) => c.message).join('\n') : itemConflicts.slice(0, 5).map((c) => c.message).join('\n') + `\n...and ${itemConflicts.length - 5} more conflict(s)`) : `${s.courseCode} - ${s.roomNames || (s.is_online || s.isOnline ? 'Online' : '')}${!isOwnItem(s) ? ' (read-only — owned by another faculty)' : ''}`}
                                                     >
                                                         <span className={styles.eventCode} style={{ color: hasError ? '#f87171' : color.border }}>
                                                             {hasError && '⚠ '}{s.courseCode}
@@ -1199,8 +1331,23 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
                                 />
                             </div>
 
-                            <div className="form-group">
-                                <label className="form-label">Room{modalForm.roomIds.length > 1 ? 's' : ''}</label>
+                            <div className="form-group" style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
+                                <label className={styles.switch}>
+                                    <input
+                                        type="checkbox"
+                                        checked={modalForm.isOnline}
+                                        onChange={(e) => {
+                                            updateForm({ isOnline: e.target.checked, roomIds: e.target.checked ? [] : [''] });
+                                        }}
+                                    />
+                                    <span className={`${styles.slider} ${styles.round}`}></span>
+                                </label>
+                                <label style={{ margin: 0, fontWeight: 'bold' }}>🌐 Fully Online Class</label>
+                            </div>
+
+                            {!modalForm.isOnline && (
+                                <div className="form-group">
+                                    <label className="form-label">Room{modalForm.roomIds.length > 1 ? 's' : ''}</label>
                                 <div className={styles.locationList}>
                                     {modalForm.roomIds.map((rid, idx) => (
                                         <div key={idx} className={styles.locationRow}>
@@ -1231,6 +1378,7 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
                                     </button>
                                 </div>
                             </div>
+                            )}
 
                             {mode === 'exam' ? (
                                 <div className="form-group">
@@ -1293,7 +1441,8 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
                             <button
                                 className="btn btn-primary"
                                 onClick={handleSave}
-                                disabled={!modalForm.courseId || !modalForm.roomIds.some((r) => r) || isSaving}
+                                disabled={!modalForm.courseId || (!modalForm.isOnline && !modalForm.roomIds.some((r) => r)) || isSaving || hasExternalClash}
+                                title={hasExternalClash ? 'This room is held by another programme at that time' : undefined}
                             >
                                 {isSaving ? 'Saving...' : (editing ? 'Save Changes' : 'Add to Timetable')}
                             </button>

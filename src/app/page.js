@@ -7,6 +7,7 @@ import { useApp, ACTION_TYPES } from "@/context/AppContext";
 import { useAuth } from "@/context/AuthContext";
 import { apiClient } from "@/lib/apiClient";
 import { DashboardSkeleton } from "@/components/Skeleton/Skeleton";
+import Landing from "@/components/Landing/Landing";
 
 const BAR_COLORS = [
 	"#6366f1",
@@ -32,7 +33,7 @@ function getGreeting() {
 	return "Good evening";
 }
 
-export default function DashboardPage() {
+function DashboardPage() {
 	const { state, dispatch, isInitialized, getSchedulesWithDetails } = useApp();
 	const { user } = useAuth();
 	const [currentTerm, setCurrentTerm] = useState(null);
@@ -46,16 +47,19 @@ export default function DashboardPage() {
 		async function loadDashboard() {
 			try {
 				// {new changes...}
+				// Only count the current semester's schedules: a new session
+				// starts from zero instead of showing earlier sessions' items.
+				const [semester, sessions] = await Promise.all([
+					apiClient.get("/calendar/semesters/current").catch(() => null),
+					apiClient.get("/calendar/sessions").catch(() => []),
+				]);
+				const scheduleItemsRequest = semester
+					? apiClient
+							.get(`/timetable/schedule-items?semester_id=${semester.id}`)
+							.catch(() => [])
+					: Promise.resolve([]);
 				if (isInitialized) {
-					const [
-						scheduleItems,
-						semester,
-						sessions,
-					] = await Promise.all([
-						apiClient.get("/timetable/schedule-items").catch(() => []),
-						apiClient.get("/calendar/semesters/current").catch(() => null),
-						apiClient.get("/calendar/sessions").catch(() => []),
-					]);
+					const scheduleItems = await scheduleItemsRequest;
 					if (mounted) {
 						dispatch({
 							type: ACTION_TYPES.INIT_STATE,
@@ -83,16 +87,12 @@ export default function DashboardPage() {
 						rooms,
 						courses,
 						scheduleItems,
-						semester,
-						sessions,
 					] = await Promise.all([
 						apiClient.get("/timetable/faculties").catch(() => []),
 						apiClient.get("/timetable/departments").catch(() => []),
 						apiClient.get("/timetable/rooms").catch(() => []),
 						apiClient.get("/timetable/courses").catch(() => []),
-						apiClient.get("/timetable/schedule-items").catch(() => []),
-						apiClient.get("/calendar/semesters/current").catch(() => null),
-						apiClient.get("/calendar/sessions").catch(() => []),
+						scheduleItemsRequest,
 					]);
 					if (mounted) {
 						dispatch({
@@ -803,4 +803,10 @@ export default function DashboardPage() {
 			</div>
 		</div>
 	);
+}
+
+export default function HomePage() {
+	const { user } = useAuth();
+	if (!user) return <Landing />;
+	return <DashboardPage />;
 }

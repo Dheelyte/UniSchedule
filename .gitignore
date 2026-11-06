@@ -42,3 +42,6 @@ next-env.d.ts
 
 __pycache__
 *.pyc
+
+# local data dumps / scripts (not for the repo)
+/backend/scripts/

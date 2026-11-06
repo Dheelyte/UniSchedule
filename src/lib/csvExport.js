@@ -1,4 +1,5 @@
 import { GENERAL_STUDIES_FACULTY } from "./utils";
+import { UG_CONFIG, DEFAULT_REALM } from "./realm";
 
 export function exportTimetableCSV({
   schedules,
@@ -8,8 +9,16 @@ export function exportTimetableCSV({
   faculty,
   mode,
   groupByFaculty = false,
+  config = UG_CONFIG,
+  realmKey = DEFAULT_REALM,
+  realmName = null,
 }) {
   if (!schedules || schedules.length === 0) return;
+
+  // Realms other than UG are named in the title and in the file name.
+  const otherRealm = realmKey && realmKey !== DEFAULT_REALM;
+  const fullTitle = otherRealm ? `${realmName || realmKey} ${title}` : title;
+  const filePrefix = otherRealm ? `${realmKey.toLowerCase()}_` : "";
 
   // Order faculties for grouping: General Studies first, then alphabetical.
   const orderedFaculties = [...new Set(schedules.map((s) => s.facultyName || "Unassigned"))].sort((a, b) => {
@@ -24,7 +33,7 @@ export function exportTimetableCSV({
       ? ["Date", "Day", "Start Time", "End Time", "Room(s)", "Course Code", "Course Title", "Department", "Faculty", "Invigilators"]
       : ["Day", "Start Time", "End Time", "Room(s)", "Course Code", "Course Title", "Department", "Faculty", "Lecturers"];
 
-  const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+  const DAYS = config.lecture_days;
 
   // Parse YYYY-MM-DD without timezone shift (same approach as pdfExport)
   const parseLocalDate = (ds) => {
@@ -50,6 +59,7 @@ export function exportTimetableCSV({
 
   const toRow = (s) => {
     const lecturers = (s.courseLecturers || []).join("; ");
+    const roomName = s.roomNames || (s.is_online || s.isOnline ? "Online" : "NIL");
     if (mode === "exam") {
       const dateObj = parseLocalDate(s.examDate);
       const dateStr = dateObj
@@ -58,9 +68,9 @@ export function exportTimetableCSV({
       const dayStr = dateObj
         ? dateObj.toLocaleDateString("en-GB", { weekday: "long" })
         : "";
-      return [dateStr, dayStr, s.startTime, s.endTime, s.roomNames, s.courseCode, s.courseTitle, s.departmentName, s.facultyName, lecturers];
+      return [dateStr, dayStr, s.startTime, s.endTime, roomName, s.courseCode, s.courseTitle, s.departmentName, s.facultyName, lecturers];
     }
-    return [s.day, s.startTime, s.endTime, s.roomNames, s.courseCode, s.courseTitle, s.departmentName, s.facultyName, lecturers];
+    return [s.day, s.startTime, s.endTime, roomName, s.courseCode, s.courseTitle, s.departmentName, s.facultyName, lecturers];
   };
 
   const escape = (val) => {
@@ -93,7 +103,7 @@ export function exportTimetableCSV({
   const metaLines = [
     "University of Lagos",
     [session, semester, faculty].filter(Boolean).join(" · "),
-    title,
+    fullTitle,
     `Generated: ${new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })}`,
     "",
   ].map((line) => escape(line));
@@ -108,7 +118,7 @@ export function exportTimetableCSV({
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = `${title.replace(/\s+/g, "_").toLowerCase()}_${new Date().toISOString().slice(0, 10)}.csv`;
+  a.download = `${filePrefix}${title.replace(/\s+/g, "_").toLowerCase()}_${new Date().toISOString().slice(0, 10)}.csv`;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);

@@ -40,10 +40,73 @@ class RoomCreate(BaseModel):
     is_lab: bool = False
     is_active: bool = True
 
+class LinkedRoomResponse(BaseModel):
+    """Another realm's room that is the same physical hall (same hall group)."""
+    room_id: int
+    name: str
+    realm_key: str
+    realm_name: str
+
 class RoomResponse(RoomCreate):
     id: int
     is_active: bool | None = None
+    realm_key: str = "UG"
+    hall_group_id: int | None = None
+    linked_rooms: list[LinkedRoomResponse] = []
     model_config = ConfigDict(from_attributes=True)
+
+class OtherRealmRoomResponse(BaseModel):
+    """A room of another realm, as a super admin sees it when linking two rooms as one hall."""
+    id: int
+    name: str
+    realm_key: str
+    capacity: int
+    active_seats: int
+    inactive_seats: int
+    is_lab: bool
+    is_active: bool | None
+    # This realm's room for the same hall, if there is one.
+    linked_room_id: int | None
+
+class RoomCatalogueRoom(BaseModel):
+    """A room of the catalogue realm, read-only, as another realm sees it when adding halls."""
+    id: int
+    name: str
+    faculty_name: str | None
+    capacity: int
+    active_seats: int
+    inactive_seats: int
+    is_lab: bool
+    is_active: bool | None
+    # Set once this realm has added the room: its own room for that hall.
+    added_room_id: int | None
+    added_room_name: str | None
+
+class RoomCatalogueResponse(BaseModel):
+    realm_key: str
+    realm_name: str
+    rooms: list[RoomCatalogueRoom]
+
+class RoomCatalogueAddItem(BaseModel):
+    room_id: int
+    # One of the adding realm's own faculties, or none.
+    faculty_id: str | None = None
+
+class RoomCatalogueAddRequest(BaseModel):
+    rooms: list[RoomCatalogueAddItem] = Field(min_length=1)
+
+class RoomAddSkipped(BaseModel):
+    room_id: int
+    name: str | None
+    reason: str
+
+class RoomCatalogueAddResponse(BaseModel):
+    added: list[RoomResponse]
+    skipped: list[RoomAddSkipped]
+
+class RoomHallRequest(BaseModel):
+    # A room of another realm that is the same physical hall as this one.
+    room_id: int
 
 class RoomUpdate(BaseModel):
     name: str | None = None
@@ -63,7 +126,9 @@ class RoomReorderRequest(BaseModel):
     rooms: list[RoomReorderItem]
 
 
-_VALID_SEMESTERS = {"First Semester", "Second Semester"}
+def _blank_to_none(v: str | None) -> str | None:
+    # Which semester names and levels are valid depends on the realm, so the service checks them.
+    return None if v is None or v == '' else v
 
 
 class CourseCreate(BaseModel):
@@ -80,11 +145,7 @@ class CourseCreate(BaseModel):
     @field_validator('semester')
     @classmethod
     def validate_semester(cls, v: str | None) -> str | None:
-        if v is None or v == '':
-            return None
-        if v not in _VALID_SEMESTERS:
-            raise ValueError('semester must be "First Semester" or "Second Semester"')
-        return v
+        return _blank_to_none(v)
 
     @field_validator('code')
     @classmethod
@@ -145,11 +206,7 @@ class CourseUpdate(BaseModel):
     @field_validator('semester')
     @classmethod
     def validate_semester(cls, v: str | None) -> str | None:
-        if v is None or v == '':
-            return None
-        if v not in _VALID_SEMESTERS:
-            raise ValueError('semester must be "First Semester" or "Second Semester"')
-        return v
+        return _blank_to_none(v)
 
 
 class ScheduleItemCreate(BaseModel):
@@ -163,6 +220,7 @@ class ScheduleItemCreate(BaseModel):
     week: int | None = None
     exam_date: date_type | None = None
     semester_id: int | None = None
+    is_online: bool = False
 
 class ScheduleItemUpdate(BaseModel):
     room_ids: list[int] | None = None
@@ -170,13 +228,31 @@ class ScheduleItemUpdate(BaseModel):
     exam_date: date_type | None = None
     start_time: time | None = None
     end_time: time | None = None
+    is_online: bool | None = None
 
 class ScheduleItemResponse(ScheduleItemCreate):
     id: int
     model_config = ConfigDict(from_attributes=True)
 
 
-class BlockedSlotCreate(BaseModel):
+class ExternalBookingResponse(BaseModel):
+    """Another realm's booking of a hall this realm also has a room for: just enough to draw and check a clash."""
+    id: int
+    realm_key: str
+    realm_name: str
+    type: str
+    # This realm's rooms for the booked halls, not the other realm's room ids.
+    room_ids: list[int]
+    day_of_week: str | None
+    exam_date: date_type | None
+    start_time: time
+    end_time: time
+    course_code: str
+    is_special_faculty: bool
+
+
+class BlockedSlotUpdate(BaseModel):
+    """A blocked slot's editable fields; it stays in its semester."""
     name: str
     type: str | None = None  # Auto-derived; kept for backward compat
     date: date_type | None = None
@@ -184,14 +260,13 @@ class BlockedSlotCreate(BaseModel):
     start_time: time | None = None
     end_time: time | None = None
     applies_to: str = "BOTH"  # BOTH, LECTURE_ONLY, EXAM_ONLY
-    semester_id: int
 
     @model_validator(mode='after')
     def validate_fields(self):
         if self.applies_to == "EXAM_ONLY":
-            if not self.date:
-                raise ValueError("date is required for exam blocked slots")
-            self.day_of_week = None
+            # One exam date, or the same weekday every week of the exams.
+            if bool(self.date) == bool(self.day_of_week):
+                raise ValueError("exam blocked slots need either a date or a day_of_week")
             self.type = "EXTRACURRICULAR"
         else:
             if not self.day_of_week:
@@ -204,6 +279,11 @@ class BlockedSlotCreate(BaseModel):
         if self.start_time and self.end_time and self.start_time >= self.end_time:
             raise ValueError("start_time must be before end_time")
         return self
+
+
+class BlockedSlotCreate(BlockedSlotUpdate):
+    semester_id: int
+
 
 class BlockedSlotResponse(BaseModel):
     id: int
@@ -247,6 +327,7 @@ class ChangeRequestCreate(BaseModel):
     end_time: time | None = None
     week: int | None = None
     exam_date: date_type | None = None
+    is_online: bool | None = None
     reason: str | None = None
     semester_id: int | None = None
 

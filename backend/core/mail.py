@@ -22,11 +22,19 @@ conf = ConnectionConfig(
 
 class EmailService:
     @staticmethod
-    async def send_invitation_email(recipient_email: str, token: str, role: str, faculty_name: str | None = None):
-        invite_link = f"{settings.FRONTEND_URL}/register?token={token}"
+    async def send_invitation_email(
+        recipient_email: str,
+        token: str,
+        role: str,
+        realm_key: str,
+        realm_name: str,
+        faculty_name: str | None = None,
+    ):
+        invite_link = f"{settings.FRONTEND_URL}/register?token={token}&realm={realm_key}"
         template_body = {
             "recipient_email": recipient_email,
             "role": role.replace("_", " "),
+            "realm_name": realm_name,
             "faculty_name": faculty_name if faculty_name else None,
             "invite_link": invite_link
         }

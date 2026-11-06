@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, Response, HTTPException, status
 from core.security import verify_password
 from modules.auth.service import AuthService, PasswordResetService
-from modules.auth.schemas import LoginRequest, InviteRequest, MsgResponse, PasswordReset, PasswordResetCodeCheck, PasswordResetRequest, PasswordResetVerify, RegisterRequest, UserResponse, InvitationResponse, ImpersonateRequest
+from modules.auth.schemas import LoginRequest, InviteRequest, MsgResponse, PasswordReset, PasswordResetCodeCheck, PasswordResetRequest, PasswordResetVerify, RegisterRequest, UserResponse, InvitationResponse, ImpersonateRequest, SwitchRealmRequest, UpdateUserRoleRequest
 from core.config import settings
 from api.dependencies.auth import RequireRole, get_current_user, require_real_super_admin
 from modules.auth.models import RoleEnum
@@ -12,7 +12,7 @@ router = APIRouter(prefix="/auth", tags=["Auth"])
 
 @router.post("/login")
 async def login(response: Response, data: LoginRequest, service: AuthService = Depends()):
-    token = await service.authenticate_user(data.email, data.password)
+    token = await service.authenticate_user(data.email, data.password, data.realm)
     response.set_cookie(
         key="access_token",
         value=token,
@@ -63,25 +63,49 @@ async def stop_impersonation(
     _set_session_cookie(response, token)
     return {"message": "Stopped impersonating"}
 
+@router.post("/switch-realm")
+async def switch_realm(
+    response: Response,
+    data: SwitchRealmRequest,
+    service: AuthService = Depends(),
+    current_user: dict = Depends(get_current_user),
+):
+    token = await service.switch_realm(current_user, data.realm)
+    _set_session_cookie(response, token)
+    return {"message": "Switched portal", "realm": data.realm}
+
 @router.post("/invite")
 async def invite_staff(
     data: InviteRequest, 
     service: AuthService = Depends(),
     timetable_repo: TimetableRepository = Depends(),
-    current_user: dict = Depends(RequireRole([RoleEnum.SUPER_ADMIN.value]))
+    current_user: dict = Depends(RequireRole([RoleEnum.SUPER_ADMIN.value, RoleEnum.FACULTY_EDITOR.value]))
 ):
-    invite = await service.generate_invite(data.email, data.target_role, data.faculty_id, data.semester_id, current_user)
+    if current_user.get("role") == RoleEnum.FACULTY_EDITOR.value:
+        if data.target_role != RoleEnum.DEO:
+            from fastapi import HTTPException
+            raise HTTPException(status_code=403, detail="Faculty Editors can only invite DEOs")
+        if not data.faculty_id:
+            data.faculty_id = current_user.get("faculty_id")
+        elif data.faculty_id != current_user.get("faculty_id"):
+            from fastapi import HTTPException
+            raise HTTPException(status_code=403, detail="Faculty Editors can only invite DEOs to their own faculty")
+
+    invite = await service.generate_invite(data.email, data.target_role, data.faculty_id, data.semester_id, current_user=current_user)
     
     faculty_name = None
     if data.faculty_id:
-        faculty = await timetable_repo.get_faculty(data.faculty_id)
+        faculty = await timetable_repo.get_faculty(data.faculty_id, realm_key=current_user["realm"])
         if faculty:
             faculty_name = faculty.name
             
     await EmailService.send_invitation_email(
         recipient_email=data.email, 
         token=invite.token, 
-        role=data.target_role.value, 
+        role=data.target_role.value,
+        # The portal the inviter is working in; a cross-realm invitee can switch later.
+        realm_key=current_user["realm"],
+        realm_name=current_user["realm_name"],
         faculty_name=faculty_name
     )
     return {"message": "Invitation created", "token": invite.token}
@@ -96,12 +120,25 @@ async def complete_registration(
     return {"message": "Registration successful", "user_id": user.id}
 
 @router.get("/users", response_model=list[UserResponse])
-async def get_users(service: AuthService = Depends(), user: dict = Depends(RequireRole([RoleEnum.SUPER_ADMIN.value, RoleEnum.SUPER_VIEWER.value]))):
-    return await service.get_all_users()
+async def get_users(service: AuthService = Depends(), user: dict = Depends(RequireRole([RoleEnum.SUPER_ADMIN.value, RoleEnum.SUPER_VIEWER.value, RoleEnum.FACULTY_EDITOR.value]))):
+    faculty_id = None
+    if user.get("role") == RoleEnum.FACULTY_EDITOR.value:
+        faculty_id = user.get("faculty_id")
+    return await service.get_users(realm_key=user["realm"], faculty_id=faculty_id)
 
 @router.get("/invitations", response_model=list[InvitationResponse])
-async def get_invitations(service: AuthService = Depends(), user: dict = Depends(RequireRole([RoleEnum.SUPER_ADMIN.value, RoleEnum.SUPER_VIEWER.value]))):
-    return await service.get_all_invitations()
+async def get_invitations(service: AuthService = Depends(), user: dict = Depends(RequireRole([RoleEnum.SUPER_ADMIN.value, RoleEnum.SUPER_VIEWER.value, RoleEnum.FACULTY_EDITOR.value]))):
+    faculty_id = None
+    if user.get("role") == RoleEnum.FACULTY_EDITOR.value:
+        faculty_id = user.get("faculty_id")
+    invitations = [
+        InvitationResponse.model_validate(inv)
+        for inv in await service.get_invitations(realm_key=user["realm"], faculty_id=faculty_id)
+    ]
+    if user.get("role") != RoleEnum.SUPER_ADMIN.value:
+        for invitation in invitations:
+            invitation.token = None
+    return invitations
 
 @router.delete("/users/{user_id}")
 async def delete_user(user_id: int, service: AuthService = Depends(), user: dict = Depends(RequireRole([RoleEnum.SUPER_ADMIN.value]))):
@@ -110,6 +147,10 @@ async def delete_user(user_id: int, service: AuthService = Depends(), user: dict
     if not await service.delete_user(user_id, user):
         raise HTTPException(status_code=404, detail="User not found")
     return {"message": "User deleted"}
+
+@router.patch("/users/{user_id}", response_model=UserResponse)
+async def update_user_role(user_id: int, data: UpdateUserRoleRequest, service: AuthService = Depends(), user: dict = Depends(RequireRole([RoleEnum.SUPER_ADMIN.value]))):
+    return await service.update_user_role(user_id, data, user)
 
 @router.delete("/invitations/{inv_id}")
 async def delete_invitation(inv_id: int, service: AuthService = Depends(), user: dict = Depends(RequireRole([RoleEnum.SUPER_ADMIN.value]))):

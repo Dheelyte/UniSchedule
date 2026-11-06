@@ -14,6 +14,6 @@ async def list_activity_logs(
     action_prefix: str | None = Query(None),
     user_id: int | None = Query(None),
     service: AuditService = Depends(),
-    _user: dict = Depends(RequireRole([RoleEnum.SUPER_ADMIN.value, RoleEnum.SUPER_VIEWER.value])),
+    user: dict = Depends(RequireRole([RoleEnum.SUPER_ADMIN.value, RoleEnum.SUPER_VIEWER.value])),
 ):
-    return await service.list(limit=limit, offset=offset, action_prefix=action_prefix, user_id=user_id)
+    return await service.list(realm_key=user["realm"], limit=limit, offset=offset, action_prefix=action_prefix, user_id=user_id)

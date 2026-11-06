@@ -4,11 +4,14 @@ import { useState, useEffect } from "react";
 import Sidebar from "@/components/Sidebar/Sidebar";
 import TopBar from "@/components/TopBar/TopBar";
 import ImpersonationBanner from "@/components/ImpersonationBanner/ImpersonationBanner";
+import PastSessionBanner from "@/components/PastSessionBanner/PastSessionBanner";
 import { AppProvider } from "@/context/AppContext";
 import { ToastProvider } from "@/components/Toast/Toast";
 import { ConfirmProvider } from "@/components/ConfirmModal/ConfirmContext";
 import { AuthProvider, useAuth } from "@/context/AuthContext";
 import { usePathname, useRouter } from "next/navigation";
+import { isCrossRealmRole } from "@/lib/roles";
+import { lastRealm, loginPath, splitRealmLink } from "@/lib/realm";
 import styles from "./ClientLayout.module.css";
 
 const MOBILE_QUERY = "(max-width: 768px)";
@@ -16,19 +19,36 @@ const MOBILE_QUERY = "(max-width: 768px)";
 function LayoutInner({ children }) {
 	const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 	const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-	const { user, loading } = useAuth();
+	const { user, loading, switchRealm } = useAuth();
 	const pathname = usePathname();
 	const router = useRouter();
 
-	const publicPaths = ["/login", "/register", "/forgot-password"];
+	// Guest-only paths: rendered without the app shell, and authenticated
+	// users get bounced away from them back to the dashboard.
+	const guestOnlyPaths = ["/login", "/register", "/forgot-password", "/realms"];
+	// "/" is also reachable while logged out (it shows the landing page —
+	// see src/app/page.js) but, unlike the paths above, an authenticated
+	// user is allowed to stay on it (it shows the dashboard there instead).
+	const publicPaths = ["/", ...guestOnlyPaths];
+	// Open to everyone and always rendered without the app shell.
+	const standalonePaths = ["/contributors"];
 
     useEffect(() => {
         if (loading) return;
-        if (!user && !publicPaths.includes(pathname)) {
-            router.push('/login');
+        // Links in emails and notifications can name their realm (?realm=KEY).
+        // Read from the address bar: useSearchParams here would opt every
+        // page out of prerendering.
+        const { path, realm: linkRealm } = splitRealmLink(`${pathname}${window.location.search}`);
+        if (!user && !publicPaths.includes(pathname) && !standalonePaths.includes(pathname)) {
+            router.push(loginPath(linkRealm || lastRealm()));
         }
-        if (user && publicPaths.includes(pathname)) {
+        if (user && guestOnlyPaths.includes(pathname)) {
             router.push('/');
+            return;
+        }
+        // A cross-realm user working in another realm is moved to the link's.
+        if (user && linkRealm && linkRealm !== user.realm && isCrossRealmRole(user.real_role)) {
+            switchRealm(linkRealm, path).catch((err) => console.error('Failed to switch realm', err));
         }
     }, [user, loading, pathname, router]);
 
@@ -63,10 +83,11 @@ function LayoutInner({ children }) {
 		}
 	};
 
+    if (standalonePaths.includes(pathname)) return <>{children}</>;
     if (loading) return <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', width: '100vw' }}><div className="loader"></div></div>;
     if (!user && publicPaths.includes(pathname)) return <>{children}</>;
     if (!user) return null;
-    if (publicPaths.includes(pathname)) return null;
+    if (guestOnlyPaths.includes(pathname)) return null;
 
 	const mainClass = isSidebarCollapsed
 		? `${styles.main} ${styles.mainCollapsed}`
@@ -94,6 +115,7 @@ function LayoutInner({ children }) {
 			)}
 			<main className={mainClass}>
 				<ImpersonationBanner />
+				<PastSessionBanner />
 				{children}
 			</main>
 		</AppProvider>

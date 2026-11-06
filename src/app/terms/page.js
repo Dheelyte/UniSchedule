@@ -4,15 +4,24 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import { apiClient } from '@/lib/apiClient';
 import { useToast } from '@/components/Toast/Toast';
+import { useConfirm } from '@/components/ConfirmModal/ConfirmContext';
+import { TERMS_CHANGED_EVENT, newerSessionInUse, sortSessions } from '@/lib/terms';
 import styles from './terms.module.css';
 import { TermsSkeleton } from '@/components/Skeleton/Skeleton';
 
-const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
-
 export default function TermsPage() {
-    const { user, loading: authLoading } = useAuth();
+    const { user, loading: authLoading, realmConfig } = useAuth();
+    // Blocked-slot days and semester names are the realm's.
+    const lectureDays = realmConfig.lecture_days;
+    const examDays = realmConfig.exam_days;
+    const allDays = [...lectureDays, ...examDays.filter(d => !lectureDays.includes(d))];
+    // Exam blocks are either one date or the same weekday every week of the exams.
+    const emptyBlockedForm = { name: '', applies_to: 'LECTURE_ONLY', repeat: 'once', day_of_week: lectureDays[0], date: '', start_time: '', end_time: '', whole_day: false };
+    const blockedDays = (form) => form.applies_to === 'EXAM_ONLY' ? examDays : form.applies_to === 'BOTH' ? allDays : lectureDays;
+    const usesDate = (form) => form.applies_to === 'EXAM_ONLY' && form.repeat === 'once';
     const router = useRouter();
     const { addToast } = useToast();
+    const confirm = useConfirm();
 
     const [sessions, setSessions] = useState([]);
     const [semestersMap, setSemestersMap] = useState({});
@@ -26,12 +35,15 @@ export default function TermsPage() {
     // Blocked Slots state
     const [blockedSlots, setBlockedSlots] = useState([]);
     const [showBlockedModal, setShowBlockedModal] = useState(false);
-    const [blockedForm, setBlockedForm] = useState({ name: '', applies_to: 'LECTURE_ONLY', day_of_week: 'Monday', date: '', start_time: '', end_time: '', whole_day: false });
+    const [editingSlot, setEditingSlot] = useState(null);
+    const [blockedForm, setBlockedForm] = useState(emptyBlockedForm);
     const [deleteBlockedConfirm, setDeleteBlockedConfirm] = useState(null);
 
+    // Older sessions can be added for archiving past timetables.
+    const FIRST_SESSION_YEAR = 2000;
     const currentYear = new Date().getFullYear();
-    const sessionOptions = Array.from({ length: 6 }, (_, i) => {
-        const y = currentYear - 3 + i;
+    const sessionOptions = Array.from({ length: currentYear + 2 - FIRST_SESSION_YEAR + 1 }, (_, i) => {
+        const y = currentYear + 2 - i;
         return `${y}/${y + 1}`;
     }).filter(opt => !sessions.some(s => s.name === opt));
 
@@ -42,13 +54,15 @@ export default function TermsPage() {
     const fetchInitialData = async () => {
         setLoading(true);
         try {
-            const sessList = await apiClient.get('/calendar/sessions');
+            const sessList = sortSessions(await apiClient.get('/calendar/sessions'));
             setSessions(sessList);
+            setSemestersMap({});
+            setBlockedSlots([]);
             const current = sessList.find(s => s.is_current);
             if (current) {
                 setExpandedSessions(new Set([current.id]));
                 const semList = await apiClient.get(`/calendar/sessions/${current.id}/semesters`);
-                setSemestersMap(prev => ({ ...prev, [current.id]: semList }));
+                setSemestersMap({ [current.id]: semList });
                 // Load blocked slots for current semester
                 const currentSem = semList.find(s => s.is_current);
                 if (currentSem) {
@@ -58,7 +72,7 @@ export default function TermsPage() {
             }
         } catch (e) {
             console.error(e);
-            addToast({ type: 'error', title: 'Error', message: 'Failed to load term configuration.' });
+            addToast({ type: 'error', title: 'Error', message: 'Failed to load academic sessions.' });
         }
         setLoading(false);
     };
@@ -68,7 +82,7 @@ export default function TermsPage() {
             if (!user) { router.push('/login'); return; }
             if (user.role !== 'SUPER_ADMIN') {
                 router.push('/');
-                addToast({ type: 'error', title: 'Unauthorized', message: 'Only Super Admins can manage terms.' });
+                addToast({ type: 'error', title: 'Unauthorized', message: 'Only Super Admins can manage academic sessions.' });
                 return;
             }
             // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -102,18 +116,12 @@ export default function TermsPage() {
         if (!sessionName.trim()) return;
         try {
             const res = await apiClient.post('/calendar/sessions', { name: sessionName.trim() });
-            setSessions(prev => [res, ...prev.map(s => ({ ...s, is_current: false }))]);
+            // New sessions are inactive until set as current.
+            setSessions(prev => sortSessions([...prev, res]));
             setSessionName('');
-            setExpandedSessions(new Set([res.id]));
-            setSemestersMap(prev => {
-                const updated = {};
-                for (const id in prev) {
-                    updated[id] = (prev[id] || []).map(s => ({ ...s, is_current: false }));
-                }
-                updated[res.id] = [];
-                return updated;
-            });
-            addToast({ type: 'success', title: 'Created', message: 'Academic session created.' });
+            setExpandedSessions(prev => new Set([...prev, res.id]));
+            setSemestersMap(prev => ({ ...prev, [res.id]: [] }));
+            addToast({ type: 'success', title: 'Created', message: `${res.name} created. Set it as current when you're ready to use it.` });
         } catch (e) {
             console.error(e);
             addToast({ type: 'error', title: 'Error', message: 'Failed to create session.' });
@@ -126,7 +134,7 @@ export default function TermsPage() {
             const res = await apiClient.post('/calendar/semesters', { name: semName, session_id: sessId });
             setSemestersMap(prev => ({
                 ...prev,
-                [sessId]: [...(prev[sessId] || []).map(s => ({ ...s, is_current: false })), res]
+                [sessId]: [...(prev[sessId] || []), res]
             }));
             setSemName('');
             setAddingSemFor(null);
@@ -137,28 +145,112 @@ export default function TermsPage() {
         }
     };
 
+    const handleSetCurrentSession = async (sess) => {
+        const newest = await newerSessionInUse(sess, sessions, async (id) => {
+            if (semestersMap[id]) return semestersMap[id];
+            return apiClient.get(`/calendar/sessions/${id}/semesters`).catch(() => []);
+        });
+        const ok = await confirm({
+            title: `Make ${sess.name} the current session?`,
+            message: newest
+                ? `${sess.name} is a past session. Its timetables are final, and ${newest.name} is the latest session. Only switch to ${sess.name} to view or correct its archive, and switch back when you're done.`
+                : `Everyone will see and schedule against ${sess.name}. Its newest semester becomes the current semester.`,
+            confirmLabel: newest ? 'Switch to past session' : 'Set as current',
+            tone: newest ? 'danger' : 'primary',
+        });
+        if (!ok) return;
+        try {
+            await apiClient.put(`/calendar/sessions/${sess.id}/current`);
+            window.dispatchEvent(new Event(TERMS_CHANGED_EVENT));
+            addToast({ type: newest ? 'warning' : 'success', title: 'Current session changed', message: `${sess.name} is now the current session.` });
+            await fetchInitialData();
+        } catch (e) {
+            console.error(e);
+            addToast({ type: 'error', title: 'Error', message: e.message || 'Failed to change the current session.' });
+        }
+    };
+
+    const handleSetCurrentSemester = async (sess, sem) => {
+        const ok = await confirm({
+            title: `Make ${sem.name} the current semester?`,
+            message: `Everyone will see and schedule against ${sess.name} ${sem.name}.`,
+            confirmLabel: 'Set as current',
+            tone: 'primary',
+        });
+        if (!ok) return;
+        try {
+            await apiClient.put(`/calendar/semesters/${sem.id}/current`);
+            window.dispatchEvent(new Event(TERMS_CHANGED_EVENT));
+            addToast({ type: 'success', title: 'Current semester changed', message: `${sem.name} is now the current semester.` });
+            await fetchInitialData();
+        } catch (e) {
+            console.error(e);
+            addToast({ type: 'error', title: 'Error', message: e.message || 'Failed to change the current semester.' });
+        }
+    };
+
     // Blocked Slots handlers
-    const handleAddBlockedSlot = async () => {
+    const openAddBlockedSlot = () => {
+        if (editingSlot) {
+            setEditingSlot(null);
+            setBlockedForm(emptyBlockedForm);
+        }
+        setShowBlockedModal(true);
+    };
+
+    const openEditBlockedSlot = (slot) => {
+        const form = {
+            name: slot.name,
+            applies_to: slot.applies_to,
+            repeat: slot.date ? 'once' : 'weekly',
+            day_of_week: slot.day_of_week || '',
+            date: slot.date || '',
+            start_time: slot.start_time?.slice(0, 5) || '',
+            end_time: slot.end_time?.slice(0, 5) || '',
+            whole_day: !slot.start_time,
+        };
+        if (!form.day_of_week) form.day_of_week = blockedDays(form)[0];
+        setEditingSlot(slot);
+        setBlockedForm(form);
+        setShowBlockedModal(true);
+    };
+
+    const closeBlockedModal = () => {
+        setShowBlockedModal(false);
+        // Keep an unsaved new slot as a draft, but not an edit.
+        if (editingSlot) {
+            setEditingSlot(null);
+            setBlockedForm(emptyBlockedForm);
+        }
+    };
+
+    const handleSaveBlockedSlot = async () => {
         if (!blockedForm.name.trim() || !currentSemester) return;
         try {
-            const isExam = blockedForm.applies_to === 'EXAM_ONLY';
+            const isDate = usesDate(blockedForm);
             const payload = {
                 name: blockedForm.name.trim(),
-                day_of_week: isExam ? null : blockedForm.day_of_week,
-                date: isExam ? blockedForm.date : null,
+                day_of_week: isDate ? null : blockedForm.day_of_week,
+                date: isDate ? blockedForm.date : null,
                 start_time: blockedForm.whole_day ? null : blockedForm.start_time,
                 end_time: blockedForm.whole_day ? null : blockedForm.end_time,
                 applies_to: blockedForm.applies_to,
-                semester_id: currentSemester.id,
             };
-            const res = await apiClient.post('/timetable/blocked-slots', payload);
-            setBlockedSlots(prev => [...prev, res]);
+            if (editingSlot) {
+                const res = await apiClient.put(`/timetable/blocked-slots/${editingSlot.id}`, payload);
+                setBlockedSlots(prev => prev.map(s => s.id === res.id ? res : s));
+                addToast({ type: 'success', title: 'Updated', message: `Blocked slot "${res.name}" updated.` });
+            } else {
+                const res = await apiClient.post('/timetable/blocked-slots', { ...payload, semester_id: currentSemester.id });
+                setBlockedSlots(prev => [...prev, res]);
+                addToast({ type: 'success', title: 'Created', message: `Blocked slot "${res.name}" added.` });
+            }
             setShowBlockedModal(false);
-            setBlockedForm({ name: '', applies_to: 'LECTURE_ONLY', day_of_week: 'Monday', date: '', start_time: '', end_time: '', whole_day: false });
-            addToast({ type: 'success', title: 'Created', message: `Blocked slot "${res.name}" added.` });
+            setEditingSlot(null);
+            setBlockedForm(emptyBlockedForm);
         } catch (e) {
             console.error(e);
-            addToast({ type: 'error', title: 'Error', message: e.message || 'Failed to create blocked slot.' });
+            addToast({ type: 'error', title: 'Error', message: e.message || `Failed to ${editingSlot ? 'update' : 'create'} blocked slot.` });
         }
     };
 
@@ -199,11 +291,18 @@ export default function TermsPage() {
                 {sessions.length === 0 && (
                     <p style={{ color: 'var(--color-text-muted)', padding: '12px 0' }}>No sessions established.</p>
                 )}
+                {sessions.length > 0 && !currentSemester && (
+                    <p className={styles.notice}>
+                        {currentSession
+                            ? `No current semester. Add a semester to ${currentSession.name} and set it as current to start scheduling.`
+                            : 'No current session. Open a session and set it as current to start scheduling.'}
+                    </p>
+                )}
                 <div className={styles.accordion}>
                     {sessions.map(s => {
                         const isOpen = expandedSessions.has(s.id);
                         const sems = semestersMap[s.id] || [];
-                        const availSemOpts = ['First Semester', 'Second Semester'].filter(
+                        const availSemOpts = realmConfig.semester_names.filter(
                             opt => !sems.some(sem => sem.name === opt)
                         );
 
@@ -239,6 +338,15 @@ export default function TermsPage() {
                                                     <span className={`badge ${sem.is_current ? styles.badgeSuccess : styles.badgeNeutral}`}>
                                                         {sem.is_current ? 'Current' : 'Inactive'}
                                                     </span>
+                                                    {s.is_current && !sem.is_current && (
+                                                        <button
+                                                            className="btn btn-secondary"
+                                                            style={{ padding: '2px 10px', fontSize: '0.75rem' }}
+                                                            onClick={() => handleSetCurrentSemester(s, sem)}
+                                                        >
+                                                            Set as current
+                                                        </button>
+                                                    )}
                                                 </div>
                                             ))}
                                         </div>
@@ -274,9 +382,14 @@ export default function TermsPage() {
                                                 )}
                                             </>
                                         ) : (
-                                            <p style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)', marginTop: '8px' }}>
-                                                🔒 View only - semesters can only be added to the current session.
-                                            </p>
+                                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap', marginTop: '8px' }}>
+                                                <p style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)', margin: 0 }}>
+                                                    🔒 View only - set this session as current to add semesters or edit its timetables.
+                                                </p>
+                                                <button className="btn btn-secondary" onClick={() => handleSetCurrentSession(s)}>
+                                                    Set as current session
+                                                </button>
+                                            </div>
                                         )}
                                     </div>
                                 )}
@@ -290,7 +403,7 @@ export default function TermsPage() {
             <div className={styles.section}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', paddingBottom: '12px', borderBottom: '1px solid var(--color-border)' }}>
                     <h3 style={{ fontSize: '1.1rem', fontWeight: 600, color: 'var(--color-text)', margin: 0 }}>Blocked Slots</h3>
-                    <button className="btn btn-primary" onClick={() => setShowBlockedModal(true)} disabled={!currentSemester}>
+                    <button className="btn btn-primary" onClick={openAddBlockedSlot} disabled={!currentSemester}>
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
                         Add Blocked Slot
                     </button>
@@ -315,7 +428,7 @@ export default function TermsPage() {
                                     <th>Applies To</th>
                                     <th>Day / Date</th>
                                     <th>Time</th>
-                                    <th style={{ width: 80 }}>Actions</th>
+                                    <th style={{ width: 140 }}>Actions</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -327,18 +440,27 @@ export default function TermsPage() {
                                                 {slot.applies_to === 'LECTURE_ONLY' ? ' Lectures' : slot.applies_to === 'EXAM_ONLY' ? 'Exams' : 'Both'}
                                             </span>
                                         </td>
-                                        <td>{slot.date || slot.day_of_week}</td>
+                                        <td>{slot.date || `Every ${slot.day_of_week}`}</td>
                                         <td style={{ color: 'var(--color-text-muted)' }}>
                                             {slot.start_time && slot.end_time ? `${slot.start_time?.slice(0, 5)} – ${slot.end_time?.slice(0, 5)}` : 'Full Day'}
                                         </td>
                                         <td>
-                                            <button
-                                                className="btn btn-secondary"
-                                                style={{ padding: '4px 10px', fontSize: '0.75rem' }}
-                                                onClick={() => setDeleteBlockedConfirm(slot)}
-                                            >
-                                                Delete
-                                            </button>
+                                            <div style={{ display: 'flex', gap: '6px' }}>
+                                                <button
+                                                    className="btn btn-secondary"
+                                                    style={{ padding: '4px 10px', fontSize: '0.75rem' }}
+                                                    onClick={() => openEditBlockedSlot(slot)}
+                                                >
+                                                    Edit
+                                                </button>
+                                                <button
+                                                    className="btn btn-secondary"
+                                                    style={{ padding: '4px 10px', fontSize: '0.75rem' }}
+                                                    onClick={() => setDeleteBlockedConfirm(slot)}
+                                                >
+                                                    Delete
+                                                </button>
+                                            </div>
                                         </td>
                                     </tr>
                                 ))}
@@ -348,13 +470,13 @@ export default function TermsPage() {
                 )}
             </div>
 
-            {/* Add Blocked Slot Modal */}
+            {/* Add / Edit Blocked Slot Modal */}
             {showBlockedModal && (
-                <div className="modal-overlay" onClick={() => setShowBlockedModal(false)}>
+                <div className="modal-overlay" onClick={closeBlockedModal}>
                     <div className="modal" onClick={(e) => e.stopPropagation()}>
                         <div className="modal-header">
-                            <h3>Add Blocked Slot</h3>
-                            <button className="modal-close" onClick={() => setShowBlockedModal(false)}>✕</button>
+                            <h3>{editingSlot ? 'Edit Blocked Slot' : 'Add Blocked Slot'}</h3>
+                            <button className="modal-close" onClick={closeBlockedModal}>✕</button>
                         </div>
                         <div className="modal-body">
                             <div className="form-group">
@@ -373,14 +495,32 @@ export default function TermsPage() {
                                     <select
                                         className="form-select form-input"
                                         value={blockedForm.applies_to}
-                                        onChange={(e) => setBlockedForm({ ...blockedForm, applies_to: e.target.value })}
+                                        onChange={(e) => {
+                                            const next = { ...blockedForm, applies_to: e.target.value };
+                                            const days = blockedDays(next);
+                                            setBlockedForm({ ...next, day_of_week: days.includes(next.day_of_week) ? next.day_of_week : days[0] });
+                                        }}
                                     >
                                         <option value="LECTURE_ONLY">Lecture Timetable</option>
                                         <option value="EXAM_ONLY">Exam Timetable</option>
+                                        <option value="BOTH">Both Timetables</option>
                                     </select>
                                 </div>
+                                {blockedForm.applies_to === 'EXAM_ONLY' && (
+                                    <div className="form-group">
+                                        <label className="form-label">Repeats</label>
+                                        <select
+                                            className="form-select form-input"
+                                            value={blockedForm.repeat}
+                                            onChange={(e) => setBlockedForm({ ...blockedForm, repeat: e.target.value })}
+                                        >
+                                            <option value="once">One date</option>
+                                            <option value="weekly">Every week</option>
+                                        </select>
+                                    </div>
+                                )}
                                 <div className="form-group">
-                                    {blockedForm.applies_to === 'EXAM_ONLY' ? (
+                                    {usesDate(blockedForm) ? (
                                         <>
                                             <label className="form-label">Date</label>
                                             <input
@@ -392,13 +532,13 @@ export default function TermsPage() {
                                         </>
                                     ) : (
                                         <>
-                                            <label className="form-label">Day of Week</label>
+                                            <label className="form-label">{blockedForm.applies_to === 'LECTURE_ONLY' ? 'Day of Week' : 'Every'}</label>
                                             <select
                                                 className="form-select form-input"
                                                 value={blockedForm.day_of_week}
                                                 onChange={(e) => setBlockedForm({ ...blockedForm, day_of_week: e.target.value })}
                                             >
-                                                {DAYS.map(d => <option key={d} value={d}>{d}</option>)}
+                                                {blockedDays(blockedForm).map(d => <option key={d} value={d}>{d}</option>)}
                                             </select>
                                         </>
                                     )}
@@ -438,13 +578,13 @@ export default function TermsPage() {
                             )}
                         </div>
                         <div className="modal-footer">
-                            <button className="btn btn-secondary" onClick={() => setShowBlockedModal(false)}>Cancel</button>
+                            <button className="btn btn-secondary" onClick={closeBlockedModal}>Cancel</button>
                             <button
                                 className="btn btn-primary"
-                                onClick={handleAddBlockedSlot}
-                                disabled={!blockedForm.name.trim() || (!blockedForm.whole_day && (!blockedForm.start_time || !blockedForm.end_time)) || (blockedForm.applies_to === 'EXAM_ONLY' ? !blockedForm.date : !blockedForm.day_of_week)}
+                                onClick={handleSaveBlockedSlot}
+                                disabled={!blockedForm.name.trim() || (!blockedForm.whole_day && (!blockedForm.start_time || !blockedForm.end_time)) || (usesDate(blockedForm) ? !blockedForm.date : !blockedForm.day_of_week)}
                             >
-                                Add Blocked Slot
+                                {editingSlot ? 'Save Changes' : 'Add Blocked Slot'}
                             </button>
                         </div>
                     </div>

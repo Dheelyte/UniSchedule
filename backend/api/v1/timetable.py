@@ -6,8 +6,9 @@ from modules.timetable.schemas import (
     DepartmentCreate, DepartmentResponse, DepartmentUpdate,
     RoomCreate, RoomResponse, RoomUpdate,
     CourseCreate, CourseResponse, CourseUpdate,
-    ScheduleItemCreate, ScheduleItemResponse, ScheduleItemUpdate,
-    BlockedSlotCreate, BlockedSlotResponse, RoomReorderRequest,
+    ScheduleItemCreate, ScheduleItemResponse, ScheduleItemUpdate, ExternalBookingResponse,
+    BlockedSlotCreate, BlockedSlotUpdate, BlockedSlotResponse, RoomReorderRequest,
+    OtherRealmRoomResponse, RoomCatalogueResponse, RoomCatalogueAddRequest, RoomCatalogueAddResponse, RoomHallRequest,
     TimetableLockResponse, TimetableLockUpdate, EditRequestCreate,
     CourseEnrollmentCreate, CourseEnrollmentResponse,
     ChangeRequestCreate, ChangeRequestResponse, ChangeRequestReview,
@@ -102,6 +103,47 @@ async def reorder_rooms(
 ):
     return await service.reorder_rooms(data, user)
 
+@router.get("/rooms/other-realm", response_model=list[OtherRealmRoomResponse])
+async def get_other_realm_rooms(
+    realm: str = Query(...),
+    service: TimetableService = Depends(),
+    user: dict = Depends(RequireRole([RoleEnum.SUPER_ADMIN.value]))
+):
+    return await service.get_other_realm_rooms(realm, user)
+
+# Whoever can add a room can add one from the catalogue (Undergraduate's rooms).
+@router.get("/rooms/catalogue", response_model=RoomCatalogueResponse)
+async def get_room_catalogue(
+    service: TimetableService = Depends(),
+    user: dict = Depends(RequireRole([RoleEnum.SUPER_ADMIN.value, RoleEnum.FACULTY_EDITOR.value, RoleEnum.GS_ADMIN.value]))
+):
+    return await service.get_room_catalogue(user)
+
+@router.post("/rooms/from-catalogue", response_model=RoomCatalogueAddResponse)
+async def add_rooms_from_catalogue(
+    data: RoomCatalogueAddRequest,
+    service: TimetableService = Depends(),
+    user: dict = Depends(RequireRole([RoleEnum.SUPER_ADMIN.value, RoleEnum.FACULTY_EDITOR.value, RoleEnum.GS_ADMIN.value]))
+):
+    return await service.add_rooms_from_catalogue(data, user)
+
+@router.put("/rooms/{id}/hall", response_model=RoomResponse)
+async def set_room_hall(
+    id: int,
+    data: RoomHallRequest,
+    service: TimetableService = Depends(),
+    user: dict = Depends(RequireRole([RoleEnum.SUPER_ADMIN.value]))
+):
+    return await service.set_room_hall(id, data.room_id, user)
+
+@router.delete("/rooms/{id}/hall", response_model=RoomResponse)
+async def clear_room_hall(
+    id: int,
+    service: TimetableService = Depends(),
+    user: dict = Depends(RequireRole([RoleEnum.SUPER_ADMIN.value]))
+):
+    return await service.clear_room_hall(id, user)
+
 @router.get("/rooms", response_model=list[RoomResponse])
 async def get_rooms(
     all: bool = Query(False),
@@ -182,6 +224,13 @@ async def get_schedule_items(
 ):
     return await service.get_schedule_items(user, semester_id=semester_id)
 
+@router.get("/external-bookings", response_model=list[ExternalBookingResponse])
+async def get_external_bookings(
+    service: TimetableService = Depends(),
+    user: dict = Depends(get_current_user)
+):
+    return await service.get_external_bookings(user)
+
 @router.put("/schedule-items/{item_id}", response_model=ScheduleItemResponse)
 async def update_schedule(
     item_id: int,
@@ -252,7 +301,16 @@ async def get_blocked_slots(
     service: TimetableService = Depends(),
     user: dict = Depends(get_current_user)
 ):
-    return await service.get_blocked_slots(semester_id=semester_id)
+    return await service.get_blocked_slots(user, semester_id=semester_id)
+
+@router.put("/blocked-slots/{id}", response_model=BlockedSlotResponse)
+async def update_blocked_slot(
+    id: int,
+    data: BlockedSlotUpdate,
+    service: TimetableService = Depends(),
+    user: dict = Depends(RequireRole([RoleEnum.SUPER_ADMIN.value]))
+):
+    return await service.update_blocked_slot(id, data, user)
 
 @router.delete("/blocked-slots/{id}")
 async def delete_blocked_slot(
@@ -271,7 +329,7 @@ async def list_locks(
     service: TimetableService = Depends(),
     user: dict = Depends(get_current_user),
 ):
-    return await service.list_locks(semester_id)
+    return await service.list_locks(semester_id, user)
 
 @router.put("/locks/{timetable_type}", response_model=TimetableLockResponse)
 async def set_lock(

@@ -8,10 +8,8 @@ import { useAuth } from '@/context/AuthContext';
 import { TablePageSkeleton } from '@/components/Skeleton/Skeleton';
 import { isViewerRole, isGsAdmin } from '@/lib/roles';
 import CourseEnrollmentModal from '@/components/CourseEnrollmentModal/CourseEnrollmentModal';
+import { useDebounce } from '@/hooks/useDebounce';
 import styles from './courses.module.css';
-
-const LEVELS = [100, 200, 300, 400, 500, 600, 700];
-const SEMESTERS = ['First Semester', 'Second Semester'];
 
 const SCOPES = {
     DEPARTMENTAL: 'DEPARTMENTAL',
@@ -23,14 +21,18 @@ export default function CoursesPage() {
     const { state, dispatch, getCoursesWithDetails, isInitialized } = useApp();
     const { faculties, departments } = state;
     const { addToast } = useToast();
-    const { user } = useAuth();
+    const { user, realmConfig } = useAuth();
     const role = user?.role;
+    // Levels and semester names are the realm's, not constants.
+    const levels = realmConfig.levels;
+    const semesterNames = realmConfig.semester_names;
 
     // Filters
     const [filterFaculty, setFilterFaculty] = useState('');
     const [filterDept, setFilterDept] = useState('');
     const [filterScope, setFilterScope] = useState('');
     const [search, setSearch] = useState('');
+    const debouncedSearch = useDebounce(search, 250);
 
     // Modal state
     const [showModal, setShowModal] = useState(false);
@@ -38,7 +40,7 @@ export default function CoursesPage() {
     const [deleteConfirm, setDeleteConfirm] = useState(null);
 
     // Form state
-    const [form, setForm] = useState({ code: '', title: '', creditLoad: 3, lecturers: '', departmentId: '', scope: SCOPES.DEPARTMENTAL, level: 100, semester: '', isCbtExam: false });
+    const [form, setForm] = useState({ code: '', title: '', creditLoad: 3, lecturers: '', departmentId: '', scope: SCOPES.DEPARTMENTAL, level: levels[0], semester: '', isCbtExam: false });
     const [loading, setLoading] = useState(true);
     // course_id -> [{ id, course_id, department_id, level }]
     const [enrollmentsByCourse, setEnrollmentsByCourse] = useState(new Map());
@@ -48,6 +50,10 @@ export default function CoursesPage() {
     // Virtualisation & Infinite Scroll
     const containerRef = useRef(null);
     const observerRef = useRef(null);
+    const [scrollTop, setScrollTop] = useState(0);
+    const [containerHeight, setContainerHeight] = useState(600);
+    const [limit, setLimit] = useState(100);
+
     const sentinelRef = useCallback((node) => {
         if (observerRef.current) {
             observerRef.current.disconnect();
@@ -64,10 +70,6 @@ export default function CoursesPage() {
         }
     }, []);
 
-    const [scrollTop, setScrollTop] = useState(0);
-    const [containerHeight, setContainerHeight] = useState(600);
-    const [limit, setLimit] = useState(100);
-
     const rowHeight = 62; // average row height
 
     const handleScroll = (e) => {
@@ -76,17 +78,20 @@ export default function CoursesPage() {
 
     useEffect(() => {
         if (containerRef.current) {
+            /* eslint-disable-next-line react-hooks/set-state-in-effect */
             setContainerHeight(containerRef.current.clientHeight || 600);
         }
     }, [loading]);
 
     useEffect(() => {
+        /* eslint-disable react-hooks/set-state-in-effect */
         setLimit(100);
         if (containerRef.current) {
             containerRef.current.scrollTop = 0;
             setScrollTop(0);
         }
-    }, [filterFaculty, filterDept, filterScope, search]);
+        /* eslint-enable react-hooks/set-state-in-effect */
+    }, [filterFaculty, filterDept, filterScope, debouncedSearch]);
 
     const handleFacultyChange = (e) => {
         const newFacId = e.target.value;
@@ -101,8 +106,10 @@ export default function CoursesPage() {
                 if (!map.has(e.course_id)) map.set(e.course_id, []);
                 map.get(e.course_id).push(e);
             });
+            /* eslint-disable react-hooks/set-state-in-effect */
             setEnrollmentsByCourse(map);
             setLoading(false);
+            /* eslint-enable react-hooks/set-state-in-effect */
         }
     }, [isInitialized, state.enrollments]);
 
@@ -110,19 +117,23 @@ export default function CoursesPage() {
         ? departments.filter((d) => d.facultyId === filterFaculty)
         : departments;
 
-    const filteredCourses = getCoursesWithDetails.filter((c) => {
-        if (filterScope && c.scope !== filterScope) return false;
-        if (filterFaculty && c.scope === SCOPES.DEPARTMENTAL) {
-            const dept = departments.find((d) => d.id === c.departmentId);
-            if (!dept || dept.facultyId !== filterFaculty) return false;
-        }
-        if (filterDept && c.scope === SCOPES.DEPARTMENTAL && c.departmentId !== parseInt(filterDept)) return false;
-        if (search) {
-            const q = search.toLowerCase();
-            return c.code.toLowerCase().includes(q) || c.title.toLowerCase().includes(q) || c.lecturers.some((l) => l.toLowerCase().includes(q));
-        }
-        return true;
-    });
+    const filteredCourses = useMemo(() => {
+        return getCoursesWithDetails.filter((c) => {
+            if (filterScope && c.scope !== filterScope) return false;
+            if (filterFaculty && c.facultyId !== filterFaculty) return false;
+            if (filterDept && c.departmentId !== parseInt(filterDept, 10)) return false;
+
+            if (debouncedSearch) {
+                const q = debouncedSearch.toLowerCase();
+                return (
+                    c.code.toLowerCase().includes(q) ||
+                    c.title.toLowerCase().includes(q) ||
+                    c.lecturers.some((l) => l.toLowerCase().includes(q))
+                );
+            }
+            return true;
+        });
+    }, [getCoursesWithDetails, filterScope, filterFaculty, filterDept, debouncedSearch]);
 
     // Observer is handled via callback ref sentinelRef
 
@@ -149,7 +160,7 @@ export default function CoursesPage() {
             code: '', title: '', creditLoad: 3, lecturers: '',
             departmentId: '',
             scope: isGsAdmin(role) ? SCOPES.UNIVERSITY_WIDE : SCOPES.DEPARTMENTAL,
-            level: isGsAdmin(role) ? null : 100,
+            level: isGsAdmin(role) ? null : levels[0],
             semester: '',
             isCbtExam: false,
         });
@@ -168,7 +179,7 @@ export default function CoursesPage() {
             lecturers: course.lecturers.join(', '),
             departmentId: course.departmentId || '',
             scope: course.scope || SCOPES.DEPARTMENTAL,
-            level: course.level ?? 100,
+            level: course.level ?? levels[0],
             semester: course.semester || '',
             isCbtExam: course.isCbtExam || false,
         });
@@ -570,7 +581,7 @@ export default function CoursesPage() {
                                         onChange={(e) => setForm({ ...form, level: e.target.value === '' ? null : parseInt(e.target.value, 10) })}
                                     >
                                         {form.scope === SCOPES.UNIVERSITY_WIDE && <option value="">All levels</option>}
-                                        {LEVELS.map((l) => (
+                                        {levels.map((l) => (
                                             <option key={l} value={l}>{l} Level</option>
                                         ))}
                                     </select>
@@ -585,7 +596,7 @@ export default function CoursesPage() {
                                         onChange={(e) => setForm({ ...form, semester: e.target.value })}
                                     >
                                         <option value="">- Select -</option>
-                                        {SEMESTERS.map((s) => (
+                                        {semesterNames.map((s) => (
                                             <option key={s} value={s}>{s}</option>
                                         ))}
                                     </select>

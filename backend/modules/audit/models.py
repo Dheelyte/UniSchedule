@@ -20,6 +20,8 @@ class ActivityLog(Base):
     user_email: Mapped[str | None] = mapped_column(String, nullable=True)
     user_role: Mapped[str | None] = mapped_column(String, nullable=True)
     user_faculty_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    # NULL for events that belong to no single realm.
+    realm_key: Mapped[str | None] = mapped_column(String, nullable=True, index=True)
 
     action: Mapped[str] = mapped_column(String, nullable=False)  # e.g. "course.create"
     entity_type: Mapped[str | None] = mapped_column(String, nullable=True)

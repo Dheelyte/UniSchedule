@@ -25,15 +25,18 @@ class AuditService:
         entity_type: str | None = None,
         entity_id: str | int | None = None,
         extra: dict | None = None,
-    ) -> None:
+    ) -> ActivityLog | None:
         """Persist an activity log entry. Never raises — audit failures must not
-        break the underlying business operation."""
+        break the underlying business operation. Returns the entry, or None if it
+        couldn't be written."""
         try:
             user_id = None
             user_email = None
             user_role = None
             user_faculty_id = None
+            realm_key = None
             if current_user:
+                realm_key = current_user.get("realm")
                 sub = current_user.get("sub")
                 if sub is not None:
                     try:
@@ -63,21 +66,25 @@ class AuditService:
                 user_email=user_email,
                 user_role=user_role,
                 user_faculty_id=user_faculty_id,
+                realm_key=realm_key,
                 action=action,
                 entity_type=entity_type,
                 entity_id=str(entity_id) if entity_id is not None else None,
                 description=description,
                 extra=extra,
             )
-            await self.repo.add(entry)
+            return await self.repo.add(entry)
         except Exception as e:  # pragma: no cover — defensive
             log.exception("Failed to write activity log: %s", e)
+            return None
 
     async def list(
         self,
+        *,
+        realm_key: str,
         limit: int = 100,
         offset: int = 0,
         action_prefix: str | None = None,
         user_id: int | None = None,
     ) -> list[ActivityLog]:
-        return await self.repo.list(limit=limit, offset=offset, action_prefix=action_prefix, user_id=user_id)
+        return await self.repo.list(realm_key=realm_key, limit=limit, offset=offset, action_prefix=action_prefix, user_id=user_id)

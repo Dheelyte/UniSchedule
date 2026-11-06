@@ -2,20 +2,10 @@
 
 import { useMemo, useState } from 'react';
 import SearchableSelect from '@/components/SearchableSelect/SearchableSelect';
-import { DAYS, EXAM_DAYS, isRoomActive } from '@/lib/utils';
+import { useAuth } from '@/context/AuthContext';
+import { isRoomActive } from '@/lib/utils';
+import { timeOptions, isAllowedExamDate } from '@/lib/realm';
 import styles from './RequestChangeModal.module.css';
-
-// 08:00 → 18:00 in 30-minute steps
-const TIME_OPTIONS = (() => {
-    const out = [];
-    for (let h = 8; h <= 18; h++) {
-        for (const m of [0, 30]) {
-            if (h === 18 && m === 30) continue;
-            out.push(`${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`);
-        }
-    }
-    return out;
-})();
 
 const hhmm = (t) => (t ? String(t).slice(0, 5) : '');
 
@@ -30,8 +20,14 @@ export default function RequestChangeModal({
     rooms = [],
     scheduleItems = [],
 }) {
+    const { realmConfig: config } = useAuth();
     const isExam = mode === 'exam';
-    const activeDays = isExam ? EXAM_DAYS : DAYS;
+    const activeDays = isExam ? config.exam_days : config.lecture_days;
+    // The realm's day window in its own time steps (UG: 08:00 → 18:00, every 30 minutes).
+    const TIME_OPTIONS = useMemo(() => timeOptions(config), [config]);
+    // Default slot: the first two hours of the day, or less if the day is shorter.
+    const defaultStart = TIME_OPTIONS[0];
+    const defaultEnd = TIME_OPTIONS[Math.min(TIME_OPTIONS.length - 1, Math.round(120 / config.slot_minutes))];
     const itemNoun = isExam ? 'exam sitting' : 'lecture session';
 
     const [action, setAction] = useState('ADD');
@@ -39,9 +35,10 @@ export default function RequestChangeModal({
     const [targetItemId, setTargetItemId] = useState('');
     const [day, setDay] = useState(activeDays[0]);
     const [examDate, setExamDate] = useState('');
-    const [startTime, setStartTime] = useState('08:00');
-    const [endTime, setEndTime] = useState('10:00');
+    const [startTime, setStartTime] = useState(defaultStart);
+    const [endTime, setEndTime] = useState(defaultEnd);
     const [roomIds, setRoomIds] = useState([]);
+    const [isOnline, setIsOnline] = useState(false);
     const [reason, setReason] = useState('');
     const [error, setError] = useState('');
 
@@ -70,9 +67,10 @@ export default function RequestChangeModal({
         setCourseId(String(item.courseId));
         if (isExam) setExamDate(item.examDate || '');
         else setDay(item.day || activeDays[0]);
-        setStartTime(hhmm(item.startTime) || '08:00');
-        setEndTime(hhmm(item.endTime) || '10:00');
+        setStartTime(hhmm(item.startTime) || defaultStart);
+        setEndTime(hhmm(item.endTime) || defaultEnd);
         setRoomIds((item.roomIds || []).map(String));
+        setIsOnline(item.isOnline || item.is_online || false);
     };
 
     const roomRows = roomIds.length ? roomIds : [''];
@@ -121,6 +119,10 @@ export default function RequestChangeModal({
             if (!startTime || !endTime) { setError('Please set a start and end time.'); return; }
             if (endTime <= startTime) { setError('End time must be after start time.'); return; }
             if (isExam && !examDate) { setError('Please choose an exam date.'); return; }
+            if (isExam && config.strict && !isAllowedExamDate(examDate, config)) {
+                setError(`Exams in this programme are held on ${config.exam_days.join(', ')} only.`);
+                return;
+            }
         }
 
         const course = courses.find((c) => String(c.id) === String(effectiveCourseId));
@@ -138,6 +140,7 @@ export default function RequestChangeModal({
             exam_date: action === 'REMOVE' || !isExam ? null : examDate,
             start_time: action === 'REMOVE' ? null : startTime,
             end_time: action === 'REMOVE' ? null : endTime,
+            is_online: action === 'REMOVE' ? null : isOnline,
             reason: reason.trim() || null,
         };
         onSubmit(payload);
@@ -230,8 +233,26 @@ export default function RequestChangeModal({
                                     </select>
                                 </div>
                             </div>
-                            <div className={styles.formGroup}>
-                                <label className={styles.label}>Room{roomIds.filter(Boolean).length > 1 ? 's' : ''}</label>
+                            <div className={styles.formGroup} style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
+                                <label className={styles.switch}>
+                                    <input
+                                        type="checkbox"
+                                        checked={isOnline}
+                                        onChange={(e) => {
+                                            setIsOnline(e.target.checked);
+                                            if (e.target.checked) setRoomIds([]);
+                                            else setRoomIds(['']);
+                                        }}
+                                        disabled={busy}
+                                    />
+                                    <span className={`${styles.slider} ${styles.round}`}></span>
+                                </label>
+                                <label style={{ margin: 0, fontWeight: 'bold' }}>🌐 Fully Online Class</label>
+                            </div>
+                            
+                            {!isOnline && (
+                                <div className={styles.formGroup}>
+                                    <label className={styles.label}>Room{roomIds.filter(Boolean).length > 1 ? 's' : ''}</label>
                                 {selectableRoomCount === 0 ? (
                                     <span className={styles.muted}>No rooms available</span>
                                 ) : (
@@ -255,7 +276,8 @@ export default function RequestChangeModal({
                                         )}
                                     </div>
                                 )}
-                            </div>
+                                </div>
+                            )}
                         </>
                     )}
 

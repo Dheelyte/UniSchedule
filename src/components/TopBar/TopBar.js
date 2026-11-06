@@ -5,6 +5,7 @@ import { useAuth } from "@/context/AuthContext";
 import { useConfirm } from "@/components/ConfirmModal/ConfirmContext";
 import NotificationsDropdown from "@/components/NotificationsDropdown/NotificationsDropdown";
 import RoleSwitcher from "@/components/RoleSwitcher/RoleSwitcher";
+import RealmSwitcher from "@/components/RealmSwitcher/RealmSwitcher";
 import styles from "./TopBar.module.css";
 
 const MOBILE_QUERY = "(max-width: 768px)";
@@ -36,7 +37,7 @@ const pageTitles = {
 		subtitle: "Manage staff accounts and permissions",
 	},
 	"/terms": {
-		title: "Academic Terms",
+		title: "Academic Sessions",
 		subtitle: "Configure academic sessions and semesters",
 	},
 };
@@ -95,6 +96,7 @@ export default function TopBar({
 			</div>
 
 			<div className={styles.right}>
+				<RealmSwitcher />
 				<RoleSwitcher />
 				<NotificationsDropdown />
 				{/* Logout Button */}

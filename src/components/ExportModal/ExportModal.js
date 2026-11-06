@@ -1,6 +1,14 @@
 import { useState, useEffect } from "react";
 import { useApp } from "@/context/AppContext";
+import { useAuth } from "@/context/AuthContext";
+import { DAILY_EXPORT_FORMATS } from "@/lib/timetableLayout";
 import styles from "./ExportModal.module.css";
+
+// Daily (1 day per page) layouts offered per realm, alongside the standard grid.
+const dailyLayoutsFor = (realm) =>
+	String(realm || "").toUpperCase() === "ICE"
+		? [DAILY_EXPORT_FORMATS["daily-ice-30"]]
+		: [DAILY_EXPORT_FORMATS["daily-hourly"]];
 
 export default function ExportModal({
 	isOpen,
@@ -11,16 +19,20 @@ export default function ExportModal({
 	semesters = [],
 }) {
 	const { state } = useApp();
+	const { realm, realmConfig } = useAuth();
+	const fallbackSemester = realmConfig.semester_names[0];
 
 	// Default values
 	const [session, setSession] = useState("");
-	const [semester, setSemester] = useState("1st Semester");
+	const [semester, setSemester] = useState(fallbackSemester);
 	const [facultyId, setFacultyId] = useState("ALL");
 	const [departmentId, setDepartmentId] = useState("ALL");
+	const [level, setLevel] = useState("ALL");
 	const [paperSize, setPaperSize] = useState("a3");
 	const [monochrome, setMonochrome] = useState(true);
 	const [cbtOnly, setCbtOnly] = useState(false);
 	const [gstOnly, setGstOnly] = useState(false);
+	const [layout, setLayout] = useState("standard");
 
 	useEffect(() => {
 		if (isOpen) {
@@ -31,17 +43,19 @@ export default function ExportModal({
 			
 			// Find current semester from database and set as default
 			const currentSem = semesters.find((s) => s.is_current) || semesters[0];
-			setSemester(currentSem ? currentSem.name : "1st Semester");
+			setSemester(currentSem ? currentSem.name : fallbackSemester);
 			
 			setFacultyId("ALL");
 			setDepartmentId("ALL");
+			setLevel("ALL");
 			setPaperSize("a3");
 			setMonochrome(true);
 			setCbtOnly(false);
 			setGstOnly(false);
+			setLayout("standard");
 			/* eslint-enable react-hooks/set-state-in-effect */
 		}
-	}, [isOpen, sessions, semesters]);
+	}, [isOpen, sessions, semesters, fallbackSemester]);
 
 	if (!isOpen) return null;
 
@@ -56,11 +70,13 @@ export default function ExportModal({
 			semester,
 			facultyId,
 			departmentId,
+			level,
 			format,
 			monochrome,
 			paperSize,
 			cbtOnly,
 			gstOnly,
+			layout: mode === "lecture" ? layout : "standard",
 		});
 	};
 
@@ -129,10 +145,11 @@ export default function ExportModal({
 										</option>
 									))
 							) : (
-								<>
-									<option value="1st Semester">1st Semester</option>
-									<option value="2nd Semester">2nd Semester</option>
-								</>
+								realmConfig.semester_names.map((name) => (
+									<option key={name} value={name}>
+										{name}
+									</option>
+								))
 							)}
 						</select>
 					</div>
@@ -171,13 +188,45 @@ export default function ExportModal({
 					</div>
 
 					<div className={styles.formGroup}>
+						<label className={styles.label}>Level Filter</label>
+						<select
+							className={styles.input}
+							value={level}
+							onChange={(e) => setLevel(e.target.value)}>
+							<option value="ALL">All Levels</option>
+							{realmConfig.levels.map((lvl) => (
+								<option key={lvl} value={lvl}>
+									Level {lvl}
+								</option>
+							))}
+						</select>
+					</div>
+
+					{mode === "lecture" && (
+						<div className={styles.formGroup}>
+							<label className={styles.label}>Layout (PDF)</label>
+							<select
+								className={styles.input}
+								value={layout}
+								onChange={(e) => setLayout(e.target.value)}>
+								<option value="standard">Standard week grid (default)</option>
+								{dailyLayoutsFor(realm).map((f) => (
+									<option key={f.key} value={f.key}>
+										{f.label}
+									</option>
+								))}
+							</select>
+						</div>
+					)}
+
+					<div className={styles.formGroup}>
 						<label className={styles.label}>Format</label>
 						<select
 							className={styles.input}
 							value={paperSize}
 							onChange={(e) => setPaperSize(e.target.value)}>
-							<option value="a3">a3 - landscape</option>
-							<option value="a4">a4 - landscape (default)</option>
+							<option value="a3">a3 - landscape (default)</option>
+							<option value="a4">a4 - landscape</option>
 						</select>
 					</div>
 

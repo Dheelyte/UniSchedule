@@ -482,3 +482,66 @@
 .seatDotInactive {
     background: #dc2626;
 }
+
+/* Rooms that are the same physical hall in another programme */
+.hallTag {
+    display: inline-flex;
+    margin-top: 4px;
+    padding: 2px 8px;
+    border-radius: 50px;
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: #475569;
+    background: #f1f5f9;
+    border: 1px solid #e2e8f0;
+    white-space: nowrap;
+}
+
+.hallLinks {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin-top: 8px;
+}
+
+.hallLinks select {
+    flex: 1;
+    min-width: 140px;
+}
+
+.copyList {
+    max-height: 320px;
+    overflow-y: auto;
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    padding: 4px 12px;
+}
+
+.copyRow {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--color-border);
+}
+
+.copyRow:last-child {
+    border-bottom: none;
+}
+
+.copyPick {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex: 1;
+    min-width: 0;
+    cursor: pointer;
+}
+
+.copyName {
+    display: flex;
+    flex-direction: column;
+    font-weight: 500;
+    min-width: 0;
+}

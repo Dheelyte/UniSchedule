@@ -156,3 +156,12 @@
     .semesterList { flex-direction: column; align-items: stretch; }
     .semesterChip { width: 100%; }
 }
+.notice {
+    margin: 0 0 16px;
+    padding: 10px 14px;
+    border: 1px solid #d97706;
+    border-radius: var(--radius-md);
+    background: rgba(217, 119, 6, 0.1);
+    color: #b45309;
+    font-size: 0.85rem;
+}

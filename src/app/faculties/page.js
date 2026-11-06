@@ -54,6 +54,7 @@ export default function FacultiesPage() {
     }, [dispatch]);
     const [deptName, setDeptName] = useState('');
     const [deptFacultyId, setDeptFacultyId] = useState('');
+    const [isFacultyContext, setIsFacultyContext] = useState(false);
 
     // Delete confirmation
     const [deleteConfirm, setDeleteConfirm] = useState(null);
@@ -115,10 +116,17 @@ export default function FacultiesPage() {
     };
 
     // ---- Department CRUD ----
-    const openAddDept = () => {
+    const openAddDept = (facId = null) => {
         setEditingDept(null);
         setDeptName('');
-        setDeptFacultyId(faculties[0]?.id || '');
+        const validFacId = typeof facId === 'string' ? facId : null;
+        if (validFacId) {
+            setDeptFacultyId(validFacId);
+            setIsFacultyContext(true);
+        } else {
+            setDeptFacultyId(faculties[0]?.id || '');
+            setIsFacultyContext(false);
+        }
         setShowDeptModal(true);
     };
 
@@ -126,6 +134,7 @@ export default function FacultiesPage() {
         setEditingDept(dept);
         setDeptName(dept.name);
         setDeptFacultyId(dept.facultyId);
+        setIsFacultyContext(true);
         setShowDeptModal(true);
     };
 
@@ -171,7 +180,7 @@ export default function FacultiesPage() {
                 <div />
                 <div className={styles.headerActions}>
                     {!isViewerRole(role) && !isGsAdmin(role) && (
-                        <button className="btn btn-secondary" onClick={openAddDept}>
+                        <button className="btn btn-secondary" onClick={() => openAddDept()}>
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
                             Add Department
                         </button>
@@ -266,7 +275,7 @@ export default function FacultiesPage() {
                                                     <div className={styles.deptHeader}>
                                                         <strong>Departments</strong>
                                                         {!isViewerRole(role) && !isGsAdmin(role) && (
-                                                            <button className="btn btn-secondary" onClick={() => { setDeptFacultyId(fac.id); openAddDept(); }} style={{ marginLeft: 'auto' }}>Add Department</button>
+                                                            <button className="btn btn-secondary" onClick={() => openAddDept(fac.id)} style={{ marginLeft: 'auto' }}>Add Department</button>
                                                         )}
                                                     </div>
                                                     <div className={styles.deptItems}>
@@ -361,14 +370,26 @@ export default function FacultiesPage() {
                                 <label className="form-label">Department Name</label>
                                 <input className="form-input" value={deptName} onChange={(e) => setDeptName(e.target.value)} placeholder="e.g. Computer Science" autoFocus />
                             </div>
-                            <div className="form-group">
-                                <label className="form-label">Parent Faculty</label>
-                                <select className="form-select form-input" value={deptFacultyId} onChange={(e) => setDeptFacultyId(e.target.value)}>
-                                    {faculties.map((f) => (
-                                        <option key={f.id} value={f.id}>{f.name}</option>
-                                    ))}
-                                </select>
-                            </div>
+                            {isFacultyContext ? (
+                                <div className="form-group">
+                                    <label className="form-label">Faculty</label>
+                                    <input
+                                        className="form-input"
+                                        value={faculties.find((f) => f.id === deptFacultyId)?.name || ''}
+                                        disabled
+                                        style={{ background: 'var(--color-bg-secondary)', opacity: 0.85, cursor: 'not-allowed' }}
+                                    />
+                                </div>
+                            ) : (
+                                <div className="form-group">
+                                    <label className="form-label">Parent Faculty</label>
+                                    <select className="form-select form-input" value={deptFacultyId} onChange={(e) => setDeptFacultyId(e.target.value)}>
+                                        {faculties.map((f) => (
+                                            <option key={f.id} value={f.id}>{f.name}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                            )}
                         </div>
                         <div className="modal-footer">
                             <button className="btn btn-secondary" onClick={() => setShowDeptModal(false)}>Cancel</button>

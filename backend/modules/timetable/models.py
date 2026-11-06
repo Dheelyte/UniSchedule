@@ -12,22 +12,41 @@ class CourseScope(str, enum.Enum):
 
 class Faculty(Base):
     __tablename__ = "faculties"
+    __table_args__ = (UniqueConstraint("realm_key", "name", name="uq_faculties_realm_name"),)
+    # Unique across realms: another realm's faculty gets its own id, never a UG id.
     id: Mapped[str] = mapped_column(String, primary_key=True) # e.g. "ENG"
-    name: Mapped[str] = mapped_column(String, unique=True)
+    # Unique per realm: UG and ICE can each have a "Faculty of Engineering".
+    name: Mapped[str] = mapped_column(String)
+    realm_key: Mapped[str] = mapped_column(ForeignKey("realms.key"), server_default="UG", index=True)
     # Special faculties are exempt from timetable conflict detection.
     is_special: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
 
 class Department(Base):
+    # A department belongs to its faculty's realm.
     __tablename__ = "departments"
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String)
     faculty_id: Mapped[str] = mapped_column(ForeignKey("faculties.id"))
 
+class HallGroup(Base):
+    """Rooms in one group are the same physical hall, one room per realm."""
+    __tablename__ = "hall_groups"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
 class Room(Base):
     __tablename__ = "rooms"
-    __table_args__ = (UniqueConstraint("name", "faculty_id", name="uq_room_name_faculty"),)
+    __table_args__ = (
+        UniqueConstraint("realm_key", "name", "faculty_id", name="uq_room_realm_name_faculty"),
+        UniqueConstraint("hall_group_id", "realm_key", name="uq_room_hall_group_realm"),
+    )
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String, index=True)
+    realm_key: Mapped[str] = mapped_column(ForeignKey("realms.key"), server_default="UG", index=True)
+    # Set when this room is the same physical hall as a room in another realm.
+    hall_group_id: Mapped[int | None] = mapped_column(ForeignKey("hall_groups.id", ondelete="SET NULL"), nullable=True, index=True)
+    # The other realms' rooms in this room's hall group; filled in by the service for responses.
+    linked_rooms = ()
     capacity: Mapped[int] = mapped_column(Integer)
     faculty_id: Mapped[str | None] = mapped_column(ForeignKey("faculties.id"), nullable=True)
     display_order: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
@@ -39,8 +58,11 @@ class Room(Base):
 
 class Course(Base):
     __tablename__ = "courses"
+    __table_args__ = (UniqueConstraint("realm_key", "code", name="uq_courses_realm_code"),)
     id: Mapped[int] = mapped_column(primary_key=True)
-    code: Mapped[str] = mapped_column(String, unique=True, index=True)
+    # Unique per realm: the same code can exist in UG and ICE.
+    code: Mapped[str] = mapped_column(String, index=True)
+    realm_key: Mapped[str] = mapped_column(ForeignKey("realms.key"), server_default="UG", index=True)
     title: Mapped[str] = mapped_column(String)
     credit_load: Mapped[int] = mapped_column(Integer, default=3)
     lecturers: Mapped[list[str]] = mapped_column(ARRAY(String), default=[])
@@ -63,6 +85,9 @@ class ScheduleItem(Base):
     week: Mapped[int | None] = mapped_column(Integer, nullable=True)
     exam_date: Mapped[date_type | None] = mapped_column(Date, nullable=True)
     semester_id: Mapped[int | None] = mapped_column(ForeignKey("semesters.id"), nullable=True)
+    # Stored on the item: semester_id is nullable on legacy rows, and cross-realm room checks query it directly.
+    realm_key: Mapped[str] = mapped_column(ForeignKey("realms.key"), server_default="UG", index=True)
+    is_online: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
 
 class BlockedSlot(Base):
     __tablename__ = "blocked_slots"
@@ -105,6 +130,7 @@ class ChangeRequest(Base):
     __tablename__ = "change_requests"
     id: Mapped[int] = mapped_column(primary_key=True)
     semester_id: Mapped[int] = mapped_column(ForeignKey("semesters.id", ondelete="CASCADE"), index=True)
+    realm_key: Mapped[str] = mapped_column(ForeignKey("realms.key"), server_default="UG", index=True)
     timetable_type: Mapped[str] = mapped_column(String)  # "lecture" | "exam"
     action: Mapped[str] = mapped_column(String)  # ADD | MODIFY | REMOVE
     # Target existing item (MODIFY/REMOVE). Null for ADD or if the item was since deleted.
@@ -120,6 +146,7 @@ class ChangeRequest(Base):
     end_time: Mapped[time | None] = mapped_column(Time, nullable=True)
     week: Mapped[int | None] = mapped_column(Integer, nullable=True)
     exam_date: Mapped[date_type | None] = mapped_column(Date, nullable=True)
+    is_online: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     reason: Mapped[str | None] = mapped_column(String, nullable=True)
     status: Mapped[str] = mapped_column(String, default=ChangeRequestStatus.PENDING.value, server_default="PENDING")
     requested_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
