@@ -77,11 +77,10 @@ SECURITY_HEADERS = {
     "X-Content-Type-Options": "nosniff",
     "Referrer-Policy": "no-referrer",
     "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
-    # Not `same-site`: the frontend is served from privacurehealth.com while
-    # this API answers on a Lambda function URL, so they are genuinely
-    # cross-site and `same-site` would claim a restriction the deployment does
-    # not honour. CORS, with its explicit origin allowlist, is the control
-    # that actually gates access here.
+    # The frontend (www.unilagtimetable.com) and this API
+    # (backend.unilagtimetable.com) are same-site, but other origins such as
+    # localhost during development are not. CORS, with its explicit origin
+    # allowlist, is the control that actually gates access here.
     "Cross-Origin-Resource-Policy": "cross-origin",
     # Responses here are per-user and must never land in a shared cache.
     "Cache-Control": "no-store",
@@ -110,7 +109,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     response that *cannot* be misinterpreted by a browser and one that merely
     happens not to be. ``nosniff`` and ``Referrer-Policy`` are the two doing
     real work: the first stops a JSON body being treated as script, the second
-    keeps API paths (which carry patient and organization identifiers) out of
+    keeps API paths (which carry user, course and faculty identifiers) out of
     the ``Referer`` header sent to third-party domains.
 
     HSTS is set here too, but only in production: issuing it from a local HTTP

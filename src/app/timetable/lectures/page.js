@@ -9,7 +9,8 @@ import { detectAllConflicts, dismissalSignatureSet, toExternalBooking } from '@/
 import { exportTimetablePDF } from '@/lib/pdfExport';
 import { exportDailyTimetablePDF } from '@/lib/pdfExportDaily';
 import { exportTimetableCSV } from '@/lib/csvExport';
-import { isGeneralStudiesCourse, GENERAL_STUDIES_FACULTY } from '@/lib/utils';
+import { filterSchedulesForExport } from '@/lib/exportFilters';
+import { loadExportSemester } from '@/lib/exportData';
 import { isRoomActive } from '@/lib/utils';
 import TimetableGrid from '@/components/TimetableGrid/TimetableGrid';
 import { useToast } from '@/components/Toast/Toast';
@@ -240,34 +241,36 @@ export default function LectureTimetablePage() {
         setIsExportModalOpen(true);
     };
 
-    const handleExportConfirm = async ({ session, semester, facultyId, departmentId, level, format = 'pdf', monochrome = false, paperSize = 'a3', layout = 'standard' }) => {
+    const handleExportConfirm = async ({ session, semester, semesterId, facultyId, departmentId, level, format = 'pdf', monochrome = false, paperSize = 'a3', layout = 'standard' }) => {
         setIsExportModalOpen(false);
+        if (semesterId === null || semesterId === undefined) {
+            addToast({ type: 'error', title: 'Export Failed', message: 'Choose a semester to export.' });
+            return;
+        }
+        const loaded = await loadExportSemester({
+            semesterId,
+            pageSemesterId: selectedSemesterId,
+            pageSchedules: getSchedulesWithDetails.filter((s) => s.type === 'lecture'),
+            pageIsLocked: isLocked,
+            timetableType: 'lecture',
+            state,
+        });
+        if (!loaded) {
+            addToast({ type: 'error', title: 'Export Failed', message: `Could not load the ${session} ${semester} timetable.` });
+            return;
+        }
+        const { blockedSlots, isLocked: exportIsLocked } = loaded;
         const deptIdNum = departmentId && departmentId !== 'ALL' ? Number(departmentId) : null;
         const levelNum = level && level !== 'ALL' ? Number(level) : null;
-        const allLectures = getSchedulesWithDetails.filter((s) => s.type === 'lecture');
-        const selectedFaculty = facultyId === 'ALL' ? null : state.faculties.find(f => f.id === facultyId);
-        const isGeneralStudies = selectedFaculty?.name?.trim().toLowerCase() === 'general studies';
-        // A faculty's timetable includes courses it owns AND interfaculty/other
-        // courses whose students (a department in this faculty) are enrolled —
-        // mirroring how the platform scopes a faculty's timetable.
-        const deptFacultyId = new Map(state.departments.map((d) => [d.id, d.facultyId]));
-        const enrolledInFaculty = (courseId, fId) =>
-            (enrollmentsByCourse.get(courseId) || []).some((e) => deptFacultyId.get(e.department_id) === fId);
-        const filtered = allLectures.filter((s) => {
-            if (isGeneralStudies) {
-                // General Studies courses are university-wide; match by course code prefix.
-                if (!isGeneralStudiesCourse(s.courseCode)) return false;
-            } else if (facultyId !== 'ALL' && s.facultyId !== facultyId && !enrolledInFaculty(s.courseId, facultyId)) {
-                return false;
-            }
-            if (deptIdNum !== null && s.departmentId !== deptIdNum) return false;
-            if (levelNum !== null && s.courseLevel !== levelNum) return false;
-            return true;
+        const filteredSchedules = filterSchedulesForExport(loaded.schedules, {
+            facultyId,
+            departmentId,
+            level,
+            faculties: state.faculties,
+            departments: state.departments,
+            courses: state.courses,
+            enrollmentsByCourse,
         });
-        // Attribute GST/ENT courses to the General Studies faculty in the export.
-        const filteredSchedules = filtered.map((s) =>
-            isGeneralStudiesCourse(s.courseCode) ? { ...s, facultyName: GENERAL_STUDIES_FACULTY } : s
-        );
         const activeRoomIds = new Set(state.rooms.filter(isRoomActive).map((room) => room.id));
         const exportableSchedules = filteredSchedules.filter((s) => s.is_online || s.isOnline || (s.roomIds || []).some((rid) => activeRoomIds.has(rid)));
         if (exportableSchedules.length === 0) {
@@ -303,8 +306,6 @@ export default function LectureTimetablePage() {
             return;
         }
 
-        const blockedSlots = await apiClient.get(`/timetable/blocked-slots?semester_id=${selectedSemesterId}`).catch(() => []);
-
         // Alternate "1 day per page" layouts (UG 1-hour, ICE 30-minute evening). The
         // standard export below is unchanged and still the default.
         if (layout && layout !== 'standard') {
@@ -325,7 +326,7 @@ export default function LectureTimetablePage() {
                 monochrome,
                 groupByFaculty,
                 paperSize,
-                isLocked,
+                isLocked: exportIsLocked,
                 config: realmConfig,
                 realmKey: realm,
                 realmName,
@@ -354,7 +355,7 @@ export default function LectureTimetablePage() {
             groupByFaculty,
             paperSize,
             structured: paperSize === 'a3',
-            isLocked,
+            isLocked: exportIsLocked,
             config: realmConfig,
             realmKey: realm,
             realmName,
@@ -434,6 +435,7 @@ export default function LectureTimetablePage() {
                 mode="lecture"
                 sessions={sessions}
                 semesters={semesters}
+                defaultSemesterId={selectedSemesterId}
             />
             {isRequestModalOpen && (
                 <RequestEditModal

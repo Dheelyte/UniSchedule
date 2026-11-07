@@ -8,11 +8,12 @@ import { apiClient } from "@/lib/apiClient";
 import { detectAllConflicts, dismissalSignatureSet, toExternalBooking } from "@/lib/conflicts";
 import { exportTimetablePDF } from "@/lib/pdfExport";
 import { exportTimetableCSV } from "@/lib/csvExport";
-import { isGeneralStudiesCourse, GENERAL_STUDIES_FACULTY } from "@/lib/utils";
 import { isRoomActive } from "@/lib/utils";
 import TimetableGrid from "@/components/TimetableGrid/TimetableGrid";
 import { useToast } from "@/components/Toast/Toast";
 import ExportModal from "@/components/ExportModal/ExportModal";
+import { filterSchedulesForExport } from "@/lib/exportFilters";
+import { loadExportSemester } from "@/lib/exportData";
 import TimetableStatusBadge from "@/components/TimetableStatusBadge/TimetableStatusBadge";
 import RequestEditModal from "@/components/RequestEditModal/RequestEditModal";
 import RequestChangeModal from "@/components/RequestChangeModal/RequestChangeModal";
@@ -336,6 +337,7 @@ export default function ExamTimetablePage() {
 	const handleExportConfirm = async ({
 		session,
 		semester,
+		semesterId,
 		facultyId,
 		departmentId,
 		level,
@@ -346,46 +348,37 @@ export default function ExamTimetablePage() {
 		gstOnly = false,
 	}) => {
 		setIsExportModalOpen(false);
+		if (semesterId === null || semesterId === undefined) {
+			addToast({ type: "error", title: "Export Failed", message: "Choose a semester to export." });
+			return;
+		}
+		const loaded = await loadExportSemester({
+			semesterId,
+			pageSemesterId: selectedSemesterId,
+			pageSchedules: getSchedulesWithDetails.filter((s) => s.type === "exam"),
+			pageIsLocked: isLocked,
+			timetableType: "exam",
+			state,
+		});
+		if (!loaded) {
+			addToast({ type: "error", title: "Export Failed", message: `Could not load the ${session} ${semester} timetable.` });
+			return;
+		}
+		const { blockedSlots, isLocked: exportIsLocked } = loaded;
 		const deptIdNum =
 			departmentId && departmentId !== "ALL" ? Number(departmentId) : null;
 		const levelNum = level && level !== "ALL" ? Number(level) : null;
-		const allExams = getSchedulesWithDetails.filter((s) => s.type === "exam");
-		const selectedFaculty =
-			facultyId === "ALL"
-				? null
-				: state.faculties.find((f) => f.id === facultyId);
-		const isGeneralStudies =
-			selectedFaculty?.name?.trim().toLowerCase() === "general studies";
-		// A faculty's timetable includes courses it owns AND interfaculty/other
-		// courses whose students (a department in this faculty) are enrolled —
-		// mirroring how the platform scopes a faculty's timetable.
-		const deptFacultyId = new Map(state.departments.map((d) => [d.id, d.facultyId]));
-		const enrolledInFaculty = (courseId, fId) =>
-			(enrollmentsByCourse.get(courseId) || []).some((e) => deptFacultyId.get(e.department_id) === fId);
-		const filtered = allExams.filter((s) => {
-			if (gstOnly) {
-				if (!isGeneralStudiesCourse(s.courseCode)) return false;
-			} else if (isGeneralStudies) {
-				// General Studies courses are university-wide; match by course code prefix.
-				if (!isGeneralStudiesCourse(s.courseCode)) return false;
-			} else if (facultyId !== "ALL" && s.facultyId !== facultyId && !enrolledInFaculty(s.courseId, facultyId)) {
-				return false;
-			}
-			if (deptIdNum !== null && s.departmentId !== deptIdNum) return false;
-			if (levelNum !== null && s.courseLevel !== levelNum) return false;
-			if (cbtOnly) {
-				const course = state.courses.find((c) => c.id === s.courseId);
-				const isCbt = course?.isCbtExam || course?.is_cbt_exam || false;
-				if (!isCbt) return false;
-			}
-			return true;
+		const filteredSchedules = filterSchedulesForExport(loaded.schedules, {
+			facultyId,
+			departmentId,
+			level,
+			gstOnly,
+			cbtOnly,
+			faculties: state.faculties,
+			departments: state.departments,
+			courses: state.courses,
+			enrollmentsByCourse,
 		});
-		// Attribute GST/ENT courses to the General Studies faculty in the export.
-		const filteredSchedules = filtered.map((s) =>
-			isGeneralStudiesCourse(s.courseCode)
-				? { ...s, facultyName: GENERAL_STUDIES_FACULTY }
-				: s,
-		);
 		const activeRoomIds = new Set(state.rooms.filter(isRoomActive).map((room) => room.id));
 		const exportableSchedules = filteredSchedules.filter((s) => s.is_online || s.isOnline || (s.roomIds || []).some((rid) => activeRoomIds.has(rid)));
 		if (exportableSchedules.length === 0) {
@@ -434,9 +427,6 @@ export default function ExamTimetablePage() {
 		}
 		// A3 structured PDF export (use structured layout on A3)
 		if (format === "pdf" && paperSize === "a3") {
-			const blockedSlots = await apiClient
-				.get(`/timetable/blocked-slots?semester_id=${selectedSemesterId}`)
-				.catch(() => []);
 
 			exportTimetablePDF({
 				schedules: exportableSchedules,
@@ -458,7 +448,7 @@ export default function ExamTimetablePage() {
 				paperSize: "a3",
 				structured: true,
 				gstOnly,
-				isLocked,
+				isLocked: exportIsLocked,
 				config: realmConfig,
 				realmKey: realm,
 				realmName,
@@ -473,9 +463,6 @@ export default function ExamTimetablePage() {
 		}
 
 		// Default A4 PDF export (existing behavior)
-		const blockedSlots = await apiClient
-			.get(`/timetable/blocked-slots?semester_id=${selectedSemesterId}`)
-			.catch(() => []);
 
 		exportTimetablePDF({
 			schedules: exportableSchedules,
@@ -495,7 +482,7 @@ export default function ExamTimetablePage() {
 			monochrome,
 			groupByFaculty,
 			gstOnly,
-			isLocked,
+			isLocked: exportIsLocked,
 			config: realmConfig,
 			realmKey: realm,
 			realmName,
@@ -614,6 +601,7 @@ export default function ExamTimetablePage() {
 				mode="exam"
 				sessions={sessions}
 				semesters={semesters}
+				defaultSemesterId={selectedSemesterId}
 			/>
 			{isRequestModalOpen && (
 				<RequestEditModal

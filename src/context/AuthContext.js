@@ -2,10 +2,26 @@
 
 import { createContext, useContext, useState, useEffect, useMemo } from "react";
 import { apiClient } from "@/lib/apiClient";
-import { getRealmConfig, loginPath, rememberRealm } from "@/lib/realm";
+import { getRealmConfig, rememberRealm } from "@/lib/realm";
+import { SESSION_HINT_KEY } from "@/lib/site";
 import { useRouter } from "next/navigation";
 
 const AuthContext = createContext(null);
+
+// Remembers in this browser whether someone was signed in, so the homepage can
+// hide the landing page from them before React loads (see app/layout.js).
+function setSessionHint(signedIn) {
+	try {
+		if (signedIn) {
+			localStorage.setItem(SESSION_HINT_KEY, "1");
+		} else {
+			localStorage.removeItem(SESSION_HINT_KEY);
+			document.documentElement.removeAttribute("data-session");
+		}
+	} catch {
+		// Storage blocked (private mode): the landing page may flash; harmless.
+	}
+}
 
 export function AuthProvider({ children }) {
 	const [user, setUser] = useState(null);
@@ -19,12 +35,14 @@ export function AuthProvider({ children }) {
 			.then((res) => {
 				if (mounted) {
 					rememberRealm(res?.realm);
+					setSessionHint(true);
 					setUser(res);
 					setLoading(false);
 				}
 			})
 			.catch(() => {
 				if (mounted) {
+					setSessionHint(false);
 					setUser(null);
 					setLoading(false);
 				}
@@ -38,15 +56,18 @@ export function AuthProvider({ children }) {
 		await apiClient.post("/auth/login", { email, password, realm });
 		const user = await apiClient.get("/auth/me");
 		rememberRealm(user?.realm);
+		setSessionHint(true);
 		setUser(user);
 		router.push("/");
 	};
 
+	// Back to the public homepage. A full page load, so the layout can't first
+	// redirect a protected page to the login screen, and no cached data from
+	// the old session survives.
 	const logout = async () => {
-		const realm = user?.realm;
 		await apiClient.post("/auth/logout", {});
-		setUser(null);
-		router.push(loginPath(realm));
+		setSessionHint(false);
+		window.location.href = "/";
 	};
 
 	// Super-admin impersonation. A hard navigation to the dashboard resets all
