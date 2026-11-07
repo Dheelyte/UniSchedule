@@ -42,10 +42,10 @@ export const apiClient = {
 			if (response.status === 401 && typeof window !== "undefined") {
 				// Pages open to signed-out visitors (publicPaths and standalonePaths
 				// in ClientLayout): their sign-in check is expected to 401.
+				const path = window.location.pathname;
 				if (
-					!["/", "/login", "/register", "/forgot-password", "/realms", "/contributors"].includes(
-						window.location.pathname,
-					)
+					!["/", "/login", "/register", "/forgot-password", "/realms", "/contributors", "/verify"].includes(path) &&
+					!path.startsWith("/verify/")
 				) {
 					window.location.href = loginPath(lastRealm());
 				}

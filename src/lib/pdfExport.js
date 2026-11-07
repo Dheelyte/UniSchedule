@@ -14,6 +14,7 @@ import {
 } from "./timetableLayout.js";
 import { UG_CONFIG, DEFAULT_REALM, hourRange, lecturePdfDays } from "./realm.js";
 import { robotoCondensedRegular, robotoCondensedBold } from "./fonts/robotoCondensed.js";
+import { applySignoff, isSigned } from "./pdfSignoff.js";
 
 export function exportTimetablePDF({
 	schedules,
@@ -36,11 +37,15 @@ export function exportTimetablePDF({
 	structured = false,
 	gstOnly = false,
 	isLocked = false,
+	// FINAL exports: the signatory, signature, stamp and verification code
+	// (see src/lib/pdfSignoff.js). Drafts are watermarked instead.
+	signoff = null,
 	config = UG_CONFIG,
 	realmKey = DEFAULT_REALM,
 	realmName = null,
 }) {
 	if (!schedules || schedules.length === 0) return;
+	const signed = isSigned(signoff);
 
 	// Combined "Department · Level" label used for subtitles/titles/filenames.
 	// The cover page below renders department and level as separate labeled
@@ -881,7 +886,8 @@ export function exportTimetablePDF({
 
 		// Vertical space for room rows below the repeated day/hour header,
 		// leaving room for the lecture legend + footer.
-		const maxGridH = mode === "exam" ? 230 : pageH - 13 - (34 + 14);
+		// A signed export also keeps the sign-off strip clear (it ends 10mm up).
+		const maxGridH = Math.min(mode === "exam" ? 230 : pageH - 13 - (34 + 14), signed ? pageH - 77 : Infinity);
 
 		// Build all pages to print in order: GST section first, then normal section
 		const pagesToRender = [];
@@ -1786,6 +1792,10 @@ export function exportTimetablePDF({
 			pageIdx++;
 		});
 
+		applySignoff(pdfA3, {
+			signoff, isLocked, pageW, pageH, margin: m, stripBottom: pageH - 10,
+			cover: hasCover ? { page: 1, scale: 1 } : null,
+		});
 		const fname = getExportFileName(title, session, semester, faculty, scopeLabel, pageFormat === "a4" ? "a4" : "a3");
 		if (typeof window !== "undefined") {
 			pdfA3.save(fname);
@@ -1857,7 +1867,8 @@ export function exportTimetablePDF({
 	const BLOCK_HEAD_H = 10 + headerH;
 	const BLOCK_GAP = 6;
 	const mainHeaderEndY = margin + 48;
-	const bottomLimit = pageH - margin;
+	// A signed export keeps the sign-off strip (above the footer) clear.
+	const bottomLimit = pageH - margin - (signed ? 15 : 0);
 	const FACULTY_BAND_H = groupByFaculty ? 9 : 0;
 	const packGroups = mode === "exam";
 
@@ -2436,5 +2447,6 @@ export function exportTimetablePDF({
 	});
 
 	const fileName = getExportFileName(title, session, semester, faculty, scopeLabel, "a4");
+	applySignoff(pdf, { signoff, isLocked, pageW, pageH, margin, stripBottom: pageH - 6 });
 	pdf.save(fileName);
 }

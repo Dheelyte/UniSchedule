@@ -40,6 +40,10 @@ const pageTitles = {
 		title: "Academic Sessions",
 		subtitle: "Configure academic sessions and semesters",
 	},
+	"/signoffs": {
+		title: "Signatures & Stamps",
+		subtitle: "Sign and stamp FINAL timetable PDFs",
+	},
 };
 
 export default function TopBar({
