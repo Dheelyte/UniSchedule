@@ -17,6 +17,10 @@ export default function ExportModal({
 	mode,
 	sessions = [],
 	semesters = [],
+	// Semester shown on the page; the export defaults to it.
+	defaultSemesterId = null,
+	// CBT page: every export is already CBT-only, so hide the exam toggles.
+	showExamToggles = mode === "exam",
 }) {
 	const { state } = useApp();
 	const { realm, realmConfig } = useAuth();
@@ -25,6 +29,8 @@ export default function ExportModal({
 	// Default values
 	const [session, setSession] = useState("");
 	const [semester, setSemester] = useState(fallbackSemester);
+	// Semester rows can share a name across sessions, so pick by id.
+	const [semesterId, setSemesterId] = useState(null);
 	const [facultyId, setFacultyId] = useState("ALL");
 	const [departmentId, setDepartmentId] = useState("ALL");
 	const [level, setLevel] = useState("ALL");
@@ -36,14 +42,15 @@ export default function ExportModal({
 
 	useEffect(() => {
 		if (isOpen) {
-			// Default to current session or first available
-			const current = sessions.find((s) => s.is_current) || sessions[0];
-			/* eslint-disable react-hooks/set-state-in-effect */
-			setSession(current ? current.name : "2025/2026");
-			
-			// Find current semester from database and set as default
-			const currentSem = semesters.find((s) => s.is_current) || semesters[0];
-			setSemester(currentSem ? currentSem.name : fallbackSemester);
+			// Default to the semester on screen, else the current one, else the first.
+			const initialSem =
+				semesters.find((s) => s.id === defaultSemesterId) ||
+				semesters.find((s) => s.is_current) ||
+				semesters[0];
+			const currentSession = sessions.find((s) => s.is_current) || sessions[0];
+			setSession(initialSem?.sessionName || currentSession?.name || "");
+			setSemesterId(initialSem ? initialSem.id : null);
+			setSemester(initialSem ? initialSem.name : fallbackSemester);
 			
 			setFacultyId("ALL");
 			setDepartmentId("ALL");
@@ -53,9 +60,8 @@ export default function ExportModal({
 			setCbtOnly(false);
 			setGstOnly(false);
 			setLayout("standard");
-			/* eslint-enable react-hooks/set-state-in-effect */
 		}
-	}, [isOpen, sessions, semesters, fallbackSemester]);
+	}, [isOpen, sessions, semesters, fallbackSemester, defaultSemesterId]);
 
 	if (!isOpen) return null;
 
@@ -64,10 +70,31 @@ export default function ExportModal({
 			? state.departments
 			: state.departments.filter((d) => d.facultyId === facultyId);
 
+	const sessionSemesters = semesters.filter((s) => !session || s.sessionName === session);
+
+	const changeSession = (name) => {
+		setSession(name);
+		const sems = semesters.filter((s) => s.sessionName === name);
+		const next = sems.find((s) => s.is_current) || sems[0];
+		setSemesterId(next ? next.id : null);
+		setSemester(next ? next.name : fallbackSemester);
+	};
+
+	const changeSemester = (value) => {
+		if (semesters.length === 0) {
+			setSemester(value);
+			return;
+		}
+		const sem = semesters.find((s) => String(s.id) === value);
+		setSemesterId(sem ? sem.id : null);
+		setSemester(sem ? sem.name : "");
+	};
+
 	const submit = (format) => {
 		onExport({
 			session,
 			semester,
+			semesterId,
 			facultyId,
 			departmentId,
 			level,
@@ -108,7 +135,7 @@ export default function ExportModal({
 							<select
 								className={styles.input}
 								value={session}
-								onChange={(e) => setSession(e.target.value)}
+								onChange={(e) => changeSession(e.target.value)}
 								required>
 								{sessions.map((s) => (
 									<option key={s.id} value={s.name}>
@@ -133,17 +160,20 @@ export default function ExportModal({
 						<label className={styles.label}>Semester</label>
 						<select
 							className={styles.input}
-							value={semester}
-							onChange={(e) => setSemester(e.target.value)}>
+							value={semesters.length > 0 ? String(semesterId ?? "") : semester}
+							onChange={(e) => changeSemester(e.target.value)}
+							required>
 							{semesters.length > 0 ? (
-								semesters
-									.filter((s) => !session || s.sessionName === session)
-									.map((s) => (
-										<option key={s.id} value={s.name}>
+								sessionSemesters.length === 0 ? (
+									<option value="">No semesters in this session</option>
+								) : (
+									sessionSemesters.map((s) => (
+										<option key={s.id} value={String(s.id)}>
 											{s.name}
 											{s.is_current ? " (Current)" : ""}
 										</option>
 									))
+								)
 							) : (
 								realmConfig.semester_names.map((name) => (
 									<option key={name} value={name}>
@@ -241,7 +271,7 @@ export default function ExportModal({
 						</label>
 					</div>
 
-					{mode === "exam" && (
+					{showExamToggles && (
 						<>
 							<div className={styles.formGroup}>
 								<label className={styles.checkboxLabel}>
