@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta, timezone
-from fastapi import HTTPException, Request
+from fastapi import Request
+from fastapi.responses import JSONResponse
 import jwt
 import bcrypt
 import hashlib
@@ -60,7 +61,8 @@ class AllowedHostMiddlware(BaseHTTPMiddleware):
         host = request.headers.get("host", "").split(":")[0]
         if settings.DEBUG or host in settings.ALLOWED_HOSTS:
             return await call_next(request)
-        raise HTTPException(status_code=400, detail="Invalid host")
+        # Raising HTTPException here would skip FastAPI's handlers and surface as a 500.
+        return JSONResponse(status_code=400, content={"detail": "Invalid host"})
 
 
 # Sent on every response. Tuned for a JSON API that renders no HTML of its own

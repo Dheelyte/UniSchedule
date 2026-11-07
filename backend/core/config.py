@@ -56,4 +56,8 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding='utf-8', extra='ignore')
 
+    @property
+    def is_production(self) -> bool:
+        return self.ENVIRONMENT == "prod"
+
 settings = Settings()

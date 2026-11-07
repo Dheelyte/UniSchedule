@@ -13,19 +13,19 @@ router = APIRouter(prefix="/auth", tags=["Auth"])
 @router.post("/login")
 async def login(response: Response, data: LoginRequest, service: AuthService = Depends()):
     token = await service.authenticate_user(data.email, data.password, data.realm)
-    response.set_cookie(
-        key="access_token",
-        value=token,
-        httponly=True,
-        secure=settings.COOKIE_SECURE,
-        samesite=settings.COOKIE_SAMESITE,
-        max_age=1440 * 60
-    )
+    _set_session_cookie(response, token)
     return {"message": "Login successful"}
 
 @router.post("/logout")
 async def logout(response: Response):
-    response.delete_cookie(key="access_token")
+    # Must match the attributes the cookie was set with, or the browser keeps it.
+    response.delete_cookie(
+        key="access_token",
+        domain=settings.COOKIE_DOMAIN or None,
+        secure=settings.COOKIE_SECURE,
+        httponly=True,
+        samesite=settings.COOKIE_SAMESITE,
+    )
     return {"message": "Logout successful"}
 
 @router.get("/me")
@@ -39,6 +39,7 @@ def _set_session_cookie(response: Response, token: str) -> None:
         httponly=True,
         secure=settings.COOKIE_SECURE,
         samesite=settings.COOKIE_SAMESITE,
+        domain=settings.COOKIE_DOMAIN or None,
         max_age=1440 * 60,
     )
 
