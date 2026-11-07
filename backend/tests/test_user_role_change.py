@@ -203,6 +203,17 @@ async def test_impersonating_super_admin_is_403(admin, make_user):
     assert response.status_code == 403, response.text
 
 
+async def test_super_admin_can_view_as_deo(admin):
+    await _ok(await admin.post(f"{API}/auth/impersonate", json={"role": "DEO", "faculty_id": "ENG"}))
+    me = await _me(admin)
+    assert (me["role"], me["faculty_id"], me["impersonating"]) == ("DEO", "ENG", True)
+
+
+async def test_viewing_as_deo_requires_a_faculty(admin):
+    response = await admin.post(f"{API}/auth/impersonate", json={"role": "DEO"})
+    assert response.status_code == 400, response.text
+
+
 async def test_requires_sign_in(client, make_user):
     viewer = await make_user(RoleEnum.FACULTY_VIEWER, faculty_id="ENG")
     assert (await _patch(client, viewer["id"], "FACULTY_EDITOR", "ENG")).status_code == 401
