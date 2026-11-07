@@ -17,6 +17,7 @@ export const PRIVATE_PATHS = [
 	'/staff',
 	'/terms',
 	'/timetable',
+	'/signoffs',
 	'/register',
 	'/forgot-password',
 ];

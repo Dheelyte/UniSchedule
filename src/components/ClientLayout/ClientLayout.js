@@ -30,8 +30,10 @@ function LayoutInner({ children }) {
 	// see src/app/page.js) but, unlike the paths above, an authenticated
 	// user is allowed to stay on it (it shows the dashboard there instead).
 	const publicPaths = ["/", ...guestOnlyPaths];
-	// Open to everyone and always rendered without the app shell.
-	const standalonePaths = ["/contributors"];
+	// Open to everyone and always rendered without the app shell. /verify/<code>
+	// is where the QR code on a FINAL timetable PDF leads.
+	const standalonePaths = ["/contributors", "/verify"];
+	const isStandalone = standalonePaths.includes(pathname) || pathname.startsWith("/verify/");
 
     useEffect(() => {
         if (loading) return;
@@ -39,7 +41,7 @@ function LayoutInner({ children }) {
         // Read from the address bar: useSearchParams here would opt every
         // page out of prerendering.
         const { path, realm: linkRealm } = splitRealmLink(`${pathname}${window.location.search}`);
-        if (!user && !publicPaths.includes(pathname) && !standalonePaths.includes(pathname)) {
+        if (!user && !publicPaths.includes(pathname) && !isStandalone) {
             router.push(loginPath(linkRealm || lastRealm()));
         }
         if (user && guestOnlyPaths.includes(pathname)) {
@@ -83,7 +85,7 @@ function LayoutInner({ children }) {
 		}
 	};
 
-    if (standalonePaths.includes(pathname)) return <>{children}</>;
+    if (isStandalone) return <>{children}</>;
     // The homepage renders straight away (as the landing page) so search
     // engines and first-time visitors get real content, not a spinner. Someone
     // who was signed in last time sees a spinner over it instead (see the

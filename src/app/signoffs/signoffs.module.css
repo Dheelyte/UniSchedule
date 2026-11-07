@@ -1,0 +1,294 @@
+.page {
+	padding: 24px;
+	margin: 0 auto;
+	width: 100%;
+}
+
+.loading {
+	color: var(--color-text-muted);
+	padding: 40px 0;
+	text-align: center;
+}
+
+.intro {
+	background: var(--color-primary-bg);
+	border: 1px solid rgba(99, 102, 241, 0.2);
+	border-radius: 12px;
+	padding: 16px 20px;
+	margin-bottom: 24px;
+	color: var(--color-text-secondary);
+	font-size: 0.9rem;
+	line-height: 1.6;
+}
+
+.cards {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(min(100%, 520px), 1fr));
+	gap: 24px;
+}
+
+.card {
+	display: flex;
+	flex-direction: column;
+	gap: 18px;
+	background: var(--color-bg-card);
+	border: 1px solid var(--color-border);
+	border-radius: 12px;
+	padding: 24px;
+	min-width: 0;
+}
+
+.cardHeader {
+	display: flex;
+	justify-content: space-between;
+	align-items: flex-start;
+	gap: 12px;
+	flex-wrap: wrap;
+	padding-bottom: 14px;
+	border-bottom: 1px solid var(--color-border);
+}
+
+.cardTitle {
+	font-size: 1.1rem;
+	font-weight: 600;
+	color: var(--color-text);
+}
+
+.cardNote {
+	margin-top: 2px;
+	font-size: 0.85rem;
+	color: var(--color-text-muted);
+}
+
+.fields {
+	display: grid;
+	grid-template-columns: 1fr 1fr;
+	gap: 14px;
+}
+
+.field {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	min-width: 0;
+}
+
+.label {
+	font-size: 0.8rem;
+	font-weight: 600;
+	color: var(--color-text-secondary);
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+}
+
+.images {
+	display: grid;
+	grid-template-columns: 1fr 1fr;
+	gap: 14px;
+}
+
+.imageField {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	min-width: 0;
+}
+
+/* A checkerboard shows which parts of the cleaned image are transparent. */
+.imageBox {
+	height: 120px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	border: 1px solid var(--color-border);
+	border-radius: 10px;
+	background-color: #fff;
+	background-image:
+		linear-gradient(45deg, #f1f5f9 25%, transparent 25%),
+		linear-gradient(-45deg, #f1f5f9 25%, transparent 25%),
+		linear-gradient(45deg, transparent 75%, #f1f5f9 75%),
+		linear-gradient(-45deg, transparent 75%, #f1f5f9 75%);
+	background-size: 16px 16px;
+	background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+	overflow: hidden;
+}
+
+.imageBoxEmpty {
+	border-style: dashed;
+	background-image: none;
+	background-color: var(--color-bg-input);
+}
+
+.imagePreview {
+	max-width: 90%;
+	max-height: 100px;
+	object-fit: contain;
+}
+
+.imagePlaceholder {
+	font-size: 0.85rem;
+	color: var(--color-text-muted);
+}
+
+.imageActions {
+	display: flex;
+	gap: 8px;
+	flex-wrap: wrap;
+}
+
+.checkbox {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	font-size: 0.82rem;
+	color: var(--color-text-secondary);
+	cursor: pointer;
+}
+
+.hint {
+	font-size: 0.8rem;
+	color: var(--color-text-muted);
+	line-height: 1.5;
+}
+
+.error {
+	font-size: 0.82rem;
+	color: var(--color-danger);
+}
+
+/* ---------- Preview of the printed strip ---------- */
+.strip {
+	display: flex;
+	justify-content: space-between;
+	align-items: flex-end;
+	gap: 16px;
+	padding: 14px 16px;
+	border: 1px solid var(--color-border);
+	border-radius: 10px;
+	background: #fff;
+	overflow: hidden;
+}
+
+.stripLeft {
+	display: flex;
+	align-items: flex-start;
+	gap: 10px;
+	min-width: 0;
+}
+
+.qr {
+	flex-shrink: 0;
+	width: 52px;
+	height: 52px;
+	display: grid;
+	grid-template-columns: 1fr 1fr;
+	gap: 6px;
+	padding: 4px;
+	border: 2px solid #0f172a;
+	border-radius: 4px;
+}
+
+.qr span {
+	background: #0f172a;
+	border-radius: 2px;
+}
+
+.stripFinal {
+	font-size: 0.72rem;
+	font-weight: 700;
+	color: #10b981;
+}
+
+.stripVerify {
+	font-size: 0.68rem;
+	color: var(--color-text-secondary);
+	overflow-wrap: anywhere;
+}
+
+.stripVerify strong {
+	color: #4f46e5;
+}
+
+.stripSmall {
+	font-size: 0.62rem;
+	color: var(--color-text-muted);
+}
+
+.stripRight {
+	display: flex;
+	align-items: flex-end;
+	flex-shrink: 0;
+}
+
+.stripStamp {
+	width: 64px;
+	height: 64px;
+	object-fit: contain;
+	margin-right: -12px;
+	position: relative;
+	z-index: 1;
+	opacity: 0.9;
+}
+
+.stripSign {
+	width: 170px;
+	text-align: center;
+}
+
+.stripSignature {
+	height: 38px;
+	display: flex;
+	align-items: flex-end;
+	justify-content: center;
+	border-bottom: 1px solid #64748b;
+}
+
+.stripSignature img {
+	max-height: 36px;
+	max-width: 100%;
+	object-fit: contain;
+}
+
+.stripName {
+	margin-top: 4px;
+	font-size: 0.72rem;
+	font-weight: 700;
+	color: #0f172a;
+}
+
+.stripTitle {
+	font-size: 0.66rem;
+	color: var(--color-text-secondary);
+}
+
+.cardFooter {
+	display: flex;
+	justify-content: flex-end;
+	gap: 10px;
+	padding-top: 14px;
+	border-top: 1px solid var(--color-border);
+}
+
+@media (max-width: 640px) {
+	.page {
+		padding: 16px;
+	}
+
+	.card {
+		padding: 18px;
+	}
+
+	.fields,
+	.images {
+		grid-template-columns: 1fr;
+	}
+
+	.strip {
+		flex-direction: column;
+		align-items: stretch;
+	}
+
+	.stripRight {
+		justify-content: flex-end;
+	}
+}

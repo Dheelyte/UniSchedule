@@ -16,6 +16,7 @@ These rules describe the target design. `docs/ice-realm/PLAN.md` tracks how far 
   - academic sessions, and the semesters, schedule items, blocked slots, locks and change requests under them;
   - courses and their enrollments;
   - conflict dismissals;
+  - timetable sign-offs (signatory, signature, stamp) and FINAL verification codes (looking a code up at `/verify` is the one public, cross-realm read);
   - audit logs;
   - users in realm-bound roles.
 - **Shared data:** none. The only link between realms is a hall group (below).

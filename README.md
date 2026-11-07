@@ -8,6 +8,7 @@ UniSchedule is the timetable manager for the University of Lagos, live at **[www
 - **Conflict detection** for rooms, departments and levels as items are placed. University-wide courses take priority over interfaculty courses, which take priority over departmental ones. Several exams can share a venue at the same time.
 - **Programmes (realms)**: each programme (Undergraduate, ICE part-time, …) has its own calendar, rooms, courses and staff. See [Realms](#realms-programmes).
 - **Locking and change requests**: a Super Admin marks a timetable FINAL to stop edits, and a Faculty Editor can ask for it to be reopened. While a timetable is open, faculty staff send change requests to the super admins.
+- **Signed, stamped and verifiable FINAL PDFs**: every timetable page of a FINAL PDF carries the official stamp, the signatory's signature, name and title, and a QR code and link to `/verify/<code>`, where anyone can check the copy is genuine and still current. Draft PDFs get a DRAFT watermark instead. See [Signatures and verification](#signatures-and-verification).
 - **Exports** to PDF (A3 or A4, colour or black and white, a week grid or one day per page for lectures) and CSV, filtered by session, semester, faculty, department and level.
 - **Import** (beta, Super Admin): read a faculty's existing timetable from an Excel (.xlsx) or Word (.docx) file, or copy an earlier semester. Each import is previewed and checked for clashes before it is saved, and can be reverted.
 - **Staff invitations, roles and an activity log.**
@@ -113,7 +114,7 @@ UniSchedule is the timetable manager for the University of Lagos, live at **[www
 
 | Role | Scope | Access |
 |---|---|---|
-| Super Admin | All realms, all faculties | Full access. Locks timetables, manages staff, and can **View as** any other role to check what they see. |
+| Super Admin | All realms, all faculties | Full access. Locks timetables, manages staff and the signatures and stamps on FINAL PDFs, and can **View as** any other role to check what they see. |
 | Super Viewer | All realms, all faculties | Read-only; can request changes. |
 | Super Administrator (CITS) | All realms | Manages the CBT timetable. |
 | GS Admin | One realm | Manages General Studies (GST/ENT) courses. |
@@ -138,6 +139,16 @@ The app serves more than one programme. Each one is a **realm** with its own fac
 - **Settings.** A realm's days, hours, time step, exam slots, levels and semester names are stored in `realms.config`. `GET /api/v1/realms` returns them and a Super Admin changes them with `PUT /api/v1/realms/{key}`; there is no settings screen yet. The frontend reads them through `src/lib/realm.js`.
 - **Same physical hall.** Each realm has its own rooms. On its Rooms page, a realm other than Undergraduate adds the Undergraduate rooms it also uses ("Add from Undergraduate"); each becomes a room of its own, linked to the original as the same hall. "Create new room" makes a room that only that realm has. Two lectures, or two exams, from different realms can't overlap in a linked hall: the API answers 409 and the grid shows the other realm's booking in grey. Rooms that aren't linked never clash across realms.
 - **Design.** `docs/ice-realm/SPEC.md` has the full design and `docs/ice-realm/PLAN.md` the build log.
+
+## Signatures and verification
+
+FINAL (locked) timetables are exported signed; drafts are watermarked.
+
+- **Setting it up.** A Super Admin opens **Signatures & Stamps** in the sidebar (`/signoffs`). Each programme has two sign-offs, one for lecture timetables and one for exam timetables (CBT timetables use the exam one). Each has the signatory's name and title (the Vice-Chancellor until set otherwise) and a scanned signature and stamp. Uploads are cleaned up in the browser: the paper background is made transparent, the edges trimmed and large photos scaled down, so scan on plain white paper.
+- **Exports.** Every timetable page of a FINAL PDF (lecture, exam, CBT; A3, A4 and one day per page) gets a strip above the footer: the QR code, link and verification code on the left, the stamp, signature, name and title on the right. The cover page only says what is inside, so it carries the QR code and link but no stamp or signature. CSV exports are not signed.
+- **Verification codes.** Locking a timetable issues a code such as `UG-7K3P-92QD`. Unlocking marks it reopened; locking again issues a new code. The public page `/verify/<code>` (or `/verify` to type one in) shows the programme, session, semester and timetable type, when it was marked FINAL, and whether it is **current**, **reopened** (may be out of date) or **superseded** by a newer FINAL version. It never shows the signature or stamp. Verify pages are kept out of search results.
+- **Why the code matters.** PDFs are built in the browser, so anyone who can export a FINAL timetable receives the signature and stamp images and could copy them. The verification code is the real check: a forged or outdated copy either has no code or one that doesn't match.
+- **Storage.** Sign-offs live in `timetable_signoffs` and issued codes in `timetable_verifications` (`backend/modules/signoff/`). Both are realm-scoped; only looking a code up is cross-realm, by design.
 
 ## Running the Tests
 

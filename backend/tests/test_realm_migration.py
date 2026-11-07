@@ -36,7 +36,7 @@ REALM_TABLES = (
 # Added by the separation revision.
 SEPARATED_TABLES = ("faculties", "rooms")
 # Realm-scoped tables added after realms.
-LATER_TABLES = ("timetable_imports",)
+LATER_TABLES = ("timetable_imports", "timetable_signoffs", "timetable_verifications")
 
 
 def _alembic(*args: str, check: bool = True) -> subprocess.CompletedProcess:

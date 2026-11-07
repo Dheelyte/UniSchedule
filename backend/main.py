@@ -11,7 +11,7 @@ from sqlalchemy import select
 from core.config import settings
 from core.database import get_db, async_session_maker
 from core.security import get_password_hash, AllowedHostMiddlware, SecurityHeadersMiddleware
-from api.v1 import dummy, auth, calendar, timetable, export, notifications, audit, realms, timetable_import
+from api.v1 import dummy, auth, calendar, timetable, export, notifications, audit, realms, timetable_import, signoff
 from modules.auth.models import User, RoleEnum, stored_realm_key
 
 limiter = Limiter(
@@ -63,6 +63,7 @@ app.include_router(notifications.router, prefix="/api/v1")
 app.include_router(audit.router, prefix="/api/v1")
 app.include_router(realms.router, prefix="/api/v1")
 app.include_router(timetable_import.router, prefix="/api/v1")
+app.include_router(signoff.router, prefix="/api/v1")
 
 @app.get("/health")
 async def health_check(db: AsyncSession = Depends(get_db)):
