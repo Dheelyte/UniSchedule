@@ -359,9 +359,13 @@ export default function ContributorsPage() {
 	useEffect(() => () => clearTimeout(closeTimer.current), []);
 
 	const expanded = phase === 'open';
+	// The panel is always full screen; clip it down to the card while it opens
+	// and closes, so the browser never has to re-lay it out mid-animation.
 	const panelStyle = expanded || !rect
-		? { top: 0, left: 0, width: '100%', height: '100%', borderRadius: 0 }
-		: { top: rect.top, left: rect.left, width: rect.width, height: rect.height, borderRadius: 'var(--radius-xl)' };
+		? { clipPath: 'inset(0px round 0px)' }
+		: {
+			clipPath: `inset(${rect.top}px ${window.innerWidth - rect.right}px ${window.innerHeight - rect.bottom}px ${rect.left}px round var(--radius-xl))`,
+		};
 	const person = active !== null ? CONTRIBUTORS[active] : null;
 
 	return (
