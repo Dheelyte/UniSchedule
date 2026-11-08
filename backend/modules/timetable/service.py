@@ -1048,9 +1048,18 @@ class TimetableService:
         )
         return created
 
-    async def get_schedule_items(self, current_user: dict, semester_id: int | None = None) -> list[ScheduleItem]:
+    async def get_schedule_items(
+        self, current_user: dict, semester_id: int | None = None, item_type: str | None = None,
+    ) -> list[ScheduleItem]:
         faculty_id = None if _has_global_read_scope(current_user) else current_user.get('faculty_id')
-        return await self.repo.get_schedule_items(realm_key=current_user["realm"], semester_id=semester_id, faculty_id=faculty_id)
+        return await self.repo.get_schedule_items(
+            realm_key=current_user["realm"], semester_id=semester_id, faculty_id=faculty_id, item_type=item_type,
+        )
+
+    async def get_room_usage(self, current_user: dict) -> dict[int, int]:
+        """Schedule items per room, counted over the items get_schedule_items would return."""
+        faculty_id = None if _has_global_read_scope(current_user) else current_user.get('faculty_id')
+        return await self.repo.room_usage(realm_key=current_user["realm"], faculty_id=faculty_id)
         
     async def update_schedule_item(self, id: int, data: ScheduleItemUpdate, current_user: dict) -> ScheduleItem:
         item = await self.repo.get_schedule_item(id, realm_key=current_user["realm"])

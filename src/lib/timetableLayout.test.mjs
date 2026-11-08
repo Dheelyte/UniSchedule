@@ -337,6 +337,7 @@ test("PDF export: dense faculty layout satisfies all requirements and fixture co
 		facultyId: 1
 	}));
 	const pdf = exportTimetablePDF({
+		compress: false,
 		schedules,
 		rooms,
 		faculties: [{ id: 1, name: "Faculty of Arts" }],
@@ -372,6 +373,7 @@ test("PDF export: General Studies timetable title displays LECTURE vs EXAMINATIO
 
 	// Lecture mode
 	const lecturePdf = exportTimetablePDF({
+		compress: false,
 		schedules,
 		rooms,
 		faculties,
@@ -402,6 +404,7 @@ test("PDF export: General Studies timetable title displays LECTURE vs EXAMINATIO
 		facultyId: 99
 	}];
 	const examPdf = exportTimetablePDF({
+		compress: false,
 		schedules: examSchedules,
 		rooms,
 		faculties,
@@ -441,6 +444,8 @@ test("PDF export: ICE lecture timetable starts at 2pm (14:00) and displays after
 	}];
 
 	const pdf = exportTimetablePDF({
+
+		compress: false,
 		schedules,
 		rooms,
 		faculties,

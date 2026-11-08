@@ -32,7 +32,7 @@ function LayoutInner({ children }) {
 	const publicPaths = ["/", ...guestOnlyPaths];
 	// Open to everyone and always rendered without the app shell. /verify/<code>
 	// is where the QR code on a FINAL timetable PDF leads.
-	const standalonePaths = ["/contributors", "/verify"];
+	const standalonePaths = ["/contributors", "/verify", "/download"];
 	const isStandalone = standalonePaths.includes(pathname) || pathname.startsWith("/verify/");
 
     useEffect(() => {

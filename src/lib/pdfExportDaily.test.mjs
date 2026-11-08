@@ -82,6 +82,7 @@ test("Daily PDF (UG 1-hour): cover + one page per lecture day with 8 - 9:00am st
 		{ id: 2, courseCode: "LAW205", day: "Wednesday", startTime: "11:00", endTime: "13:00", roomIds: [2], facultyName: "Faculty of Law" },
 	];
 	const pdf = exportDailyTimetablePDF({
+		compress: false,
 		schedules, rooms, faculties,
 		faculty: "Faculty of Law", session: "2026/2027", semester: "First Semester",
 		layout: "daily-hourly", isLocked: true,
@@ -106,6 +107,7 @@ test("Daily PDF (General Studies): only days with GST schedules are printed, not
 		{ id: 11, courseCode: "LAW101", day: "Monday", startTime: "08:00", endTime: "10:00", roomIds: [1], facultyName: "Faculty of Law" },
 	];
 	const pdf = exportDailyTimetablePDF({
+		compress: false,
 		schedules, rooms, faculties,
 		faculty: "Faculty of Law", session: "2026/2027", semester: "First Semester",
 		layout: "daily-hourly",
@@ -126,6 +128,7 @@ test("Daily PDF (ICE 30-min): 4pm-10pm columns, morning classes listed not drawn
 		{ id: 3, courseCode: "ICE-LAW220", day: "Thursday", startTime: "18:30", endTime: "20:00", roomIds: [2] },
 	];
 	const pdf = exportDailyTimetablePDF({
+		compress: false,
 		schedules, rooms, faculties, config: iceConfig, realmKey: "ICE", realmName: "ICE",
 		session: "2026/2027", semester: "First Semester", layout: "daily-ice-30",
 	});
@@ -146,7 +149,8 @@ test("Daily PDF: many rooms on one day continue onto extra pages", async () => {
 	const schedules = manyRooms.map((r, i) => ({
 		id: i, courseCode: `CRS${100 + i}`, day: "Monday", startTime: "09:00", endTime: "10:00", roomIds: [r.id],
 	}));
-	const pdf = exportDailyTimetablePDF({ schedules, rooms: manyRooms, layout: "daily-hourly" });
+	const pdf = exportDailyTimetablePDF({
+		compress: false, schedules, rooms: manyRooms, layout: "daily-hourly" });
 	// Cover + Monday overflow (>1 page) + Tuesday-Friday (1 page each).
 	assert.ok(pdf.getNumberOfPages() > 6);
 });

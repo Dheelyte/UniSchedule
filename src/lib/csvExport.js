@@ -1,7 +1,11 @@
-import { GENERAL_STUDIES_FACULTY } from "./utils";
-import { UG_CONFIG, DEFAULT_REALM } from "./realm";
+import { GENERAL_STUDIES_FACULTY } from "./utils.js";
+import { UG_CONFIG, DEFAULT_REALM } from "./realm.js";
 
-export function exportTimetableCSV({
+/**
+ * The CSV text (with a UTF-8 BOM, so Excel reads it) and its file name, or null
+ * when there is nothing to export.
+ */
+export function buildTimetableCSV({
   schedules,
   title,
   session,
@@ -13,7 +17,7 @@ export function exportTimetableCSV({
   realmKey = DEFAULT_REALM,
   realmName = null,
 }) {
-  if (!schedules || schedules.length === 0) return;
+  if (!schedules || schedules.length === 0) return null;
 
   // Realms other than UG are named in the title and in the file name.
   const otherRealm = realmKey && realmKey !== DEFAULT_REALM;
@@ -113,12 +117,22 @@ export function exportTimetableCSV({
     ...bodyLines,
   ].join("\n");
 
-  // ﻿ BOM ensures Excel reads UTF-8 correctly
-  const blob = new Blob(["﻿" + csvContent], { type: "text/csv;charset=utf-8;" });
+  return {
+    // The BOM makes Excel read the file as UTF-8.
+    content: "\uFEFF" + csvContent,
+    fileName: `${filePrefix}${title.replace(/\s+/g, "_").toLowerCase()}_${new Date().toISOString().slice(0, 10)}.csv`,
+  };
+}
+
+/** Build the CSV and download it in the browser. */
+export function exportTimetableCSV(options) {
+  const csv = buildTimetableCSV(options);
+  if (!csv) return;
+  const blob = new Blob([csv.content], { type: "text/csv;charset=utf-8;" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = `${filePrefix}${title.replace(/\s+/g, "_").toLowerCase()}_${new Date().toISOString().slice(0, 10)}.csv`;
+  a.download = csv.fileName;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);

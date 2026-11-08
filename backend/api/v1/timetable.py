@@ -219,10 +219,21 @@ async def create_schedule_item(
 @router.get("/schedule-items", response_model=list[ScheduleItemResponse])
 async def get_schedule_items(
     semester_id: Optional[int] = Query(None),
+    # One timetable's items only: the lecture page needs no exams, and back.
+    type: Optional[Literal["lecture", "exam"]] = Query(None),
     service: TimetableService = Depends(),
     user: dict = Depends(get_current_user)
 ):
-    return await service.get_schedule_items(user, semester_id=semester_id)
+    return await service.get_schedule_items(user, semester_id=semester_id, item_type=type)
+
+
+@router.get("/rooms/usage", response_model=dict[int, int])
+async def get_room_usage(
+    service: TimetableService = Depends(),
+    user: dict = Depends(get_current_user)
+):
+    """{room id: schedule items using it}, so the rooms page needn't download every item."""
+    return await service.get_room_usage(user)
 
 @router.get("/external-bookings", response_model=list[ExternalBookingResponse])
 async def get_external_bookings(

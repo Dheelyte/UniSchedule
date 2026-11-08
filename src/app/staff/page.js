@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import { apiClient } from '@/lib/apiClient';
+import { loadTerms } from '@/lib/loadTerms';
 import { useToast } from '@/components/Toast/Toast';
 import { useConfirm } from '@/components/ConfirmModal/ConfirmContext';
 import styles from './staff.module.css';
@@ -73,12 +74,7 @@ export default function StaffManagementPage() {
             setInvitations(invitesData || []);
             setFaculties(facultiesData || []);
 
-            const sessList = await apiClient.get(`/calendar/sessions`).catch(() => []);
-            let allSems = [];
-            for (let s of sessList) {
-                const sems = await apiClient.get(`/calendar/sessions/${s.id}/semesters`);
-                allSems.push(...sems.map(sem => ({ ...sem, sessionName: s.name })));
-            }
+            const { semesters: allSems } = await loadTerms();
             setAvailableSemesters(allSems);
         } catch (e) {
             console.error(e);
