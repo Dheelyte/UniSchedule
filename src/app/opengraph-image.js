@@ -1,4 +1,4 @@
-pimport { ImageResponse } from 'next/og';
+import { ImageResponse } from 'next/og';
 import { unilagLogoBase64 } from '@/lib/logo';
 
 // The preview shown when a link to the site is shared (WhatsApp, X, LinkedIn, Slack…).
