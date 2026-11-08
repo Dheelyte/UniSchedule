@@ -29,8 +29,9 @@
 .blobC {
 	position: absolute;
 	border-radius: 50%;
-	filter: blur(80px);
 	opacity: 0.55;
+	/* Soft from the gradient alone: a blur filter here is re-rendered every frame. */
+	will-change: transform;
 }
 
 .blobA {
@@ -90,8 +91,7 @@
 	position: sticky;
 	top: 0;
 	z-index: 20;
-	background: rgba(255, 255, 255, 0.7);
-	backdrop-filter: blur(14px);
+	background: rgba(255, 255, 255, 0.9);
 	border-bottom: 1px solid var(--color-border);
 	box-shadow: 0 1px 0 rgba(15, 23, 42, 0.02), 0 4px 20px rgba(15, 23, 42, 0.03);
 }
@@ -257,8 +257,7 @@
 	align-items: center;
 	text-align: center;
 	padding: 36px 24px 24px;
-	background: rgba(255, 255, 255, 0.75);
-	backdrop-filter: blur(12px);
+	background: rgba(255, 255, 255, 0.88);
 	border: 1px solid var(--color-border);
 	border-radius: var(--radius-xl);
 	box-shadow: var(--shadow-sm);
@@ -292,7 +291,6 @@
 	mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
 	opacity: 0;
 	transition: opacity 300ms ease;
-	animation: spin 3s linear infinite;
 	pointer-events: none;
 }
 
@@ -308,6 +306,8 @@
 .card:hover::before,
 .card:focus-within::before {
 	opacity: 1;
+	/* Repaints every frame, so it only runs while visible. */
+	animation: spin 3s linear infinite;
 }
 
 .cardHidden {
@@ -335,10 +335,25 @@
 	height: 88px;
 	padding: 3px;
 	border-radius: 50%;
-	background: conic-gradient(from var(--angle), var(--color-primary), var(--color-accent), #db2777, var(--color-primary));
-	animation: spin 6s linear infinite;
 	flex-shrink: 0;
 	transition: transform 400ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* The spinning ring behind each avatar. Rotated with transform so the GPU
+   moves it, rather than repainting a gradient on every frame. */
+.avatar::before,
+.detailAvatar::before {
+	content: '';
+	position: absolute;
+	inset: 0;
+	border-radius: 50%;
+	background: conic-gradient(var(--color-primary), var(--color-accent), #db2777, var(--color-primary));
+	animation: ringSpin 6s linear infinite;
+	will-change: transform;
+}
+
+@keyframes ringSpin {
+	to { transform: rotate(360deg); }
 }
 
 .card:hover .avatar {
@@ -485,36 +500,31 @@
 	inset: 0;
 	z-index: 100;
 	background: rgba(15, 23, 42, 0);
-	backdrop-filter: blur(0);
-	transition: background 600ms ease, backdrop-filter 600ms ease;
+	transition: background 600ms ease;
 }
 
 .overlayOpen {
-	background: rgba(15, 23, 42, 0.45);
-	backdrop-filter: blur(6px);
+	background: rgba(15, 23, 42, 0.55);
 }
 
 .panel {
 	position: fixed;
+	inset: 0;
 	overflow: hidden;
 	background: #0b1020;
 	color: #fff;
-	box-shadow: 0 30px 80px -20px rgba(15, 23, 42, 0.6);
-	transition:
-		top 600ms cubic-bezier(0.22, 1, 0.36, 1),
-		left 600ms cubic-bezier(0.22, 1, 0.36, 1),
-		width 600ms cubic-bezier(0.22, 1, 0.36, 1),
-		height 600ms cubic-bezier(0.22, 1, 0.36, 1),
-		border-radius 600ms cubic-bezier(0.22, 1, 0.36, 1);
+	/* The panel is always full screen; clip-path reveals it from the card.
+	   Animating its size instead would re-lay out the profile on every frame. */
+	transition: clip-path 600ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .panelGlowA,
 .panelGlowB {
 	position: absolute;
 	border-radius: 50%;
-	filter: blur(90px);
 	pointer-events: none;
 	opacity: 0;
+	will-change: transform;
 	transition: opacity 800ms ease 200ms;
 }
 
@@ -609,9 +619,8 @@
 	height: 260px;
 	padding: 5px;
 	border-radius: 50%;
-	background: conic-gradient(from var(--angle), var(--color-primary), var(--color-accent), #db2777, var(--color-primary));
 	box-shadow: 0 0 80px -10px rgba(99, 102, 241, 0.7);
-	animation: spin 6s linear infinite, popIn 800ms cubic-bezier(0.34, 1.56, 0.64, 1) 250ms both;
+	animation: popIn 800ms cubic-bezier(0.34, 1.56, 0.64, 1) 250ms both;
 }
 
 .detailAvatar .avatarInner {

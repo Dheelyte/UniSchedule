@@ -40,8 +40,10 @@ export const apiClient = {
 
 		if (!response.ok) {
 			if (response.status === 401 && typeof window !== "undefined") {
+				// Pages open to signed-out visitors (publicPaths and standalonePaths
+				// in ClientLayout): their sign-in check is expected to 401.
 				if (
-					!["/", "/login", "/register", "/forgot-password", "/realms"].includes(
+					!["/", "/login", "/register", "/forgot-password", "/realms", "/contributors"].includes(
 						window.location.pathname,
 					)
 				) {
