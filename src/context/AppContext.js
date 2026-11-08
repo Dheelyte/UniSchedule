@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useReducer, useMemo, useState, useCallback, useEffect } from 'react';
 import { generateId } from '@/lib/utils';
+import { buildSchedulesWithDetails } from '@/lib/exportFilters';
 
 // ---- INITIAL STATE ----
 const initialState = {
@@ -280,43 +281,11 @@ export function AppProvider({ children }) {
     }, [state.courses, state.departments, state.faculties]);
 
     // Helper: get schedules with full details
-    const getSchedulesWithDetails = useMemo(() => {
-        const courseMap = new Map(state.courses.map((c) => [c.id, c]));
-        const roomMap = new Map(state.rooms.map((r) => [r.id, r]));
-        const deptMap = new Map(state.departments.map((d) => [d.id, d]));
-        const facMap = new Map(state.faculties.map((f) => [f.id, f]));
-
-        return state.scheduleItems.map((item) => {
-            const course = courseMap.get(item.courseId);
-            // Resolve roomIds to room objects
-            const ids = item.roomIds || (item.roomId ? [item.roomId] : []);
-            const resolvedRooms = ids.map((rid) => roomMap.get(rid)).filter(Boolean);
-            const dept = course?.departmentId ? deptMap.get(course.departmentId) : null;
-            const faculty = dept ? facMap.get(dept.facultyId) : null;
-            const effFacId = item.facultyId || faculty?.id || null;
-            const effFaculty = effFacId ? facMap.get(effFacId) : null;
-            return {
-                ...item,
-                roomIds: ids,
-                courseCode: course?.code || 'N/A',
-                courseTitle: course?.title || 'NIL',
-                courseLecturers: course?.lecturers || [],
-                courseLocations: course?.locations || [],
-                courseLevel: course?.level ?? null,
-                courseScope: course?.scope ?? null,
-                courseDepartmentId: course?.departmentId ?? null,
-                // Multi-room display helpers
-                roomNames: item.is_online ? '🌐 Online' : (resolvedRooms.map((r) => r.name).join(', ') || 'NIL'),
-                roomCapacity: item.is_online ? null : resolvedRooms.reduce((sum, r) => sum + (r.capacity || 0), 0),
-                departmentId: dept?.id || null,
-                departmentName: dept?.name || 'NIL',
-                facultyId: effFacId,
-                facultyName: effFaculty?.name || 'NIL',
-                // Special faculties are exempt from conflict detection.
-                isSpecialFaculty: !!(effFaculty?.is_special ?? effFaculty?.isSpecial),
-            };
-        });
-    }, [state.scheduleItems, state.courses, state.rooms, state.departments, state.faculties]);
+    const getSchedulesWithDetails = useMemo(
+        () => buildSchedulesWithDetails(state.scheduleItems, state),
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [state.scheduleItems, state.courses, state.rooms, state.departments, state.faculties],
+    );
 
     const value = {
         state,

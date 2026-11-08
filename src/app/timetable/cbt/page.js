@@ -8,10 +8,11 @@ import { apiClient } from "@/lib/apiClient";
 import { detectAllConflicts, toExternalBooking } from "@/lib/conflicts";
 import { exportTimetablePDF } from "@/lib/pdfExport";
 import { exportTimetableCSV } from "@/lib/csvExport";
-import { isGeneralStudiesCourse, GENERAL_STUDIES_FACULTY } from "@/lib/utils";
 import TimetableGrid from "@/components/TimetableGrid/TimetableGrid";
 import { useToast } from "@/components/Toast/Toast";
 import ExportModal from "@/components/ExportModal/ExportModal";
+import { filterSchedulesForExport } from "@/lib/exportFilters";
+import { loadExportSemester } from "@/lib/exportData";
 import TimetableStatusBadge from "@/components/TimetableStatusBadge/TimetableStatusBadge";
 import RequestEditModal from "@/components/RequestEditModal/RequestEditModal";
 import RequestChangeModal from "@/components/RequestChangeModal/RequestChangeModal";
@@ -360,42 +361,48 @@ export default function CBTTimetablePage() {
 	};
 
 	const handleExportConfirm = async ({
-		session: exportSession,
-		semester: exportSemester,
+		session,
+		semester,
+		semesterId,
 		facultyId = "ALL",
 		departmentId = "ALL",
+		level = "ALL",
 		format: exportFormat = "pdf",
 		monochrome = false,
 		paperSize = "a4",
 	}) => {
 		setIsExportModalOpen(false);
+		if (semesterId === null || semesterId === undefined) {
+			addToast({ type: "error", title: "Export Failed", message: "Choose a semester to export." });
+			return;
+		}
+		const loaded = await loadExportSemester({
+			semesterId,
+			pageSemesterId: selectedSemesterId,
+			pageSchedules: cbtSchedules,
+			pageIsLocked: isLocked,
+			timetableType: "exam",
+			state,
+		});
+		if (!loaded) {
+			addToast({ type: "error", title: "Export Failed", message: `Could not load the ${session} ${semester} timetable.` });
+			return;
+		}
+		const { blockedSlots, isLocked: exportIsLocked } = loaded;
 		const deptIdNum =
 			departmentId && departmentId !== "ALL" ? Number(departmentId) : null;
+		const levelNum = level && level !== "ALL" ? Number(level) : null;
 
-		// 1. Filter by selected Faculty & Department
-		const selectedFaculty =
-			facultyId === "ALL"
-				? null
-				: state.faculties.find((f) => f.id === facultyId);
-		const isGeneralStudies =
-			selectedFaculty?.name?.trim().toLowerCase() === "general studies";
-
-		const filtered = cbtSchedules.filter((s) => {
-			if (isGeneralStudies) {
-				if (!isGeneralStudiesCourse(s.courseCode)) return false;
-			} else if (facultyId !== "ALL" && s.facultyId !== facultyId) {
-				return false;
-			}
-			if (deptIdNum !== null && s.departmentId !== deptIdNum) return false;
-			return true;
+		const filteredSchedules = filterSchedulesForExport(loaded.schedules, {
+			facultyId,
+			departmentId,
+			level,
+			cbtOnly: true,
+			faculties: state.faculties,
+			departments: state.departments,
+			courses: state.courses,
+			enrollmentsByCourse,
 		});
-
-		// Attribute GST/ENT courses to General Studies faculty in the export
-		const filteredSchedules = filtered.map((s) =>
-			isGeneralStudiesCourse(s.courseCode)
-				? { ...s, facultyName: GENERAL_STUDIES_FACULTY }
-				: s,
-		);
 
 		if (filteredSchedules.length === 0) {
 			addToast({
@@ -419,10 +426,7 @@ export default function CBTTimetablePage() {
 				? null
 				: state.departments.find((d) => d.id === deptIdNum)?.name ||
 					"Unknown Department";
-
-		const sem = semesters.find((s) => s.id === selectedSemesterId);
-		const semester = sem?.name || "";
-		const session = sem?.sessionName || "";
+		const levelInfo = levelNum === null ? null : `Level ${levelNum}`;
 
 		if (exportFormat === "csv") {
 			exportTimetableCSV({
@@ -446,9 +450,6 @@ export default function CBTTimetablePage() {
 			return;
 		}
 
-		const blockedSlots = await apiClient
-			.get(`/timetable/blocked-slots?semester_id=${selectedSemesterId}`)
-			.catch(() => []);
 
 		if (paperSize === "a3") {
 			exportTimetablePDF({
@@ -463,13 +464,14 @@ export default function CBTTimetablePage() {
 				semester,
 				faculty: facultyInfo,
 				department: departmentInfo,
+				level: levelInfo,
 				schoolName: "University of Lagos",
 				mode: "exam",
 				monochrome,
 				groupByFaculty,
 				paperSize: "a3",
 				structured: true,
-				isLocked,
+				isLocked: exportIsLocked,
 				config: realmConfig,
 				realmKey: realm,
 				realmName,
@@ -495,11 +497,12 @@ export default function CBTTimetablePage() {
 			semester,
 			faculty: facultyInfo,
 			department: departmentInfo,
+			level: levelInfo,
 			schoolName: "University of Lagos",
 			mode: "exam",
 			monochrome,
 			groupByFaculty,
-			isLocked,
+			isLocked: exportIsLocked,
 			config: realmConfig,
 			realmKey: realm,
 			realmName,
@@ -633,6 +636,8 @@ export default function CBTTimetablePage() {
 				mode="exam"
 				sessions={sessions}
 				semesters={semesters}
+				defaultSemesterId={selectedSemesterId}
+				showExamToggles={false}
 			/>
 			{isRequestModalOpen && (
 				<RequestEditModal
