@@ -109,6 +109,18 @@ const navItems = [
     ),
   },
   {
+    label: 'Signatures & Stamps',
+    href: '/signoffs',
+    roles: ['SUPER_ADMIN'],
+    icon: (
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M3 17c3-1 4-6 6-6s1 5 3 5 3-4 5-4 2 3 4 3" />
+        <line x1="3" y1="21" x2="21" y2="21" />
+        <circle cx="17" cy="6" r="3" />
+      </svg>
+    ),
+  },
+  {
     label: 'Staff',
     href: '/staff',
     roles: ['SUPER_ADMIN', 'FACULTY_EDITOR'],

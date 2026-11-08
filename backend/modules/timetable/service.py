@@ -1,5 +1,6 @@
 from fastapi import Depends, HTTPException
 from datetime import date, datetime, timezone
+from modules.signoff.repository import SignoffRepository
 from modules.timetable.repository import TimetableRepository
 from modules.calendar.repository import CalendarRepository
 from modules.timetable.models import Faculty, Room, Course, ScheduleItem, Department, CourseScope, BlockedSlot, TimetableLock, CourseEnrollment, ChangeRequest, ChangeRequestAction, ChangeRequestStatus, ConflictDismissal
@@ -171,12 +172,14 @@ class TimetableService:
         auth_repo: AuthRepository = Depends(),
         notification_service: NotificationService = Depends(),
         audit_service: AuditService = Depends(),
+        signoff_repo: SignoffRepository = Depends(),
     ):
         self.repo = repo
         self.cal_repo = cal_repo
         self.auth_repo = auth_repo
         self.notification_service = notification_service
         self.audit_service = audit_service
+        self.signoff_repo = signoff_repo
         
     async def _semester_in_realm(self, semester_id: int, current_user: dict):
         """The semester, or 404 when it isn't one of the active realm's."""
@@ -1243,6 +1246,17 @@ class TimetableService:
             lock = await self.repo.upsert_lock(semester_id, timetable_type, is_locked, user_id, realm_key=current_user["realm"])
         except IntegrityError:
             raise HTTPException(status_code=404, detail="Semester not found")
+        # Locking issues the FINAL version's verification code (printed on its
+        # PDFs); unlocking marks that version reopened, so older printouts show
+        # as possibly out of date at /verify/<code>.
+        realm_key = current_user["realm"]
+        if is_locked:
+            await self.signoff_repo.issue_verification(
+                semester_id, timetable_type,
+                realm_key=realm_key, locked_at=lock.locked_at, locked_by_email=current_user.get("email"),
+            )
+        else:
+            await self.signoff_repo.reopen_verification(semester_id, timetable_type, realm_key=realm_key)
         await self.audit_service.log(
             current_user=current_user,
             action=f"timetable.{'lock' if is_locked else 'unlock'}",

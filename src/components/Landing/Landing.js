@@ -222,8 +222,8 @@ const FEATURES = [
 	},
 	{
 		icon: <LockIcon />,
-		title: 'Lock the final version',
-		description: 'Mark a timetable FINAL so nobody can change it by accident. Faculty editors can ask a super admin to reopen it.',
+		title: 'Signed, stamped and verifiable',
+		description: 'Mark a timetable FINAL and every PDF carries the official stamp and signature, plus a QR code anyone can scan to check the copy is genuine and current. Drafts are watermarked.',
 	},
 	{
 		icon: <UsersIcon />,
@@ -246,7 +246,7 @@ const STEPS = [
 	{
 		n: '03',
 		title: 'Schedule & export',
-		description: 'Place lectures and exams on the grid, fix anything flagged, lock the final version and export it as PDF or CSV.',
+		description: 'Place lectures and exams on the grid, fix anything flagged, then lock the final version and export it signed and stamped.',
 	},
 ];
 
@@ -458,6 +458,7 @@ export default function Landing() {
 						<h4>Product</h4>
 						<a href="#features" onClick={scrollToSection}>Features</a>
 						<a href="#how-it-works" onClick={scrollToSection}>How it works</a>
+						<Link href="/verify">Verify a timetable</Link>
 					</div>
 
 					<div className={styles.footerLinkCol}>

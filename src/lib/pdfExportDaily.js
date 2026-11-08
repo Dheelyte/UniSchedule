@@ -32,6 +32,7 @@ import {
 } from "./timetableLayout.js";
 import { UG_CONFIG, DEFAULT_REALM, lecturePdfDays } from "./realm.js";
 import { robotoCondensedRegular, robotoCondensedBold } from "./fonts/robotoCondensed.js";
+import { applySignoff, isSigned } from "./pdfSignoff.js";
 
 const WEEK_ORDER = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 const PT_TO_MM = 0.3528;
@@ -71,6 +72,8 @@ export function exportDailyTimetablePDF({
 	groupByFaculty = false,
 	paperSize = "a3",
 	isLocked = false,
+	// FINAL exports: signature, stamp and verification code (src/lib/pdfSignoff.js).
+	signoff = null,
 	config = UG_CONFIG,
 	realmKey = DEFAULT_REALM,
 	realmName = null,
@@ -101,7 +104,8 @@ export function exportDailyTimetablePDF({
 	const xForMin = (min) => gridX + ((min - fmt.startMin) / span) * gridW;
 	const tableStartY = 34;
 	const HEAD_H = 14;
-	const bodyBottom = pageH - 13;
+	// A signed export also keeps the sign-off strip clear (it ends 10mm up).
+	const bodyBottom = pageH - 13 - (isSigned(signoff) ? 16 : 0);
 	const CHIP_H = 6.6;
 	const LANE_PITCH = 7.2;
 	const ROW_PAD = 1.0;
@@ -689,6 +693,10 @@ export function exportDailyTimetablePDF({
 		pdf.text(`Page ${p - 1}`, pageW - m, pageH - 6, { align: "right" });
 	}
 	pdf.setPage(total);
+	applySignoff(pdf, {
+		signoff, isLocked, pageW, pageH, margin: m, stripBottom: pageH - 10,
+		cover: { page: 1, scale: pageW / 420 },
+	});
 
 	const fileName = getExportFileName(title, session, semester, faculty, scopeLabel, pageFormat);
 	if (typeof window !== "undefined") pdf.save(fileName);
