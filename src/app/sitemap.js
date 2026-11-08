@@ -1,10 +1,13 @@
 import { SITE_URL } from '@/lib/site';
 
 // Only the public pages: everything else needs a staff sign-in.
+// Served at /sitemap.xml and listed in robots.txt.
 export default function sitemap() {
+	const lastModified = new Date();
 	return [
-		{ url: `${SITE_URL}/`, changeFrequency: 'monthly', priority: 1 },
-		{ url: `${SITE_URL}/realms`, changeFrequency: 'yearly', priority: 0.6 },
-		{ url: `${SITE_URL}/contributors`, changeFrequency: 'monthly', priority: 0.5 },
+		{ url: `${SITE_URL}/`, lastModified, changeFrequency: 'monthly', priority: 1 },
+		{ url: `${SITE_URL}/realms`, lastModified, changeFrequency: 'yearly', priority: 0.6 },
+		{ url: `${SITE_URL}/verify`, lastModified, changeFrequency: 'yearly', priority: 0.5 },
+		{ url: `${SITE_URL}/contributors`, lastModified, changeFrequency: 'monthly', priority: 0.5 },
 	];
 }
