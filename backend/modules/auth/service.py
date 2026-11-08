@@ -24,11 +24,12 @@ IMPERSONABLE_ROLES = {
     RoleEnum.GS_ADMIN,
     RoleEnum.SUPER_VIEWER,
     RoleEnum.CITS_ADMIN,
+    RoleEnum.DEO,
 }
-# Assumed roles that must be scoped to a specific faculty.
-FACULTY_SCOPED_ROLES = {RoleEnum.FACULTY_EDITOR, RoleEnum.FACULTY_VIEWER}
-# Accounts with these roles must belong to a faculty.
-FACULTY_BOUND_ROLES = FACULTY_SCOPED_ROLES | {RoleEnum.DEO}
+# Roles scoped to a specific faculty: accounts with them must belong to one,
+# and a super admin assuming one must pick one. Mirrors FACULTY_SCOPED_ROLES
+# in src/lib/roles.js.
+FACULTY_SCOPED_ROLES = {RoleEnum.FACULTY_EDITOR, RoleEnum.FACULTY_VIEWER, RoleEnum.DEO}
 # How roles are named to staff. Mirrors ROLE_LABELS in src/lib/roles.js.
 ROLE_LABELS = {
     RoleEnum.SUPER_ADMIN: "Super Admin",
@@ -283,7 +284,7 @@ class AuthService:
         if str(user.id) == str(current_user.get("sub", "")):
             raise HTTPException(status_code=400, detail="You cannot change your own role")
 
-        if data.role in FACULTY_BOUND_ROLES:
+        if data.role in FACULTY_SCOPED_ROLES:
             if not data.faculty_id:
                 raise HTTPException(status_code=400, detail="A faculty is required for this role")
             faculty = await self.repo.get_faculty(data.faculty_id, realm_key=current_user["realm"])
