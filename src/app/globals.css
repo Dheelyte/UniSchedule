@@ -537,3 +537,18 @@ h4 {
     transform: translateX(0);
   }
 }
+/* Homepage spinner for someone who was signed in last time: covers the
+   landing page until the sign-in check finishes (see app/layout.js). */
+.session-loader {
+	display: none;
+}
+
+html[data-session] .session-loader {
+	position: fixed;
+	inset: 0;
+	z-index: 1000;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	background: var(--color-bg);
+}

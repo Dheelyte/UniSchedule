@@ -3,6 +3,8 @@
 import Link from 'next/link';
 import styles from './Landing.module.css';
 import { unilagLogoBase64 } from '@/lib/logo';
+import { loginPath } from '@/lib/realm';
+import { SITE_DESCRIPTION, SITE_NAME, SITE_URL } from '@/lib/site';
 
 /* ---------- Icons (inline SVG, matches the icon style used across the app) ---------- */
 
@@ -67,6 +69,46 @@ function DownloadIcon() {
 	);
 }
 
+function UploadIcon() {
+	return (
+		<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+			<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+			<polyline points="17 8 12 3 7 8" />
+			<line x1="12" y1="3" x2="12" y2="15" />
+		</svg>
+	);
+}
+
+function LockIcon() {
+	return (
+		<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+			<rect x="4" y="11" width="16" height="10" rx="2" />
+			<path d="M8 11V7a4 4 0 0 1 8 0v4" />
+		</svg>
+	);
+}
+
+function UsersIcon() {
+	return (
+		<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+			<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+			<circle cx="9" cy="7" r="4" />
+			<path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+			<path d="M16 3.13a4 4 0 0 1 0 7.75" />
+		</svg>
+	);
+}
+
+function MonitorIcon() {
+	return (
+		<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+			<rect x="2" y="3" width="20" height="14" rx="2" />
+			<line x1="8" y1="21" x2="16" y2="21" />
+			<line x1="12" y1="17" x2="12" y2="21" />
+		</svg>
+	);
+}
+
 function ArrowRightIcon() {
 	return (
 		<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
@@ -85,13 +127,68 @@ function ArrowUpRightIcon() {
 	);
 }
 
+/* ---------- In-page links ---------- */
+
+// Slide to a section on this page instead of jumping. The browser's built-in
+// smooth scroll can't be slowed down, so this animates it: an ease-in-out
+// glide of 0.9-1.8s depending on distance. Any wheel, touch or key press
+// hands control straight back to the visitor. People who have asked their
+// device to reduce motion get the plain jump.
+let slideFrame = 0;
+
+function stopSlide() {
+	cancelAnimationFrame(slideFrame);
+	slideFrame = 0;
+	window.removeEventListener('wheel', stopSlide);
+	window.removeEventListener('touchstart', stopSlide);
+	window.removeEventListener('keydown', stopSlide);
+}
+
+function easeInOutCubic(t) {
+	return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+}
+
+function slideTo(targetY) {
+	stopSlide();
+	const startY = window.scrollY;
+	const distance = targetY - startY;
+	const duration = Math.min(1800, Math.max(900, 500 + Math.abs(distance) * 0.5));
+	const startTime = performance.now();
+	const frame = (now) => {
+		const t = Math.min(1, (now - startTime) / duration);
+		window.scrollTo(0, startY + distance * easeInOutCubic(t));
+		if (t < 1) slideFrame = requestAnimationFrame(frame);
+		else stopSlide();
+	};
+	window.addEventListener('wheel', stopSlide, { passive: true });
+	window.addEventListener('touchstart', stopSlide, { passive: true });
+	window.addEventListener('keydown', stopSlide);
+	slideFrame = requestAnimationFrame(frame);
+}
+
+function scrollToSection(e) {
+	const id = e.currentTarget.getAttribute('href').slice(1);
+	const target = document.getElementById(id);
+	if (!target) return;
+	e.preventDefault();
+	history.replaceState(null, '', `#${id}`);
+	if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+		target.scrollIntoView({ block: 'start' });
+		return;
+	}
+	// Stop below the sticky nav (the section's scroll-margin-top).
+	const offset = parseFloat(getComputedStyle(target).scrollMarginTop) || 0;
+	const maxY = document.documentElement.scrollHeight - window.innerHeight;
+	slideTo(Math.min(maxY, target.getBoundingClientRect().top + window.scrollY - offset));
+}
+
 /* ---------- Content ---------- */
 
 const FEATURES = [
 	{
 		icon: <ShieldIcon />,
 		title: 'Automatic conflict detection',
-		description: 'Clashing lectures, exams, and room bookings are flagged the moment they happen — before a timetable ever gets published.',
+		description: 'Clashing lectures, exams, and room bookings are flagged the moment they happen. Exams can share a venue without tripping the checks built for lectures.',
 	},
 	{
 		icon: <LayersIcon />,
@@ -104,19 +201,34 @@ const FEATURES = [
 		description: 'Mark protected dates once and every timetable respects them — nothing gets scheduled on a holiday by accident.',
 	},
 	{
-		icon: <ClipboardCheckIcon />,
-		title: 'Smarter exam timetabling',
-		description: 'Share a single venue across multiple exams at once, without tripping the conflict checks built for lectures.',
+		icon: <UploadIcon />,
+		title: 'Import existing timetables',
+		description: 'Bring in a faculty\'s Excel or Word timetable, or copy last semester\'s. Every import is previewed and checked for clashes first, and can be undone.',
+	},
+	{
+		icon: <MonitorIcon />,
+		title: 'CBT exam timetables',
+		description: 'Computer-based exams get a timetable of their own, run by CITS, with CBT centres checked for clashes like any other room.',
 	},
 	{
 		icon: <BuildingIcon />,
-		title: 'Faculty & room management',
-		description: 'Every faculty, department, room, and seat count lives in one place — searchable, filterable, always up to date.',
+		title: 'Programmes, faculties & rooms',
+		description: 'Each programme keeps its own calendar, faculties, departments and rooms. Halls shared between programmes are checked for clashes across both.',
 	},
 	{
 		icon: <DownloadIcon />,
 		title: 'Export & share instantly',
-		description: 'Turn any timetable into a clean, print-ready PDF that staff and students can download in one click.',
+		description: 'Download any timetable as a print-ready PDF (A3 or A4, week grid or one day per page) or as CSV, filtered by faculty, department and level.',
+	},
+	{
+		icon: <LockIcon />,
+		title: 'Lock the final version',
+		description: 'Mark a timetable FINAL so nobody can change it by accident. Faculty editors can ask a super admin to reopen it.',
+	},
+	{
+		icon: <UsersIcon />,
+		title: 'A role for every office',
+		description: 'Super admins, faculty editors and viewers, GS and CITS admins and departmental exam officers each see and change only what is theirs.',
 	},
 ];
 
@@ -124,23 +236,46 @@ const STEPS = [
 	{
 		n: '01',
 		title: 'Add your data',
-		description: 'Bring in faculties, departments, courses, and rooms — or start fresh and build them out directly in UniSchedule.',
+		description: 'Set up faculties, departments, courses and rooms, then import the timetables you already have or copy an earlier semester.',
 	},
 	{
 		n: '02',
 		title: 'Set the rules',
-		description: 'Define course priorities and holidays once. UniSchedule applies them automatically to every timetable you generate.',
+		description: 'Set each course\'s scope and the semester\'s holidays and blocked slots once. Every timetable is checked against them.',
 	},
 	{
 		n: '03',
-		title: 'Generate & export',
-		description: 'Produce a conflict-free lecture or exam timetable in minutes, then export it as a shareable PDF.',
+		title: 'Schedule & export',
+		description: 'Place lectures and exams on the grid, fix anything flagged, lock the final version and export it as PDF or CSV.',
 	},
 ];
+
+// Structured data: tells search engines this is the University of Lagos's
+// timetable web application.
+const STRUCTURED_DATA = {
+	'@context': 'https://schema.org',
+	'@type': 'WebApplication',
+	name: SITE_NAME,
+	alternateName: 'University of Lagos Timetable Manager',
+	url: `${SITE_URL}/`,
+	description: SITE_DESCRIPTION,
+	applicationCategory: 'EducationalApplication',
+	operatingSystem: 'Web',
+	inLanguage: 'en',
+	provider: {
+		'@type': 'CollegeOrUniversity',
+		name: 'University of Lagos',
+		url: 'https://unilag.edu.ng',
+	},
+};
 
 export default function Landing() {
 	return (
 		<div className={styles.page}>
+			<script
+				type="application/ld+json"
+				dangerouslySetInnerHTML={{ __html: JSON.stringify(STRUCTURED_DATA).replace(/</g, '\\u003c') }}
+			/>
 			{/* ---------- Nav ---------- */}
 			<header className={styles.nav}>
 				<div className={styles.navInner}>
@@ -151,8 +286,9 @@ export default function Landing() {
 						<span>UniSchedule</span>
 					</div>
 					<nav className={styles.navLinks}>
-						<a href="#features">Features</a>
-						<a href="#how-it-works">How it works</a>
+						<a href="#features" onClick={scrollToSection}>Features</a>
+						<a href="#how-it-works" onClick={scrollToSection}>How it works</a>
+						<Link href="/contributors">Contributors</Link>
 					</nav>
 					<Link href="/realms" className={styles.navCta}>
 						Login
@@ -173,14 +309,15 @@ export default function Landing() {
 						Conflict-free timetables for the <span className={styles.heroAccent}>whole university</span>
 					</h1>
 					<p className={styles.heroSubtitle}>
-						UniSchedule builds lecture and exam timetables across every faculty automatically —
-						no double-bookings, no spreadsheets, no last-minute clashes.
+						UniSchedule checks every lecture and exam you place against rooms, departments and levels
+						across every faculty, so clashes are caught before a timetable is published.
+						No spreadsheets, no last-minute surprises.
 					</p>
 					<div className={styles.heroActions}>
 						<Link href="/realms" className={styles.primaryCta}>
 							Get Started <ArrowRightIcon />
 						</Link>
-						<a href="#features" className={styles.secondaryCta}>
+						<a href="#how-it-works" className={styles.secondaryCta} onClick={scrollToSection}>
 							See how it works
 						</a>
 					</div>
@@ -236,7 +373,7 @@ export default function Landing() {
 				</div>
 				<div className={styles.valueItem}>
 					<span className={styles.valueIcon}><ClipboardCheckIcon /></span>
-					<span>Lectures &amp; exams, handled</span>
+					<span>Lectures, exams &amp; CBT</span>
 				</div>
 				<div className={styles.valueItem}>
 					<span className={styles.valueIcon}><DownloadIcon /></span>
@@ -293,7 +430,7 @@ export default function Landing() {
 			<section className={styles.ctaBanner}>
 				<div className={styles.ctaPattern} aria-hidden="true" />
 				<h2>Ready to build a conflict-free timetable?</h2>
-				<p>Sign in to start scheduling your faculty in minutes.</p>
+				<p>Choose your programme and sign in to start scheduling.</p>
 				<Link href="/realms" className={styles.ctaButton}>
 					Get Started <ArrowRightIcon />
 				</Link>
@@ -319,8 +456,8 @@ export default function Landing() {
 
 					<div className={styles.footerLinkCol}>
 						<h4>Product</h4>
-						<a href="#features">Features</a>
-						<a href="#how-it-works">How it works</a>
+						<a href="#features" onClick={scrollToSection}>Features</a>
+						<a href="#how-it-works" onClick={scrollToSection}>How it works</a>
 					</div>
 
 					<div className={styles.footerLinkCol}>
@@ -328,7 +465,8 @@ export default function Landing() {
 						<Link href="/realms">
 							Login <ArrowUpRightIcon />
 						</Link>
-						<Link href="/realms">Undergraduate portal</Link>
+						<Link href={loginPath('UG')}>Undergraduate portal</Link>
+						<Link href={loginPath('ICE')}>ICE portal</Link>
 					</div>
 
 					<div className={styles.footerLinkCol}>

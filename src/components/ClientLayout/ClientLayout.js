@@ -84,6 +84,16 @@ function LayoutInner({ children }) {
 	};
 
     if (standalonePaths.includes(pathname)) return <>{children}</>;
+    // The homepage renders straight away (as the landing page) so search
+    // engines and first-time visitors get real content, not a spinner. Someone
+    // who was signed in last time sees a spinner over it instead (see the
+    // session hint in app/layout.js) until the sign-in check finishes.
+    if (loading && pathname === "/") return (
+        <>
+            {children}
+            <div className="session-loader" aria-hidden="true"><div className="loader"></div></div>
+        </>
+    );
     if (loading) return <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', width: '100vw' }}><div className="loader"></div></div>;
     if (!user && publicPaths.includes(pathname)) return <>{children}</>;
     if (!user) return null;

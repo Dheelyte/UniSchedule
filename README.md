@@ -1,6 +1,16 @@
 # UniSchedule - University of Lagos Timetable Manager
 
-UniSchedule is a comprehensive timetable management application for the University of Lagos. It features a Next.js 16 React frontend and a FastAPI (Python) backend that handles complex scheduling logic, access control, and PDF exports.
+UniSchedule is the timetable manager for the University of Lagos, live at **[www.unilagtimetable.com](https://www.unilagtimetable.com/)**. Timetable officers build lecture, exam and CBT timetables on a drag-and-drop grid, and the app checks every placement for clashes. The frontend is Next.js 16 (React 19); the FastAPI (Python) backend holds the data, access control and scheduling rules.
+
+## Features
+
+- **Lecture, exam and CBT timetables**, one per semester, with blocked slots and holidays set on the academic calendar.
+- **Conflict detection** for rooms, departments and levels as items are placed. University-wide courses take priority over interfaculty courses, which take priority over departmental ones. Several exams can share a venue at the same time.
+- **Programmes (realms)**: each programme (Undergraduate, ICE part-time, …) has its own calendar, rooms, courses and staff. See [Realms](#realms-programmes).
+- **Locking and change requests**: a Super Admin marks a timetable FINAL to stop edits, and a Faculty Editor can ask for it to be reopened. While a timetable is open, faculty staff send change requests to the super admins.
+- **Exports** to PDF (A3 or A4, colour or black and white, a week grid or one day per page for lectures) and CSV, filtered by session, semester, faculty, department and level.
+- **Import** (beta, Super Admin): read a faculty's existing timetable from an Excel (.xlsx) or Word (.docx) file, or copy an earlier semester. Each import is previewed and checked for clashes before it is saved, and can be reverted.
+- **Staff invitations, roles and an activity log.**
 
 ## Project Structure
 
@@ -41,7 +51,6 @@ UniSchedule is a comprehensive timetable management application for the Universi
    uv venv
    source .venv/bin/activate
    uv sync
-   # or with pip: pip install -r requirements.txt (if available)
    ```
 
 4. Create a `.env` file inside `/backend`:
@@ -53,6 +62,8 @@ UniSchedule is a comprehensive timetable management application for the Universi
    DEFAULT_SUPER_ADMIN_PASSWORD=adminpassword
    FRONTEND_URL=http://localhost:3000
    ```
+
+   Every other setting in `core/config.py` (cookies, CORS, allowed hosts, email) has a default that works locally. `DEBUG` is on by default, which also turns off the allowed-hosts check.
 
    > **Security:** these values are for local development only. Never commit `.env` (make sure it is in `.gitignore`), and use a strong, unique `SECRET_KEY`, database password and super admin password in any shared or deployed environment.
 
@@ -84,13 +95,33 @@ UniSchedule is a comprehensive timetable management application for the Universi
    npm install
    ```
 
-3. Start the development server:
+3. Optional: the frontend calls the API at `http://localhost:8000/api/v1` by default. To point it elsewhere, create `.env.local` in the project root:
+
+   ```env
+   NEXT_PUBLIC_API_URL=http://localhost:8000/api/v1
+   ```
+
+4. Start the development server:
 
    ```bash
    npm run dev
    ```
 
-4. Open [http://localhost:3000](http://localhost:3000) in your browser.
+5. Open [http://localhost:3000](http://localhost:3000) in your browser and sign in with the `DEFAULT_SUPER_ADMIN_*` account from the backend `.env`.
+
+## Roles
+
+| Role | Scope | Access |
+|---|---|---|
+| Super Admin | All realms, all faculties | Full access. Locks timetables, manages staff, and can **View as** any other role to check what they see. |
+| Super Viewer | All realms, all faculties | Read-only; can request changes. |
+| Super Administrator (CITS) | All realms | Manages the CBT timetable. |
+| GS Admin | One realm | Manages General Studies (GST/ENT) courses. |
+| Faculty Editor | One faculty | Edits the faculty's timetables; invites DEOs to the faculty. |
+| Faculty Viewer | One faculty | Read-only; can request changes. |
+| Departmental Examination Officer (DEO) | One faculty | Read-only; can export. |
+
+Role lists live in `src/lib/roles.js` and `backend/modules/auth/`; keep the two in step.
 
 ## Realms (programmes)
 
@@ -137,21 +168,37 @@ npm run lint
 npm run build
 ```
 
+## Deployment
+
+Pushing to `main` deploys the backend to production (`.github/workflows/deploy.yml`): it runs `alembic upgrade head` against the production database, then builds the Docker image and ships it to AWS Lambda. Because migrations run before the new code is live, they must stay additive and work with the previous version of the code.
+
+The frontend is served at `https://www.unilagtimetable.com` and calls the API at `https://backend.unilagtimetable.com/api/v1` (its `NEXT_PUBLIC_API_URL`). The backend's production settings are environment variables on the Lambda, not in this repo. They must name that domain:
+
+```env
+ENVIRONMENT=prod
+DEBUG=false
+FRONTEND_URL=https://www.unilagtimetable.com            # links in invitation and notification emails
+CORS_ALLOWED_ORIGINS=["https://www.unilagtimetable.com"]
+ALLOWED_HOSTS=["backend.unilagtimetable.com"]
+```
+
 ## Contributing
 
 Contributions are welcome:
 
-1. Clone the repository and create a feature branch (`git checkout -b feature/your-feature-name`).
-2. Make your changes and test them locally.
+1. Clone the repository and create a branch (`git checkout -b feat/your-feature` or `fix/your-fix`). Never push straight to `main`: it deploys to production.
+2. Make your changes and run the tests above.
 3. Commit with descriptive messages.
 4. Push your branch and open a Pull Request.
 
 ## Authors
 
+Profiles are also on the app's `/contributors` page, linked from the home page footer.
+
 - Delight Olu-Olagbuji ([@Dheelyte](https://github.com/Dheelyte), [LinkedIn](https://www.linkedin.com/in/delight-olu-olagbuji-990b61314))
 - Olatunde David Durojaiye ([@rubiks001](https://github.com/rubiks001))
-- Madukor Emmanuel ([@maduakoremmanuel](https://github.com/maduakoremmanuel))
-- Gospel ([@devyalchemist](https://github.com/devyalchemist))
-- Oluwapelumi David Kolawole ([@Peakay6](https://github.com/Peakay6))
+- Emmanuel Maduakor ([@maduakoremmanuel](https://github.com/maduakoremmanuel))
+- Gospel Ugwuja ([@devyalchemist](https://github.com/devyalchemist))
+- Oluwapelumi Kolawole ([@Peakay6](https://github.com/Peakay6))
 - Muhiz Akanni ([@muakone](https://github.com/muakone))
 - Wisdom Ede ([@Edebros2](https://github.com/Edebros2))
