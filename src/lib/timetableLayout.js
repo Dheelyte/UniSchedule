@@ -447,6 +447,13 @@ export const DAILY_EXPORT_FORMATS = {
 	},
 };
 
+/** The daily (1 day per page) layouts a realm offers, alongside the standard grid. */
+export function dailyLayoutsFor(realm) {
+	return String(realm || "").toUpperCase() === "ICE"
+		? [DAILY_EXPORT_FORMATS["daily-ice-30"]]
+		: [DAILY_EXPORT_FORMATS["daily-hourly"]];
+}
+
 /** The daily format for a layout key, or null for the standard layout. */
 export function getDailyExportFormat(layout) {
 	return DAILY_EXPORT_FORMATS[layout] || null;

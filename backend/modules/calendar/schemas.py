@@ -16,3 +16,7 @@ class SemesterResponse(SemesterCreate):
     id: int
     is_current: bool
     model_config = ConfigDict(from_attributes=True)
+
+
+class SemesterWithSessionResponse(SemesterResponse):
+    session_name: str

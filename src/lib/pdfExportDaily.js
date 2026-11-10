@@ -78,6 +78,10 @@ export function exportDailyTimetablePDF({
 	realmKey = DEFAULT_REALM,
 	realmName = null,
 	layout = "daily-hourly",
+	// False: only build the document (the server, or a worker), don't download it.
+	save = true,
+	// Deflate the page streams (see pdfExport.js). Tests turn it off to read the text.
+	compress = true,
 }) {
 	const fmt = getDailyExportFormat(layout);
 	if (!fmt) throw new Error(`[pdfExportDaily] Unknown daily layout: ${layout}`);
@@ -85,7 +89,7 @@ export function exportDailyTimetablePDF({
 
 	const pageFormat = paperSize === "a4" ? "a4" : "a3";
 	const isA3 = pageFormat === "a3";
-	const pdf = new jsPDF({ orientation: "landscape", unit: "mm", format: pageFormat });
+	const pdf = new jsPDF({ orientation: "landscape", unit: "mm", format: pageFormat, compress });
 	const pageW = pageFormat === "a4" ? 297 : 420;
 	const pageH = pageFormat === "a4" ? 210 : 297;
 	pdf.addFileToVFS("RobotoCondensed-Regular.ttf", robotoCondensedRegular);
@@ -699,7 +703,7 @@ export function exportDailyTimetablePDF({
 	});
 
 	const fileName = getExportFileName(title, session, semester, faculty, scopeLabel, pageFormat);
-	if (typeof window !== "undefined") pdf.save(fileName);
+	if (save && typeof window !== "undefined") pdf.save(fileName);
 	pdf.fileName = fileName;
 	pdf.dailyPageCount = pageCount;
 	return pdf;

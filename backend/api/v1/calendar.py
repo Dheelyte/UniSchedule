@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends
 from modules.calendar.service import CalendarService
 from modules.calendar.schemas import (
     SessionCreate, SessionResponse,
-    SemesterCreate, SemesterResponse
+    SemesterCreate, SemesterResponse, SemesterWithSessionResponse
 )
 from api.dependencies.auth import RequireRole, get_current_user
 from modules.auth.models import RoleEnum
@@ -56,6 +56,14 @@ async def get_semester_list(
     user: dict = Depends(get_current_user)
 ):
     return await service.get_semesters(sess_id, user)
+
+@router.get("/semesters", response_model=list[SemesterWithSessionResponse])
+async def get_all_semesters(
+    service: CalendarService = Depends(),
+    user: dict = Depends(get_current_user)
+):
+    """Every semester of the realm with its session's name: one call for the term pickers."""
+    return await service.get_all_semesters(user)
 
 @router.get("/semesters/current", response_model=SemesterResponse | None)
 async def get_current_semester(

@@ -2,10 +2,10 @@ import contextlib
 from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from mangum import Mangum
-from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
-from slowapi.util import get_remote_address
+from starlette.middleware.gzip import GZipMiddleware
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from core.config import settings
@@ -14,11 +14,7 @@ from core.security import get_password_hash, AllowedHostMiddlware, SecurityHeade
 from api.v1 import dummy, auth, calendar, timetable, export, notifications, audit, realms, timetable_import, signoff
 from modules.auth.models import User, RoleEnum, stored_realm_key
 
-limiter = Limiter(
-    key_func=get_remote_address,
-    default_limits=["60/minute"],
-    enabled=settings.RATE_LIMIT_ENABLED,
-)
+from core.rate_limit import limiter
 
 
 @contextlib.asynccontextmanager
@@ -53,6 +49,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.add_middleware(SecurityHeadersMiddleware)
+# Compress responses: the course and schedule lists are megabytes of JSON that
+# shrink about 20 times. Added last, so it runs outermost, on the final body.
+# Through Lambda, Mangum sends the compressed body base64-encoded.
+app.add_middleware(GZipMiddleware, minimum_size=1024)
 
 app.include_router(dummy.router, prefix="/api/v1")
 app.include_router(auth.router, prefix="/api/v1")

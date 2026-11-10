@@ -1,0 +1,239 @@
+.page {
+	min-height: 100vh;
+	background:
+		radial-gradient(ellipse 80% 50% at 50% 0%, rgba(99, 102, 241, 0.1), transparent 70%),
+		var(--color-bg);
+	color: var(--color-text);
+}
+
+.shell {
+	max-width: 720px;
+	margin: 0 auto;
+	padding: 40px 16px 64px;
+	display: flex;
+	flex-direction: column;
+	gap: 24px;
+}
+
+.brand {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	color: var(--color-text);
+}
+
+.brand span {
+	display: flex;
+	flex-direction: column;
+}
+
+.brand strong {
+	font-size: 1.05rem;
+}
+
+.brand small {
+	font-size: 0.8rem;
+	color: var(--color-text-muted);
+}
+
+.card {
+	background: var(--color-bg-card);
+	border: 1px solid var(--color-border);
+	border-top: 4px solid var(--color-primary);
+	border-radius: 16px;
+	padding: 28px;
+	box-shadow: 0 10px 30px -12px rgba(15, 23, 42, 0.12);
+	display: flex;
+	flex-direction: column;
+	gap: 14px;
+}
+
+.heading {
+	font-size: 1.5rem;
+	font-weight: 800;
+	letter-spacing: -0.02em;
+	line-height: 1.2;
+}
+
+.body {
+	color: var(--color-text-secondary);
+	line-height: 1.6;
+}
+
+.muted {
+	color: var(--color-text-muted);
+}
+
+.notice {
+	padding: 12px 14px;
+	border-radius: 10px;
+	background: var(--color-warning-bg);
+	color: var(--color-text);
+	line-height: 1.5;
+}
+
+.form {
+	display: flex;
+	flex-direction: column;
+	gap: 14px;
+}
+
+.row {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+	gap: 12px;
+}
+
+.field {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	min-width: 0;
+}
+
+.field span {
+	font-size: 0.85rem;
+	font-weight: 600;
+	color: var(--color-text-secondary);
+}
+
+.field select {
+	width: 100%;
+	padding: 10px 12px;
+	border: 1px solid var(--color-border-strong);
+	border-radius: 10px;
+	font: inherit;
+	background: var(--color-bg-input);
+	color: var(--color-text);
+}
+
+.field select:focus {
+	outline: 2px solid var(--color-primary);
+	outline-offset: 1px;
+}
+
+.field select:disabled {
+	opacity: 0.6;
+}
+
+.button {
+	display: flex;
+	justify-content: center;
+	align-items: center;
+	padding: 13px 20px;
+	border-radius: 10px;
+	background: var(--color-primary);
+	color: #fff;
+	font-weight: 700;
+	text-decoration: none;
+}
+
+.button:hover {
+	filter: brightness(1.05);
+}
+
+.small {
+	font-size: 0.82rem;
+	color: var(--color-text-muted);
+	line-height: 1.5;
+}
+
+.small a {
+	color: var(--color-primary);
+}
+
+.code {
+	font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+	font-size: 0.92em;
+	background: var(--color-bg-input);
+	border: 1px solid var(--color-border);
+	border-radius: 6px;
+	padding: 1px 6px;
+	white-space: nowrap;
+}
+
+@media (max-width: 480px) {
+	.card {
+		padding: 20px;
+	}
+}
+
+.subheading {
+	margin-top: 6px;
+	font-size: 1rem;
+	font-weight: 700;
+}
+
+/* Lectures / Exams / CBT exams */
+.segment {
+	display: flex;
+	gap: 4px;
+	padding: 4px;
+	border: 1px solid var(--color-border);
+	border-radius: 12px;
+	background: var(--color-bg-input);
+}
+
+.segment button {
+	flex: 1;
+	padding: 9px 10px;
+	border: 0;
+	border-radius: 9px;
+	background: transparent;
+	color: var(--color-text-secondary);
+	font: inherit;
+	font-weight: 600;
+	cursor: pointer;
+}
+
+.segment .segmentOn {
+	background: var(--color-bg-card);
+	color: var(--color-primary);
+	box-shadow: 0 1px 3px rgba(15, 23, 42, 0.12);
+}
+
+/* The index of faculties */
+.index {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 16px;
+	padding: 14px 16px;
+	border: 1px solid var(--color-border);
+	border-radius: 12px;
+	background: var(--color-bg-input);
+}
+
+.index p {
+	margin-top: 2px;
+	font-size: 0.85rem;
+	color: var(--color-text-secondary);
+	line-height: 1.5;
+}
+
+.buttonSecondary {
+	flex-shrink: 0;
+	padding: 10px 16px;
+	border: 1px solid var(--color-primary);
+	border-radius: 10px;
+	color: var(--color-primary);
+	font-weight: 700;
+	text-decoration: none;
+	white-space: nowrap;
+}
+
+.buttonSecondary:hover {
+	background: var(--color-bg-card);
+}
+
+@media (max-width: 520px) {
+	.index {
+		flex-direction: column;
+		align-items: stretch;
+		text-align: left;
+	}
+
+	.buttonSecondary {
+		text-align: center;
+	}
+}

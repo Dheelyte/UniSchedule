@@ -1,7 +1,7 @@
 from fastapi import Depends, HTTPException
 from modules.calendar.repository import CalendarRepository
 from modules.calendar.models import AcademicSession, Semester
-from modules.calendar.schemas import SessionCreate, SemesterCreate
+from modules.calendar.schemas import SessionCreate, SemesterCreate, SemesterResponse
 from modules.audit.service import AuditService
 
 class CalendarService:
@@ -103,6 +103,13 @@ class CalendarService:
 
     async def get_semesters(self, session_id: int, current_user: dict) -> list[Semester]:
         return await self.repo.get_semesters(session_id, realm_key=current_user["realm"])
+
+    async def get_all_semesters(self, current_user: dict) -> list[dict]:
+        rows = await self.repo.get_all_semesters(realm_key=current_user["realm"])
+        return [
+            {**SemesterResponse.model_validate(semester).model_dump(), "session_name": session_name}
+            for semester, session_name in rows
+        ]
 
     async def get_current_semester(self, current_user: dict) -> Semester | None:
         return await self.repo.get_current_semester(realm_key=current_user["realm"])

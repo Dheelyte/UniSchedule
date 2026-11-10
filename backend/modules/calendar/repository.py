@@ -47,6 +47,16 @@ class CalendarRepository:
         )
         return list(result.scalars().all())
 
+    async def get_all_semesters(self, *, realm_key: str) -> list[tuple[Semester, str]]:
+        """Every semester of the realm with its session's name, oldest session first."""
+        result = await self.db.execute(
+            select(Semester, AcademicSession.name)
+            .join(AcademicSession, AcademicSession.id == Semester.session_id)
+            .where(AcademicSession.realm_key == realm_key)
+            .order_by(AcademicSession.id, Semester.id)
+        )
+        return [(semester, name) for semester, name in result.all()]
+
     async def get_semester(self, id: int, *, realm_key: str) -> Semester | None:
         result = await self.db.execute(
             select(Semester).where(Semester.id == id, Semester.id.in_(realm_semester_ids(realm_key)))

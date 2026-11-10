@@ -1,6 +1,6 @@
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, or_, any_, case
+from sqlalchemy import select, or_, any_, case, func
 from sqlalchemy.orm import aliased
 from datetime import date, datetime, timezone
 from core.database import get_db
@@ -237,10 +237,15 @@ class TimetableRepository:
         await self.db.flush()
         return item
 
-    async def get_schedule_items(self, *, realm_key: str, semester_id: int | None = None, faculty_id: str | None = None) -> list[ScheduleItem]:
-        query = select(ScheduleItem).where(ScheduleItem.realm_key == realm_key)
+    def _schedule_items_query(
+        self, *, realm_key: str, semester_id: int | None = None, faculty_id: str | None = None,
+        item_type: str | None = None, columns=None,
+    ):
+        query = select(*(columns or [ScheduleItem])).where(ScheduleItem.realm_key == realm_key)
         if semester_id is not None:
             query = query.where(ScheduleItem.semester_id == semester_id)
+        if item_type is not None:
+            query = query.where(ScheduleItem.type == item_type)
         if faculty_id is not None:
             enrolled_subq = (
                 select(CourseEnrollment.course_id)
@@ -251,8 +256,25 @@ class TimetableRepository:
                 ScheduleItem.faculty_id == faculty_id,
                 ScheduleItem.course_id.in_(enrolled_subq),
             ))
-        result = await self.db.execute(query)
+        return query
+
+    async def get_schedule_items(
+        self, *, realm_key: str, semester_id: int | None = None, faculty_id: str | None = None,
+        item_type: str | None = None,
+    ) -> list[ScheduleItem]:
+        result = await self.db.execute(self._schedule_items_query(
+            realm_key=realm_key, semester_id=semester_id, faculty_id=faculty_id, item_type=item_type,
+        ))
         return list(result.scalars().all())
+
+    async def room_usage(self, *, realm_key: str, faculty_id: str | None = None) -> dict[int, int]:
+        """How many schedule items (every semester) use each room, among the items `faculty_id` sees."""
+        items = self._schedule_items_query(
+            realm_key=realm_key, faculty_id=faculty_id,
+            columns=[func.unnest(ScheduleItem.room_ids).label("room_id")],
+        ).subquery()
+        result = await self.db.execute(select(items.c.room_id, func.count()).group_by(items.c.room_id))
+        return {room_id: count for room_id, count in result.all()}
 
     async def get_schedule_item(self, id: int, *, realm_key: str) -> ScheduleItem | None:
         result = await self.db.execute(

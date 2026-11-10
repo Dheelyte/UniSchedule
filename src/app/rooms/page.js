@@ -11,6 +11,18 @@ import { isRoomActive } from '@/lib/utils';
 import { DEFAULT_REALM } from '@/lib/realm';
 import styles from './rooms.module.css';
 
+/** Schedule items per room. Falls back to counting every item on a backend without /rooms/usage. */
+async function loadRoomUsage() {
+    try {
+        return (await apiClient.get('/timetable/rooms/usage')) || {};
+    } catch {
+        const items = await apiClient.get('/timetable/schedule-items').catch(() => []);
+        const usage = {};
+        (items || []).forEach((item) => (item.room_ids || []).forEach((id) => { usage[id] = (usage[id] || 0) + 1; }));
+        return usage;
+    }
+}
+
 export default function RoomsPage() {
     const { state, dispatch, isInitialized } = useApp();
     const { rooms, faculties } = state;
@@ -70,58 +82,32 @@ export default function RoomsPage() {
         inactiveSeats: r.inactive_seats ?? r.inactiveSeats ?? 0,
     });
 
+    // {room id: schedule items using it}: only the counts, not every item.
+    const [roomUsage, setRoomUsage] = useState({});
+
     useEffect(() => {
         let mounted = true;
         async function loadRooms() {
             try {
-                const requests = [];
+                const [roomsData, facultiesData, usage] = await Promise.all([
+                    isInitialized ? null : apiClient.get('/timetable/rooms').catch(() => []),
+                    isInitialized ? null : apiClient.get('/timetable/faculties').catch(() => []),
+                    loadRoomUsage(),
+                ]);
+                if (!mounted) return;
                 if (!isInitialized) {
-                    requests.push(apiClient.get('/timetable/rooms').catch(() => []));
-                    requests.push(apiClient.get('/timetable/faculties').catch(() => []));
+                    dispatch({
+                        type: ACTION_TYPES.INIT_STATE,
+                        payload: {
+                            rooms: (roomsData || []).map(normalizeRoom),
+                            faculties: facultiesData || [],
+                        }
+                    });
                 }
-                requests.push(apiClient.get('/timetable/schedule-items').catch(() => []));
-
-                const results = await Promise.all(requests);
-                if (mounted) {
-                    if (!isInitialized) {
-                        const [roomsData, facultiesData, schedulesData] = results;
-                        dispatch({
-                            type: ACTION_TYPES.INIT_STATE,
-                            payload: {
-                                rooms: (roomsData || []).map(normalizeRoom),
-                                faculties: facultiesData || [],
-                                scheduleItems: (schedulesData || []).map(s => ({
-                                    ...s,
-                                    courseId: s.course_id,
-                                    roomIds: s.room_ids,
-                                    facultyId: s.faculty_id,
-                                    day: s.day_of_week,
-                                    startTime: s.start_time,
-                                    endTime: s.end_time
-                                }))
-                            }
-                        });
-                    } else {
-                        const [schedulesData] = results;
-                        dispatch({
-                            type: ACTION_TYPES.INIT_STATE,
-                            payload: {
-                                scheduleItems: (schedulesData || []).map(s => ({
-                                    ...s,
-                                    courseId: s.course_id,
-                                    roomIds: s.room_ids,
-                                    facultyId: s.faculty_id,
-                                    day: s.day_of_week,
-                                    startTime: s.start_time,
-                                    endTime: s.end_time
-                                }))
-                            }
-                        });
-                    }
-                    setLoading(false);
-                }
+                setRoomUsage(usage);
+                setLoading(false);
             } catch (e) {
-                console.error('Failed to JIT load rooms and schedules', e);
+                console.error('Failed to load rooms', e);
             }
         }
         loadRooms();
@@ -297,12 +283,7 @@ export default function RoomsPage() {
     };
 
 
-    const scheduleCount = (roomId) => {
-        return (state.scheduleItems || []).filter((s) => 
-            s.roomId === roomId || 
-            (s.roomIds && s.roomIds.includes(roomId))
-        ).length;
-    };
+    const scheduleCount = (roomId) => roomUsage[roomId] || 0;
 
     const openAdd = () => {
         setEditing(null);

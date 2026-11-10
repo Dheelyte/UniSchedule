@@ -7,8 +7,8 @@
 // cover with no timetable on it is the easiest page to misuse). A draft gets a
 // faint DRAFT watermark instead, so an unofficial copy can't pass as official.
 //
-// `signoff` is what GET /signoffs/export returns, plus `qr_data_url` (see
-// src/lib/exportData.js). Renderers reserve SIGNOFF_STRIP_H above their footer
+// `signoff` comes with the export bundle, plus `qr_data_url` (see
+// signoffQrDataUrl in src/lib/exportJob.js). Renderers reserve SIGNOFF_STRIP_H above their footer
 // when isSigned(signoff), then call applySignoff() just before saving.
 import { SITE_URL } from "./site.js";
 
@@ -85,14 +85,26 @@ export function drawSignoffStrip(pdf, signoff, { x0, x1, bottom, scale = 1, veri
 	// ---- Right: stamp + signature ----
 	const blockW = 54 * s;
 	const blockX = x1 - blockW;
-	const lineY = top + 11.5 * s;
-	drawFitted(pdf, signoff.signature_image, blockX + 2 * s, top, blockW - 4 * s, 11 * s);
-	pdf.setDrawColor(100, 116, 139);
-	pdf.setLineWidth(0.25);
-	pdf.line(blockX, lineY, x1, lineY);
 	const cx = blockX + blockW / 2;
 	const name = (signoff.signatory_name || "").trim();
 	const title = (signoff.signatory_title || "").trim();
+	let lineY = top + 11.5 * s;
+	if (signoff.signature_image) {
+		drawFitted(pdf, signoff.signature_image, blockX + 2 * s, top, blockW - 4 * s, 11 * s);
+		pdf.setDrawColor(100, 116, 139);
+		pdf.setLineWidth(0.25);
+		pdf.line(blockX, lineY, x1, lineY);
+	} else {
+		// No signature (public copies never carry one): an empty signature line
+		// would read as unsigned, so name who approved it instead.
+		lineY = top + 5.5 * s;
+		if (name || title) {
+			pdf.setFont("helvetica", "normal");
+			pdf.setFontSize(6 * s);
+			pdf.setTextColor(148, 163, 184);
+			pdf.text("Approved by", cx, top + 4.5 * s, { align: "center" });
+		}
+	}
 	pdf.setTextColor(15, 23, 42);
 	if (name) {
 		pdf.setFont("helvetica", "bold");

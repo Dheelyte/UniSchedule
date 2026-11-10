@@ -5,14 +5,12 @@ import { useRouter } from "next/navigation";
 import { useApp, ACTION_TYPES } from "@/context/AppContext";
 import { useAuth } from "@/context/AuthContext";
 import { apiClient } from "@/lib/apiClient";
+import { loadTerms } from "@/lib/loadTerms";
+import { downloadTimetable } from "@/lib/exportClient";
 import { detectAllConflicts, toExternalBooking } from "@/lib/conflicts";
-import { exportTimetablePDF } from "@/lib/pdfExport";
-import { exportTimetableCSV } from "@/lib/csvExport";
 import TimetableGrid from "@/components/TimetableGrid/TimetableGrid";
 import { useToast } from "@/components/Toast/Toast";
 import ExportModal from "@/components/ExportModal/ExportModal";
-import { filterSchedulesForExport } from "@/lib/exportFilters";
-import { loadExportSemester } from "@/lib/exportData";
 import TimetableStatusBadge from "@/components/TimetableStatusBadge/TimetableStatusBadge";
 import RequestEditModal from "@/components/RequestEditModal/RequestEditModal";
 import RequestChangeModal from "@/components/RequestChangeModal/RequestChangeModal";
@@ -27,7 +25,7 @@ const NO_EXTERNAL_BOOKINGS = [];
 
 export default function CBTTimetablePage() {
 	const { getSchedulesWithDetails, state, dispatch, isInitialized } = useApp();
-	const { user, loading: authLoading, realm, realmName, realmConfig } = useAuth();
+	const { user, loading: authLoading, realmConfig } = useAuth();
 	const { addToast } = useToast();
 	const confirm = useConfirm();
 	const router = useRouter();
@@ -122,23 +120,11 @@ export default function CBTTimetablePage() {
 	};
 
 	useEffect(() => {
-		async function loadTerms() {
+		async function loadTermList() {
 			try {
-				const sessList = await apiClient
-					.get("/calendar/sessions")
-					.catch(() => []);
+				const { sessions: sessList, semesters: allSems, current } = await loadTerms();
 				setSessions(sessList);
-				let allSems = [];
-				for (const s of sessList) {
-					const sems = await apiClient
-						.get(`/calendar/sessions/${s.id}/semesters`)
-						.catch(() => []);
-					allSems.push(...sems.map((sem) => ({ ...sem, sessionName: s.name })));
-				}
 				setSemesters(allSems);
-				const current = await apiClient
-					.get("/calendar/semesters/current")
-					.catch(() => null);
 				if (current) {
 					setSelectedSemesterId(current.id);
 				} else if (allSems.length > 0) {
@@ -148,7 +134,7 @@ export default function CBTTimetablePage() {
 				console.error(e);
 			}
 		}
-		loadTerms();
+		loadTermList();
 	}, []);
 
 	const loadSchedules = useCallback(
@@ -165,7 +151,7 @@ export default function CBTTimetablePage() {
 						blockedSlotsData,
 						locks
 					] = await Promise.all([
-						apiClient.get(`/timetable/schedule-items?semester_id=${semId}`).catch(() => []),
+						apiClient.get(`/timetable/schedule-items?semester_id=${semId}&type=exam`).catch(() => []),
 						apiClient.get(`/timetable/blocked-slots?semester_id=${semId}`).catch(() => []),
 						apiClient.get(`/timetable/locks?semester_id=${semId}`).catch(() => []),
 					]);
@@ -203,7 +189,7 @@ export default function CBTTimetablePage() {
 						apiClient.get("/timetable/rooms?all=true").catch(() => []),
 						apiClient.get("/timetable/courses").catch(() => []),
 						apiClient
-							.get(`/timetable/schedule-items?semester_id=${semId}`)
+							.get(`/timetable/schedule-items?semester_id=${semId}&type=exam`)
 							.catch(() => []),
 						apiClient
 							.get(`/timetable/blocked-slots?semester_id=${semId}`)
@@ -369,151 +355,31 @@ export default function CBTTimetablePage() {
 		level = "ALL",
 		format: exportFormat = "pdf",
 		monochrome = false,
-		paperSize = "a4",
+		paperSize = "a3",
 	}) => {
 		setIsExportModalOpen(false);
 		if (semesterId === null || semesterId === undefined) {
 			addToast({ type: "error", title: "Export Failed", message: "Choose a semester to export." });
 			return;
 		}
-		const loaded = await loadExportSemester({
-			semesterId,
-			pageSemesterId: selectedSemesterId,
-			pageSchedules: cbtSchedules,
-			pageIsLocked: isLocked,
-			timetableType: "exam",
-			state,
-		});
-		if (!loaded) {
-			addToast({ type: "error", title: "Export Failed", message: `Could not load the ${session} ${semester} timetable.` });
-			return;
-		}
-		const { blockedSlots, isLocked: exportIsLocked } = loaded;
-		const deptIdNum =
-			departmentId && departmentId !== "ALL" ? Number(departmentId) : null;
-		const levelNum = level && level !== "ALL" ? Number(level) : null;
-
-		const filteredSchedules = filterSchedulesForExport(loaded.schedules, {
-			facultyId,
-			departmentId,
-			level,
-			cbtOnly: true,
-			faculties: state.faculties,
-			departments: state.departments,
-			courses: state.courses,
-			enrollmentsByCourse,
-		});
-
-		if (filteredSchedules.length === 0) {
-			addToast({
-				type: "error",
-				title: "Export Failed",
-				message: "No schedules found for the selected filters.",
-			});
-			return;
-		}
-
-		// When exporting every faculty, group output by faculty with General Studies first.
-		const groupByFaculty = facultyId === "ALL";
-
-		const facultyInfo =
-			facultyId === "ALL"
-				? "All Faculties"
-				: state.faculties.find((f) => f.id === facultyId)?.name ||
-					"Unknown Faculty";
-		const departmentInfo =
-			deptIdNum === null
-				? null
-				: state.departments.find((d) => d.id === deptIdNum)?.name ||
-					"Unknown Department";
-		const levelInfo = levelNum === null ? null : `Level ${levelNum}`;
-
-		if (exportFormat === "csv") {
-			exportTimetableCSV({
-				schedules: filteredSchedules,
-				title: "CBT Examination Timetable",
-				session,
-				semester,
-				faculty: facultyInfo,
-				department: departmentInfo,
-				mode: "exam",
-				groupByFaculty,
-				config: realmConfig,
-				realmKey: realm,
-				realmName,
-			});
-			addToast({
-				type: "success",
-				title: "CSV Exported",
-				message: "CBT timetable downloaded as CSV.",
-			});
-			return;
-		}
-
-
-		if (paperSize === "a3") {
-			exportTimetablePDF({
-				schedules: filteredSchedules,
-				blockedSlots,
-				rooms: state.rooms.filter(r => r.name?.toUpperCase().includes("CBT")),
-				faculties: state.faculties,
-				departments: state.departments,
-				enrollments: state.enrollments,
-				title: "CBT Examination Timetable",
-				session,
-				semester,
-				faculty: facultyInfo,
-				department: departmentInfo,
-				level: levelInfo,
-				schoolName: "University of Lagos",
-				mode: "exam",
+		// The file is built on the server (src/lib/exportClient.js), so a big
+		// export doesn't slow the page down.
+		addToast({ type: "info", title: "Preparing export", message: `Building the ${session} ${semester} timetable…` });
+		try {
+			const message = await downloadTimetable({
+				semesterId,
+				kind: "cbt",
+				facultyId,
+				departmentId,
+				level,
+				format: exportFormat,
 				monochrome,
-				groupByFaculty,
-				paperSize: "a3",
-				structured: true,
-				isLocked: exportIsLocked,
-				signoff: loaded.signoff,
-				config: realmConfig,
-				realmKey: realm,
-				realmName,
+				paperSize,
 			});
-
-			addToast({
-				type: "success",
-				title: "PDF Exported",
-				message: "CBT timetable downloaded (A3 structured).",
-			});
-			return;
+			addToast({ type: "success", title: exportFormat === "csv" ? "CSV Exported" : "PDF Exported", message });
+		} catch (error) {
+			addToast({ type: "error", title: "Export Failed", message: error.message || `Could not export the ${session} ${semester} timetable.` });
 		}
-
-		exportTimetablePDF({
-			schedules: filteredSchedules,
-			blockedSlots,
-			rooms: state.rooms.filter(r => r.name?.toUpperCase().includes("CBT")),
-			faculties: state.faculties,
-			departments: state.departments,
-			enrollments: state.enrollments,
-			title: "CBT Examination Timetable",
-			session,
-			semester,
-			faculty: facultyInfo,
-			department: departmentInfo,
-			level: levelInfo,
-			schoolName: "University of Lagos",
-			mode: "exam",
-			monochrome,
-			groupByFaculty,
-			isLocked: exportIsLocked,
-			signoff: loaded.signoff,
-			config: realmConfig,
-			realmKey: realm,
-			realmName,
-		});
-		addToast({
-			type: "success",
-			title: "PDF Exported",
-			message: "CBT timetable downloaded as PDF.",
-		});
 	};
 
 	const [format, setFormat] = useState("pdf");

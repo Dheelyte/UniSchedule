@@ -44,7 +44,7 @@ export const apiClient = {
 				// in ClientLayout): their sign-in check is expected to 401.
 				const path = window.location.pathname;
 				if (
-					!["/", "/login", "/register", "/forgot-password", "/realms", "/contributors", "/verify"].includes(path) &&
+					!["/", "/login", "/register", "/forgot-password", "/realms", "/contributors", "/verify", "/download"].includes(path) &&
 					!path.startsWith("/verify/")
 				) {
 					window.location.href = loginPath(lastRealm());

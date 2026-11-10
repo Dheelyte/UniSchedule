@@ -43,6 +43,11 @@ export function exportTimetablePDF({
 	config = UG_CONFIG,
 	realmKey = DEFAULT_REALM,
 	realmName = null,
+	// False: only build the document (the server, or a worker), don't download it.
+	save = true,
+	// Deflate the page streams: whole-university PDFs are ~10x smaller. Tests
+	// turn it off to read the text.
+	compress = true,
 }) {
 	if (!schedules || schedules.length === 0) return;
 	const signed = isSigned(signoff);
@@ -404,6 +409,7 @@ export function exportTimetablePDF({
 	if (paperSize === "a3" || structured || mode === "lecture") {
 		const pageFormat = mode === "lecture" && paperSize === "a4" ? "a4" : "a3";
 		const pdfA3 = new jsPDF({
+			compress,
 			orientation: "landscape",
 			unit: "mm",
 			format: pageFormat,
@@ -1797,7 +1803,8 @@ export function exportTimetablePDF({
 			cover: hasCover ? { page: 1, scale: 1 } : null,
 		});
 		const fname = getExportFileName(title, session, semester, faculty, scopeLabel, pageFormat === "a4" ? "a4" : "a3");
-		if (typeof window !== "undefined") {
+		pdfA3.fileName = fname;
+		if (save && typeof window !== "undefined") {
 			pdfA3.save(fname);
 		}
 		return pdfA3;
@@ -1841,7 +1848,7 @@ export function exportTimetablePDF({
 		if (!deptColor[deptKey]) deptColor[deptKey] = monochrome ? MONO_SCHEME : PALETTE[ci++ % PALETTE.length];
 	});
 
-	const pdf = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+	const pdf = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4", compress });
 	const pageW = 297;
 	const pageH = 210;
 	const margin = 10;
@@ -2448,5 +2455,7 @@ export function exportTimetablePDF({
 
 	const fileName = getExportFileName(title, session, semester, faculty, scopeLabel, "a4");
 	applySignoff(pdf, { signoff, isLocked, pageW, pageH, margin, stripBottom: pageH - 6 });
-	pdf.save(fileName);
+	pdf.fileName = fileName;
+	if (save && typeof window !== "undefined") pdf.save(fileName);
+	return pdf;
 }

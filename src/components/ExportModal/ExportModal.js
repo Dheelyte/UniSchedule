@@ -1,14 +1,8 @@
 import { useState, useEffect } from "react";
 import { useApp } from "@/context/AppContext";
 import { useAuth } from "@/context/AuthContext";
-import { DAILY_EXPORT_FORMATS } from "@/lib/timetableLayout";
+import { dailyLayoutsFor } from "@/lib/timetableLayout";
 import styles from "./ExportModal.module.css";
-
-// Daily (1 day per page) layouts offered per realm, alongside the standard grid.
-const dailyLayoutsFor = (realm) =>
-	String(realm || "").toUpperCase() === "ICE"
-		? [DAILY_EXPORT_FORMATS["daily-ice-30"]]
-		: [DAILY_EXPORT_FORMATS["daily-hourly"]];
 
 export default function ExportModal({
 	isOpen,

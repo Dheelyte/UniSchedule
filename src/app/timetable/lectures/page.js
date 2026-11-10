@@ -5,13 +5,9 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useApp, ACTION_TYPES } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
 import { apiClient } from '@/lib/apiClient';
+import { loadTerms } from '@/lib/loadTerms';
+import { downloadTimetable } from '@/lib/exportClient';
 import { detectAllConflicts, dismissalSignatureSet, toExternalBooking } from '@/lib/conflicts';
-import { exportTimetablePDF } from '@/lib/pdfExport';
-import { exportDailyTimetablePDF } from '@/lib/pdfExportDaily';
-import { exportTimetableCSV } from '@/lib/csvExport';
-import { filterSchedulesForExport } from '@/lib/exportFilters';
-import { loadExportSemester } from '@/lib/exportData';
-import { isRoomActive } from '@/lib/utils';
 import TimetableGrid from '@/components/TimetableGrid/TimetableGrid';
 import { useToast } from '@/components/Toast/Toast';
 import ExportModal from '@/components/ExportModal/ExportModal';
@@ -31,7 +27,7 @@ const NO_EXTERNAL_BOOKINGS = [];
 
 export default function LectureTimetablePage() {
     const { getSchedulesWithDetails, state, dispatch, isInitialized } = useApp();
-    const { user, realm, realmName, realmConfig } = useAuth();
+    const { user, realmConfig } = useAuth();
     const { addToast } = useToast();
     const confirm = useConfirm();
 
@@ -63,26 +59,21 @@ export default function LectureTimetablePage() {
 
     // Load all sessions/semesters for the picker
     useEffect(() => {
-        async function loadTerms() {
+        async function loadTermList() {
             try {
-                const sessList = await apiClient.get('/calendar/sessions').catch(() => []);
+                const { sessions: sessList, semesters: allSems, current } = await loadTerms();
                 setSessions(sessList);
-                let allSems = [];
-                for (const s of sessList) {
-                    const sems = await apiClient.get(`/calendar/sessions/${s.id}/semesters`).catch(() => []);
-                    allSems.push(...sems.map(sem => ({ ...sem, sessionName: s.name })));
-                }
                 setSemesters(allSems);
-                // Default to the current semester
-                const current = await apiClient.get('/calendar/semesters/current').catch(() => null);
                 if (current) {
                     setSelectedSemesterId(current.id);
                 } else if (allSems.length > 0) {
                     setSelectedSemesterId(allSems[0].id);
                 }
-            } catch (e) { console.error(e); }
+            } catch (e) {
+                console.error(e);
+            }
         }
-        loadTerms();
+        loadTermList();
     }, []);
 
     const loadSchedules = useCallback(async (semId) => {
@@ -92,7 +83,7 @@ export default function LectureTimetablePage() {
                 .then((rows) => setExternalBookings((rows || []).map(toExternalBooking)))
                 .catch(() => setExternalBookings(NO_EXTERNAL_BOOKINGS));
             const [scheduleItems, blockedSlotsData, locks] = await Promise.all([
-                apiClient.get(`/timetable/schedule-items?semester_id=${semId}`).catch(() => []),
+                apiClient.get(`/timetable/schedule-items?semester_id=${semId}&type=lecture`).catch(() => []),
                 apiClient.get(`/timetable/blocked-slots?semester_id=${semId}`).catch(() => []),
                 apiClient.get(`/timetable/locks?semester_id=${semId}`).catch(() => []),
             ]);
@@ -247,122 +238,25 @@ export default function LectureTimetablePage() {
             addToast({ type: 'error', title: 'Export Failed', message: 'Choose a semester to export.' });
             return;
         }
-        const loaded = await loadExportSemester({
-            semesterId,
-            pageSemesterId: selectedSemesterId,
-            pageSchedules: getSchedulesWithDetails.filter((s) => s.type === 'lecture'),
-            pageIsLocked: isLocked,
-            timetableType: 'lecture',
-            state,
-        });
-        if (!loaded) {
-            addToast({ type: 'error', title: 'Export Failed', message: `Could not load the ${session} ${semester} timetable.` });
-            return;
-        }
-        const { blockedSlots, isLocked: exportIsLocked } = loaded;
-        const deptIdNum = departmentId && departmentId !== 'ALL' ? Number(departmentId) : null;
-        const levelNum = level && level !== 'ALL' ? Number(level) : null;
-        const filteredSchedules = filterSchedulesForExport(loaded.schedules, {
-            facultyId,
-            departmentId,
-            level,
-            faculties: state.faculties,
-            departments: state.departments,
-            courses: state.courses,
-            enrollmentsByCourse,
-        });
-        const activeRoomIds = new Set(state.rooms.filter(isRoomActive).map((room) => room.id));
-        const exportableSchedules = filteredSchedules.filter((s) => s.is_online || s.isOnline || (s.roomIds || []).some((rid) => activeRoomIds.has(rid)));
-        if (exportableSchedules.length === 0) {
-            addToast({ type: 'error', title: 'Export Failed', message: 'No schedules found for the selected filters.' });
-            return;
-        }
-        // When exporting every faculty, group output by faculty with General Studies first.
-        const groupByFaculty = facultyId === 'ALL';
-
-        const facultyInfo = facultyId === 'ALL'
-            ? 'All Faculties'
-            : state.faculties.find(f => f.id === facultyId)?.name || 'Unknown Faculty';
-        const departmentInfo = deptIdNum === null
-            ? null
-            : state.departments.find(d => d.id === deptIdNum)?.name || 'Unknown Department';
-        const levelInfo = levelNum === null ? null : `Level ${levelNum}`;
-
-        if (format === 'csv') {
-            exportTimetableCSV({
-                schedules: filteredSchedules,
-                title: 'Lecture Timetable',
-                session,
-                semester,
-                faculty: facultyInfo,
-                department: departmentInfo,
-                mode: 'lecture',
-                groupByFaculty,
-                config: realmConfig,
-                realmKey: realm,
-                realmName,
-            });
-            addToast({ type: 'success', title: 'CSV Exported', message: 'Lecture timetable downloaded as CSV.' });
-            return;
-        }
-
-        // Alternate "1 day per page" layouts (UG 1-hour, ICE 30-minute evening). The
-        // standard export below is unchanged and still the default.
-        if (layout && layout !== 'standard') {
-            exportDailyTimetablePDF({
-                schedules: exportableSchedules,
-                blockedSlots,
-                rooms: state.rooms,
-                faculties: state.faculties,
-                departments: state.departments,
-                enrollments: state.enrollments,
-                title: 'Lecture Timetable',
-                session,
-                semester,
-                faculty: facultyInfo,
-                department: departmentInfo,
-                level: levelInfo,
-                schoolName: 'University of Lagos',
+        // The file is built on the server (src/lib/exportClient.js), so a big
+        // export doesn't slow the page down.
+        addToast({ type: 'info', title: 'Preparing export', message: `Building the ${session} ${semester} timetable…` });
+        try {
+            const message = await downloadTimetable({
+                semesterId,
+                kind: 'lecture',
+                facultyId,
+                departmentId,
+                level,
+                format,
                 monochrome,
-                groupByFaculty,
                 paperSize,
-                isLocked: exportIsLocked,
-                signoff: loaded.signoff,
-                config: realmConfig,
-                realmKey: realm,
-                realmName,
                 layout,
             });
-            addToast({ type: 'success', title: 'PDF Exported', message: `Daily lecture timetable downloaded as PDF (${paperSize.toUpperCase()}, 1 day per page).` });
-            return;
+            addToast({ type: 'success', title: format === 'csv' ? 'CSV Exported' : 'PDF Exported', message });
+        } catch (error) {
+            addToast({ type: 'error', title: 'Export Failed', message: error.message || `Could not export the ${session} ${semester} timetable.` });
         }
-
-        exportTimetablePDF({
-            schedules: exportableSchedules,
-            blockedSlots,
-            rooms: state.rooms,
-            faculties: state.faculties,
-            departments: state.departments,
-            enrollments: state.enrollments,
-            title: 'Lecture Timetable',
-            session,
-            semester,
-            faculty: facultyInfo,
-            department: departmentInfo,
-            level: levelInfo,
-            schoolName: 'University of Lagos',
-            mode: 'lecture',
-            monochrome,
-            groupByFaculty,
-            paperSize,
-            structured: paperSize === 'a3',
-            isLocked: exportIsLocked,
-            signoff: loaded.signoff,
-            config: realmConfig,
-            realmKey: realm,
-            realmName,
-        });
-        addToast({ type: 'success', title: 'PDF Exported', message: `Lecture timetable downloaded as PDF (${paperSize.toUpperCase()}).` });
     };
 
     if (selectedSemesterId === null) return <TimetableSkeleton />;

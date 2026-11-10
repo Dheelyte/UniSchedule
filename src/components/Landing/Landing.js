@@ -218,7 +218,7 @@ const FEATURES = [
 	{
 		icon: <DownloadIcon />,
 		title: 'Export & share instantly',
-		description: 'Download any timetable as a print-ready PDF (A3 or A4, week grid or one day per page) or as CSV, filtered by faculty, department and level.',
+		description: 'Anyone can download a FINAL timetable as a print-ready PDF or CSV, no sign-in needed, filtered by faculty, department and level, or get one index that links to every faculty.',
 	},
 	{
 		icon: <LockIcon />,
@@ -288,6 +288,7 @@ export default function Landing() {
 					<nav className={styles.navLinks}>
 						<a href="#features" onClick={scrollToSection}>Features</a>
 						<a href="#how-it-works" onClick={scrollToSection}>How it works</a>
+						<Link href="/download">Download</Link>
 						<Link href="/contributors">Contributors</Link>
 					</nav>
 					<Link href="/realms" className={styles.navCta}>
@@ -317,9 +318,9 @@ export default function Landing() {
 						<Link href="/realms" className={styles.primaryCta}>
 							Get Started <ArrowRightIcon />
 						</Link>
-						<a href="#how-it-works" className={styles.secondaryCta} onClick={scrollToSection}>
-							See how it works
-						</a>
+						<Link href="/download" className={styles.secondaryCta}>
+							Download a timetable
+						</Link>
 					</div>
 				</div>
 
@@ -458,6 +459,7 @@ export default function Landing() {
 						<h4>Product</h4>
 						<a href="#features" onClick={scrollToSection}>Features</a>
 						<a href="#how-it-works" onClick={scrollToSection}>How it works</a>
+						<Link href="/download">Download a timetable</Link>
 						<Link href="/verify">Verify a timetable</Link>
 					</div>
 

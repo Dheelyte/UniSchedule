@@ -34,6 +34,13 @@ class Settings(BaseSettings):
 
     PASSWORD_RESET_CODE_EXPIRE_MINUTES: int = Field(default=10)
 
+    # The public timetable reads (/public/...) answer only requests carrying this
+    # key in X-Export-Key. Only the frontend server has it: the public download
+    # page goes through the frontend, so nobody can call these reads directly.
+    # Empty: allowed without a key in development, refused in production.
+    PUBLIC_EXPORT_KEY: str = ""
+
+
     CORS_ALLOWED_ORIGINS: list[str] = [
         "http://127.0.0.1:3000",
         "http://localhost:3000",

@@ -6,6 +6,10 @@ from modules.realms.defaults import DEFAULT_REALM_KEY
 from modules.realms.repository import RealmRepository
 from modules.realms.schemas import RealmConfig
 
+# The `typ` claim of an export ticket (modules/export/tickets.py).
+EXPORT_TICKET = "export"
+
+
 async def get_token_from_cookie(request: Request) -> str:
     token = request.cookies.get("access_token")
     if not token:
@@ -23,8 +27,21 @@ async def get_current_user(
     if cached is not None:
         return cached
     payload = decode_access_token(token)
-    if not payload:
+    if not payload or payload.get("typ") == EXPORT_TICKET:
+        # An export ticket is not a login, even though it names the user.
         raise HTTPException(status_code=401, detail="Invalid or expired token")
+    payload = await resolve_user(payload, repo, realm_repo)
+    request.state.current_user = payload
+    return payload
+
+
+async def resolve_user(payload: dict, repo: AuthRepository, realm_repo: RealmRepository) -> dict:
+    """The signed-in user a token's claims describe, re-derived from the live account.
+
+    Shared by the login cookie and export tickets, so both apply the same checks:
+    the account still exists and is active, its role and realm come from the
+    database, and impersonation is honoured only for a real super admin.
+    """
     sub = payload.get("sub")
     if sub is None:
         raise HTTPException(status_code=401, detail="Invalid token payload")
@@ -69,7 +86,6 @@ async def get_current_user(
     payload["realm"] = realm.key
     payload["realm_name"] = realm.name
     payload["realm_config"] = RealmConfig.model_validate(realm.config).model_dump()
-    request.state.current_user = payload
     return payload
 
 

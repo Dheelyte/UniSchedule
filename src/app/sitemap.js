@@ -7,7 +7,7 @@ export default function sitemap() {
 	return [
 		{ url: `${SITE_URL}/`, lastModified, changeFrequency: 'monthly', priority: 1 },
 		{ url: `${SITE_URL}/realms`, lastModified, changeFrequency: 'yearly', priority: 0.6 },
-		{ url: `${SITE_URL}/verify`, lastModified, changeFrequency: 'yearly', priority: 0.5 },
+		{ url: `${SITE_URL}/download`, lastModified, changeFrequency: 'weekly', priority: 0.9 },
 		{ url: `${SITE_URL}/contributors`, lastModified, changeFrequency: 'monthly', priority: 0.5 },
 	];
 }

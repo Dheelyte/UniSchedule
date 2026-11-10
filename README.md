@@ -8,8 +8,9 @@ UniSchedule is the timetable manager for the University of Lagos, live at **[www
 - **Conflict detection** for rooms, departments and levels as items are placed. University-wide courses take priority over interfaculty courses, which take priority over departmental ones. Several exams can share a venue at the same time.
 - **Programmes (realms)**: each programme (Undergraduate, ICE part-time, …) has its own calendar, rooms, courses and staff. See [Realms](#realms-programmes).
 - **Locking and change requests**: a Super Admin marks a timetable FINAL to stop edits, and a Faculty Editor can ask for it to be reopened. While a timetable is open, faculty staff send change requests to the super admins.
-- **Signed, stamped and verifiable FINAL PDFs**: every timetable page of a FINAL PDF carries the official stamp, the signatory's signature, name and title, and a QR code and link to `/verify/<code>`, where anyone can check the copy is genuine and still current. Draft PDFs get a DRAFT watermark instead. See [Signatures and verification](#signatures-and-verification).
-- **Exports** to PDF (A3 or A4, colour or black and white, a week grid or one day per page for lectures) and CSV, filtered by session, semester, faculty, department and level.
+- **Signed, stamped and verifiable FINAL PDFs**: every timetable page of a FINAL PDF carries the official stamp, the signatory's signature, name and title, and a QR code and link to `/verify/<code>`, where anyone can check the copy is genuine and still current. Draft PDFs get a DRAFT watermark instead. Public downloads carry the name, title and QR code, but not the signature or stamp. See [Signatures and verification](#signatures-and-verification).
+- **Exports** to PDF (A3 by default, or A4; colour or black and white, a week grid or one day per page for lectures) and CSV, filtered by session, semester, faculty, department and level. Files are built on the server, so a big PDF doesn't slow down the page or the phone.
+- **Public downloads** at `/download`: anyone can download a FINAL lecture, exam or CBT timetable as a PDF or CSV, filtered by session, semester, faculty, department and level, without signing in, or an index PDF that links to every faculty's timetable. Drafts are never offered. See [Exports and downloads](#exports-and-downloads).
 - **Import** (beta, Super Admin): read a faculty's existing timetable from an Excel (.xlsx) or Word (.docx) file, or copy an earlier semester. Each import is previewed and checked for clashes before it is saved, and can be reverted.
 - **Staff invitations, roles and an activity log.**
 
@@ -140,6 +141,22 @@ The app serves more than one programme. Each one is a **realm** with its own fac
 - **Same physical hall.** Each realm has its own rooms. On its Rooms page, a realm other than Undergraduate adds the Undergraduate rooms it also uses ("Add from Undergraduate"); each becomes a room of its own, linked to the original as the same hall. "Create new room" makes a room that only that realm has. Two lectures, or two exams, from different realms can't overlap in a linked hall: the API answers 409 and the grid shows the other realm's booking in grey. Rooms that aren't linked never clash across realms.
 - **Design.** `docs/ice-realm/SPEC.md` has the full design and `docs/ice-realm/PLAN.md` the build log.
 
+## Exports and downloads
+
+Every export (PDF or CSV) is built by one module, `src/lib/exportJob.js`, from an **export bundle**: one API response with a semester's schedule items of one type, the courses they use and those courses' enrollments, the rooms, faculties, departments, blocked slots, the realm's config and the sign-off.
+
+- **Staff** (`/timetable/lectures`, `/exams`, `/cbt`): files are built on the frontend server too, so phones only download the result. The login cookie belongs to the API's domain and never reaches the frontend server, so the page first asks the API for an **export ticket** (`POST /export/ticket`): a JWT that lasts 2 minutes, names the user (with their chosen realm and any impersonation) and one semester and timetable type. The page then fetches `GET /api/export/staff?...` (`src/app/api/export/staff/route.js`) with the ticket in the `X-Export-Ticket` header, never in the URL. That route reads `GET /export/staff-bundle` with the ticket and the server key; the backend re-checks the account as a login would (`resolve_user`), so a disabled user's ticket stops working. A ticket is not a login: the API refuses it as a session cookie. The bundle holds what the user's timetable page shows, drafts included, and FINAL copies are signed and stamped. Staff files are never cached.
+- **Anyone** (`/download`): the page reads the list of FINAL timetables and each one's filter choices through the site's own routes, `GET /api/export/catalogue` and `GET /api/export/options`, which call the backend's `GET /public/timetables` and `GET /public/timetables/{realm}/{semester}/{type}/options`. The download link is `GET /api/export?...` on the frontend server (`src/app/api/export/route.js`), which fetches `GET /public/export/bundle` and renders the file with the same module. The backend only serves FINAL timetables there; a draft is a 404. Links from `/download` carry the verification code; an old link is redirected to the version now in force.
+- **Index of faculties** (`GET /api/export/faculties?session=&semester=&type=lecture|exam`, route in `src/app/api/export/faculties/route.js`, layout in `src/lib/pdfIndex.js`): one PDF for a session, semester and timetable type that lists every faculty and unit of each programme with a FINAL timetable, Undergraduate first, then ICE. A faculty with a timetable links to its own download; the others show "Not published". Exam indexes also link the CBT timetable, and each programme links to its all-faculties PDF and its verification page.
+- **No signature or stamp on public downloads.** Public copies carry the QR code, the verification code and "Approved by" with the signatory's name and title (no empty signature line), but never the signature or stamp images: the backend leaves them out of the public bundle, so they can't be lifted from a public PDF and reused. Staff exports are signed and stamped as before.
+- **Protecting the database.** Public downloads are built so that traffic lands on Vercel, not on the database:
+  - **Only the frontend server reads the export data.** The backend answers `/public/...` and `/export/staff-bundle` only for requests carrying `X-Export-Key` equal to its `PUBLIC_EXPORT_KEY`; browsers never see the key. Set the same value on the backend (Lambda environment) and on Vercel (server-side `PUBLIC_EXPORT_KEY`, not `NEXT_PUBLIC_`). Generate one with `openssl rand -hex 32`. In production the backend refuses public reads while the key is unset; in development they're open, so you don't need it locally.
+  - **Caching.** The frontend server reuses each backend read for 5 minutes (Next's data cache; the largest bundle is about 1 MB, under its 2 MB per-item limit). The list and filter routes are cached at the edge for 5 minutes and rendered files for an hour, so the database is read about once per timetable every 5 minutes however many people download.
+  - **Checked before reading.** `/api/export` rejects unknown parameters and redirects every spelling of a request to one canonical URL (so junk can't bypass the cache), and checks the faculty, department and level against the cached filter choices before the timetable itself is read.
+  - **Rate limits.** The backend allows 60 requests a minute per IP on most routes (slowapi). The routes only the frontend server calls (`/public/...` and `/export/staff-bundle`) allow 600 a minute instead: all their requests come from Vercel's few addresses, so the per-visitor limit would throttle everyone together, but a leaked key still can't flood the database. Visitors are limited at Vercel: add a firewall rule rate-limiting `/api/export` and everything under it (for example 30 requests a minute per IP). The backend's counts live in each Lambda instance's memory, so treat its limits as a backstop.
+  - **Trimmed data.** The public bundle has only the fields a timetable prints: no signature or stamp images, no capacities, emails or ids beyond what links rows together.
+- **Size.** PDFs are compressed: a whole-university exam timetable on A3 is about 1.2 MB.
+
 ## Signatures and verification
 
 FINAL (locked) timetables are exported signed; drafts are watermarked.
@@ -147,7 +164,7 @@ FINAL (locked) timetables are exported signed; drafts are watermarked.
 - **Setting it up.** A Super Admin opens **Signatures & Stamps** in the sidebar (`/signoffs`). Each programme has two sign-offs, one for lecture timetables and one for exam timetables (CBT timetables use the exam one). Each has the signatory's name and title (the Vice-Chancellor until set otherwise) and a scanned signature and stamp. Uploads are cleaned up in the browser: the paper background is made transparent, the edges trimmed and large photos scaled down, so scan on plain white paper.
 - **Exports.** Every timetable page of a FINAL PDF (lecture, exam, CBT; A3, A4 and one day per page) gets a strip above the footer: the QR code, link and verification code on the left, the stamp, signature, name and title on the right. The cover page only says what is inside, so it carries the QR code and link but no stamp or signature. CSV exports are not signed.
 - **Verification codes.** Locking a timetable issues a code such as `UG-7K3P-92QD`. Unlocking marks it reopened; locking again issues a new code. The public page `/verify/<code>` (or `/verify` to type one in) shows the programme, session, semester and timetable type, when it was marked FINAL, and whether it is **current**, **reopened** (may be out of date) or **superseded** by a newer FINAL version. It never shows the signature or stamp. Verify pages are kept out of search results.
-- **Why the code matters.** PDFs are built in the browser, so anyone who can export a FINAL timetable receives the signature and stamp images and could copy them. The verification code is the real check: a forged or outdated copy either has no code or one that doesn't match.
+- **Why the code matters.** Anyone who can download a signed PDF can lift the signature and stamp images from it. The verification code is the real check: a forged or outdated copy either has no code or one that doesn't match.
 - **Storage.** Sign-offs live in `timetable_signoffs` and issued codes in `timetable_verifications` (`backend/modules/signoff/`). Both are realm-scoped; only looking a code up is cross-realm, by design.
 
 ## Running the Tests
@@ -191,7 +208,19 @@ DEBUG=false
 FRONTEND_URL=https://www.unilagtimetable.com            # links in invitation and notification emails
 CORS_ALLOWED_ORIGINS=["https://www.unilagtimetable.com"]
 ALLOWED_HOSTS=["backend.unilagtimetable.com"]
+PUBLIC_EXPORT_KEY=<same value as on Vercel>             # openssl rand -hex 32
 ```
+
+All exports (staff and public) are built on the frontend server, which needs these on Vercel:
+
+```env
+NEXT_PUBLIC_API_URL=https://backend.unilagtimetable.com/api/v1
+PUBLIC_EXPORT_KEY=<same value as on the Lambda>        # server only: never NEXT_PUBLIC_
+```
+
+Set the key on both sides before deploying this: without it the production backend refuses export data, so exports and downloads stop working. Also add a Vercel firewall rule rate-limiting `/api/export` and everything under it (see [Protecting the database](#exports-and-downloads)).
+
+`API_URL` can override `NEXT_PUBLIC_API_URL` for the server only.
 
 ## Contributing
 
