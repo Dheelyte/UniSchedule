@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import APIRouter, Depends, Response, HTTPException, status
 from core.security import verify_password
 from modules.auth.service import AuthService, PasswordResetService
@@ -7,6 +9,8 @@ from api.dependencies.auth import RequireRole, get_current_user, require_real_su
 from modules.auth.models import RoleEnum
 from modules.timetable.repository import TimetableRepository
 from core.mail import EmailService
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
 
@@ -196,7 +200,16 @@ async def request_password_reset(
     user = await auth_service.get_user_by_email(email=request_data.email)
     if user:
         code = await password_reset_service.create_reset_code(user)
-        await password_reset_service.send_password_reset_email(user=user, code=code)
+        try:
+            await password_reset_service.send_password_reset_email(user=user, code=code)
+        except Exception:
+            # A mail failure (server down, bad template) used to escape as a bare
+            # 500, which the browser shows as a network error. Say what happened.
+            logger.exception("Password reset email failed to send")
+            raise HTTPException(
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                "We couldn't send the reset email right now. Try again in a few minutes.",
+            )
     # Always return success to prevent email enumeration
     return MsgResponse(
         message="If the email exists, a password reset code has been sent"
@@ -233,7 +246,6 @@ async def verify_reset_code(
     valid_token = await password_reset_service.verify_reset_code(
         code=verify_data.code, email=verify_data.email
     )
-    print(valid_token)
     if not valid_token:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid or expired code")
     return PasswordResetVerify(is_valid=True)
