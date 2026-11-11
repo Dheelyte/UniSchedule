@@ -12,6 +12,7 @@ import Link from 'next/link';
 import { useEffect, useRef } from 'react';
 import { Plus_Jakarta_Sans } from 'next/font/google';
 import styles from './Landing.module.css';
+import { unilagLogoBase64 } from '@/lib/logo';
 import { loginPath } from '@/lib/realm';
 import { SITE_DESCRIPTION, SITE_NAME, SITE_URL } from '@/lib/site';
 
@@ -172,17 +173,20 @@ export default function Landing() {
 			<header className={styles.nav}>
 				<div className={styles.navInner}>
 					<Link href="/" className={styles.wordmark}>
-						<span className={styles.wordmarkMark} aria-hidden="true" />
-						UniSchedule
+						{/* eslint-disable-next-line @next/next/no-img-element */}
+						<img src={unilagLogoBase64} alt="University of Lagos logo" width="36" height="36" className={styles.navLogo} />
+						UNILAG Timetable Manager
 					</Link>
-					<span className={styles.navFor}>for the University of Lagos</span>
 					<nav className={styles.navLinks} aria-label="Main">
 						<a href="#for">Who it&apos;s for</a>
 						<a href="#features">Features</a>
 						<a href="#how">How it works</a>
 						<Link href="/download">Download</Link>
 					</nav>
-					<Link href="/realms" className={styles.navSignIn}>Staff sign in</Link>
+					<Link href="/realms" className={styles.navSignIn}>
+						<span className={styles.longLabel}>Staff sign in</span>
+						<span className={styles.shortLabel}>Sign in</span>
+					</Link>
 				</div>
 			</header>
 
