@@ -6,8 +6,10 @@ import styles from './contributors.module.css';
 import { unilagLogoBase64 } from '@/lib/logo';
 import { CONTRIBUTORS } from '@/data/contributors';
 
-// Must match the panel transition in contributors.module.css.
+// Must match the panel transitions in contributors.module.css.
 const EXPAND_MS = 600;
+// Touch screens fade the panel instead of growing it from the card.
+const FADE_MS = 200;
 
 /* ---------- Icons ---------- */
 
@@ -138,6 +140,12 @@ function externalProps(key) {
 
 function prefersReducedMotion() {
 	return typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+}
+
+// Phones and tablets, a phone in "desktop site" mode included (see the
+// matching media query in contributors.module.css).
+function isTouchScreen() {
+	return typeof window !== 'undefined' && window.matchMedia('(hover: none), (pointer: coarse)').matches;
 }
 
 // Public GitHub profiles, fetched once per username for the expanded view.
@@ -314,7 +322,7 @@ export default function ContributorsPage() {
 			setPhase('closed');
 			setActive(null);
 			card.querySelector('button')?.focus();
-		}, prefersReducedMotion() ? 0 : EXPAND_MS);
+		}, prefersReducedMotion() ? 0 : isTouchScreen() ? FADE_MS : EXPAND_MS);
 	};
 
 	const step = (delta) => {

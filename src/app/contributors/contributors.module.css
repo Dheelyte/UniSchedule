@@ -940,6 +940,51 @@
 	.card:hover .avatar {
 		transform: none;
 	}
+
+	/* Opening a profile: a quick fade instead of growing a full-screen clip
+	   from the card, which a phone redraws on every frame. FADE_MS in
+	   page.js matches the 200ms here. */
+	.panel {
+		clip-path: none !important;
+		opacity: 0;
+		transition: opacity 200ms ease;
+	}
+
+	.panelOpen {
+		opacity: 1;
+	}
+
+	/* The panel covers the screen, so the dimmed backdrop behind it needn't fade. */
+	.overlay {
+		transition: none;
+	}
+
+	.panelGlowA,
+	.panelGlowB {
+		display: none;
+	}
+
+	/* The profile appears as it is: no staggered rise, no pop, no shimmering
+	   name, and a small shadow instead of a large glow. */
+	.detailAvatar,
+	.detailName,
+	.detailBody > * {
+		animation: none;
+	}
+
+	.detailAvatar {
+		box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+	}
+
+	.panelContent,
+	.panelOpen .panelContent,
+	.closeButton,
+	.panelOpen .closeButton,
+	.panelNav,
+	.panelOpen .panelNav {
+		transition-duration: 150ms;
+		transition-delay: 0ms;
+	}
 }
 
 @media (prefers-reduced-motion: reduce) {
