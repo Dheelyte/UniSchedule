@@ -14,8 +14,7 @@ export function downloadableEntries(published) {
 
 /**
  * What the page shows first: the newest session and semester, lectures if
- * published, and the first programme. The server renders this choice (so the
- * index of faculties is in the HTML) and the form starts from the same one.
+ * published, and the first programme.
  */
 export function defaultSelection(entries) {
 	const session = unique(entries.map((e) => e.session_name))[0] || '';
@@ -26,5 +25,3 @@ export function defaultSelection(entries) {
 	return { session, semester, kind, realm: forKind[0]?.realm_key || '', forKind };
 }
 
-/** The key the index of faculties uses for a set of programmes' timetables. */
-export const indexId = (entries) => entries.map((e) => `${e.realm_key}:${e.semester_id}:${e.kind}`).join('|');

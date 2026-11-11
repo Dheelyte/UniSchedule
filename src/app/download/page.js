@@ -1,8 +1,7 @@
 import Link from 'next/link';
 import { unilagLogoBase64 } from '@/lib/logo';
-import { getOptions, getPublished } from '@/lib/exportServer';
+import { getPublished } from '@/lib/exportServer';
 import DownloadForm from './DownloadForm';
-import { defaultSelection, downloadableEntries, indexId } from './entries';
 import styles from './download.module.css';
 
 export const metadata = {
@@ -25,23 +24,8 @@ async function readPublished() {
 	}
 }
 
-// The index of faculties for the first selection, read here so the faculty
-// names and programmes are in the HTML (it's there for search engines).
-async function readIndex(published) {
-	if (!published?.length) return null;
-	const { forKind } = defaultSelection(downloadableEntries(published));
-	if (!forKind.length) return null;
-	try {
-		const all = await Promise.all(forKind.map((e) => getOptions(e.realm_key, e.semester_id, e.kind)));
-		return { id: indexId(forKind), optionsByRealm: Object.fromEntries(forKind.map((e, i) => [e.realm_key, all[i]])) };
-	} catch {
-		return null; // the index loads in the browser instead
-	}
-}
-
 export default async function DownloadPage() {
 	const published = await readPublished();
-	const initialIndex = await readIndex(published);
 
 	return (
 		<div className={styles.page}>
@@ -56,7 +40,7 @@ export default async function DownloadPage() {
 					<p className={styles.tagline}>Lecture, examination and CBT timetables · UniSchedule</p>
 				</header>
 
-				<DownloadForm initialPublished={published} initialIndex={initialIndex} />
+				<DownloadForm initialPublished={published} />
 			</main>
 		</div>
 	);
