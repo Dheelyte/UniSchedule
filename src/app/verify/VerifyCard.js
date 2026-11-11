@@ -1,9 +1,7 @@
 'use client';
 
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
-import { unilagLogoBase64 } from '@/lib/logo';
 import styles from './verify.module.css';
 
 const CODE_RE = /^[A-Z]+-[A-Z0-9]{4}-[A-Z0-9]{4}$/;
@@ -49,19 +47,18 @@ export function CodeForm({ initial = '' }) {
 	);
 }
 
+/** The column the verify pages sit in, under an introduction. */
 export function Shell({ children }) {
 	return (
-		<main className={styles.shell}>
-			<Link href="/" className={styles.brand}>
-				{/* eslint-disable-next-line @next/next/no-img-element */}
-				<img src={unilagLogoBase64} alt="" width="36" height="36" />
-				<span>
-					<strong>UniSchedule</strong>
-					<small>University of Lagos · Timetable verification</small>
-				</span>
-			</Link>
+		<div className={styles.shell}>
+			<div className={styles.intro}>
+				<p className={styles.slot}>Open to everyone · no sign-in</p>
+				<p className={styles.introTitle}>
+					Check a printed timetable, <mark>before you rely on it.</mark>
+				</p>
+			</div>
 			{children}
-		</main>
+		</div>
 	);
 }
 
