@@ -175,7 +175,7 @@ export default function Landing() {
 					<Link href="/" className={styles.wordmark}>
 						{/* eslint-disable-next-line @next/next/no-img-element */}
 						<img src={unilagLogoBase64} alt="University of Lagos logo" width="36" height="36" className={styles.navLogo} />
-						UNILAG Timetable Manager
+						UniSchedule
 					</Link>
 					<nav className={styles.navLinks} aria-label="Main">
 						<a href="#for">Who it&apos;s for</a>
@@ -279,7 +279,8 @@ export default function Landing() {
 					<div className={styles.footerGrid}>
 						<div className={styles.footerAbout}>
 							<p className={styles.footerWordmark}>
-								<span className={styles.wordmarkMark} aria-hidden="true" />
+								{/* eslint-disable-next-line @next/next/no-img-element */}
+								<img src={unilagLogoBase64} alt="" width="32" height="32" className={styles.footerLogo} />
 								UniSchedule
 							</p>
 							<p>

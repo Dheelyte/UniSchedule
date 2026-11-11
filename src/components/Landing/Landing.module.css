@@ -70,12 +70,13 @@
 	flex-shrink: 0;
 }
 
-/* The mark: a single timetable slot, half blue and half yellow. */
-.wordmarkMark {
-	width: 22px;
-	height: 22px;
-	border-radius: 5px;
-	background: linear-gradient(to bottom, var(--blue) 0 55%, var(--yellow) 55% 100%);
+.footerLogo {
+	width: 32px;
+	height: 32px;
+	object-fit: contain;
+	padding: 2px;
+	border-radius: 50%;
+	background: var(--white);
 	flex-shrink: 0;
 }
 
