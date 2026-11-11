@@ -43,6 +43,7 @@ export function PublicHeader() {
 						<a key={s.href} href={s.href} onClick={scrollToSection}>{s.label}</a>
 					))}
 					<Link href="/download">Download</Link>
+					<Link href="/contributors">Contributors</Link>
 				</nav>
 				<Link href="/realms" className={styles.signIn}>
 					<span className={styles.longLabel}>Staff sign in</span>

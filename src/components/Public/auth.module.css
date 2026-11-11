@@ -54,7 +54,6 @@
 	border-radius: 14px;
 	background: var(--white);
 	border: 1px solid var(--rule);
-	border-left: 6px solid var(--blue);
 	box-shadow: 0 18px 40px -26px rgba(13, 53, 80, 0.5);
 	display: flex;
 	flex-direction: column;
@@ -138,7 +137,6 @@
 	padding: 12px 14px;
 	border-radius: 10px;
 	background: var(--clash-pale);
-	border-left: 4px solid var(--clash);
 	color: #8a1c14;
 	line-height: 1.5;
 }
@@ -183,7 +181,6 @@
 	padding: 16px 18px;
 	border-radius: 12px;
 	border: 1px solid var(--rule);
-	border-left: 5px solid var(--blue);
 	background: var(--blue-pale);
 	color: var(--ink) !important;
 	font: inherit;
@@ -210,7 +207,6 @@ a.choice:hover {
 }
 
 .choiceSoon {
-	border-left-color: var(--rule);
 	background: var(--paper);
 	color: var(--ink-3) !important;
 	cursor: not-allowed;
@@ -232,7 +228,6 @@ a.choice:hover {
 	padding: 16px 18px;
 	border-radius: 12px;
 	background: var(--yellow-pale);
-	border-left: 4px solid var(--yellow);
 	color: var(--ink-2);
 	line-height: 1.5;
 	font-size: 0.92rem;

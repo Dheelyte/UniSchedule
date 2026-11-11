@@ -1,5 +1,5 @@
-/* Contributors, in the public pages' style (src/components/Public): cards are
-   timetable blocks, and a profile opens full screen on deep UNILAG blue.
+/* Contributors, in the public pages' style (src/components/Public): plain
+   cards, and a profile opens full screen on deep UNILAG blue.
    The profile grows from its card (a clip-path, 600ms = EXPAND_MS in page.js);
    on touch screens it fades instead (200ms = FADE_MS). */
 
@@ -68,16 +68,6 @@
 	border-radius: 14px;
 	background: var(--white);
 	border: 1px solid var(--rule);
-	border-left: 6px solid var(--blue);
-}
-
-/* Alternate block colours down the grid, like a timetable's courses. */
-.card:nth-child(3n + 2) {
-	border-left-color: var(--yellow);
-}
-
-.card:nth-child(3n) {
-	border-left-color: var(--blue-strong);
 }
 
 .cardHidden {
@@ -416,7 +406,6 @@
 	padding: 12px 16px;
 	border-radius: 12px;
 	background: rgba(255, 255, 255, 0.06);
-	border-left: 4px solid var(--blue);
 	display: flex;
 	flex-direction: column;
 	gap: 2px;
