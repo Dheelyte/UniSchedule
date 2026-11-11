@@ -48,4 +48,8 @@ test("buildIndexPDF: links each published faculty, lists the rest as not publish
 	assert.match(raw, /View timetable/);
 	assert.match(raw, /Not published yet\./, "a programme with nothing published says so");
 	assert.equal(pdf.fileName, "2026_2027_first_semester_lecture_timetable_index.pdf");
+	// Staff only: marked on every page as not for circulation.
+	assert.match(raw, /STAFF COPY/);
+	assert.match(raw, /DO NOT SHARE/);
+	assert.match(raw, /Do not share, forward or post this index\./);
 });

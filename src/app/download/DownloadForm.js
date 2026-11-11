@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
-import { downloadableEntries } from './entries';
+import { defaultSelection, downloadableEntries, KINDS } from './entries';
 import FacultyIndex from './FacultyIndex';
 import styles from './download.module.css';
 
@@ -13,7 +13,6 @@ async function getJson(url) {
 	return response.json();
 }
 
-const KINDS = ['lecture', 'exam', 'cbt'];
 const KIND_LABEL = { lecture: 'Lectures', exam: 'Exams', cbt: 'CBT exams' };
 const unique = (values) => [...new Set(values)];
 
@@ -21,16 +20,20 @@ const entryKey = (e) => `${e.realm_key}:${e.semester_id}:${e.kind}`;
 
 // Public copies are always an A3 PDF of the whole week, in black and white
 // (src/lib/exportRequest.js); the page offers which timetable and filters only.
-// `initialPublished` is the list the server read for the page, if it could.
-export default function DownloadForm({ initialPublished = null }) {
+// `initialPublished` is the list the server read for the page, if it could;
+// `initialIndex` the index of faculties' choices for the first selection.
+// Starting from the same selection as the server keeps its HTML (and the
+// index in it, for search engines) the same as what the page first shows.
+export default function DownloadForm({ initialPublished = null, initialIndex = null }) {
 	const [published, setPublished] = useState(() =>
 		initialPublished ? downloadableEntries(initialPublished) : null, // null while loading
 	);
+	const [first] = useState(() => defaultSelection(published || []));
 	const [loadError, setLoadError] = useState(false);
-	const [session, setSession] = useState('');
-	const [semester, setSemester] = useState('');
-	const [kind, setKind] = useState('');
-	const [realm, setRealm] = useState('');
+	const [session, setSession] = useState(first.session);
+	const [semester, setSemester] = useState(first.semester);
+	const [kind, setKind] = useState(first.kind);
+	const [realm, setRealm] = useState(first.realm);
 	const [options, setOptions] = useState(null);
 	const [optionsError, setOptionsError] = useState(false);
 	const [faculty, setFaculty] = useState('ALL');
@@ -202,7 +205,7 @@ export default function DownloadForm({ initialPublished = null }) {
 
 			{/* Every faculty of this session, semester and timetable, one row each,
 			    with a link per programme. */}
-			<FacultyIndex entries={forKind} />
+			<FacultyIndex entries={forKind} initial={initialIndex} />
 		</>
 	);
 }

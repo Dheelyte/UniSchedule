@@ -8,6 +8,7 @@
 //
 // Staff also have the printed index (a PDF, from the export window).
 import { useEffect, useState } from 'react';
+import { indexId } from './entries';
 import styles from './download.module.css';
 
 const KIND_TITLE = { lecture: 'Lecture', exam: 'Examination', cbt: 'CBT examination' };
@@ -37,14 +38,19 @@ function downloadHref(entry, facultyId) {
 /**
  * @param entries  the published timetables for one session, semester and kind,
  *                 one per programme (from the download page's list)
+ * @param initial  { id, optionsByRealm } read by the server for the page's
+ *                 first selection, so the index is in the HTML search engines see
  */
-export default function FacultyIndex({ entries }) {
-	const [optionsByRealm, setOptionsByRealm] = useState(null);
+export default function FacultyIndex({ entries, initial = null }) {
+	const id = indexId(entries);
+	const [optionsByRealm, setOptionsByRealm] = useState(() =>
+		initial && initial.id === id ? initial.optionsByRealm : null,
+	);
 	const [failed, setFailed] = useState(false);
-	const id = entries.map((e) => `${e.realm_key}:${e.semester_id}:${e.kind}`).join('|');
+	const [loadedId, setLoadedId] = useState(() => (initial && initial.id === id ? id : null));
 
 	useEffect(() => {
-		if (!entries.length) return;
+		if (!entries.length || loadedId === id) return;
 		let cancelled = false;
 		setOptionsByRealm(null);
 		setFailed(false);
@@ -59,6 +65,7 @@ export default function FacultyIndex({ entries }) {
 			if (cancelled) return;
 			if (all.every((o) => !o)) setFailed(true);
 			setOptionsByRealm(Object.fromEntries(entries.map((e, i) => [e.realm_key, all[i]])));
+			setLoadedId(id);
 		});
 		return () => { cancelled = true; };
 		// eslint-disable-next-line react-hooks/exhaustive-deps
@@ -86,6 +93,9 @@ export default function FacultyIndex({ entries }) {
 		.map(([, row]) => row);
 
 	const first = entries[0];
+	// e.g. "Faculty of Engineering, Undergraduate, 2026/2027 First Semester lecture timetable (PDF)"
+	const describe = (who, p) =>
+		`${who}, ${p.realm_name}, ${first.session_name} ${first.semester_name} ${KIND_TITLE[first.kind].toLowerCase()} timetable (PDF)`;
 	return (
 		<section className={styles.indexCard} aria-labelledby="faculty-index-heading">
 			<h2 id="faculty-index-heading" className={styles.heading}>Index of faculties</h2>
@@ -111,7 +121,7 @@ export default function FacultyIndex({ entries }) {
 								<th scope="row">All faculties</th>
 								{programmes.map((p) => (
 									<td key={p.realm_key}>
-										<a href={downloadHref(p)} download>Download</a>
+										<a href={downloadHref(p)} download title={describe('All faculties', p)}>Download</a>
 									</td>
 								))}
 							</tr>
@@ -121,7 +131,9 @@ export default function FacultyIndex({ entries }) {
 									{programmes.map((p) => (
 										<td key={p.realm_key}>
 											{row.cells[p.realm_key] ? (
-												<a href={downloadHref(p, row.cells[p.realm_key])} download>Download</a>
+												<a href={downloadHref(p, row.cells[p.realm_key])} download title={describe(row.name, p)}>
+													Download
+												</a>
 											) : (
 												<span className={styles.none} aria-label="Not available">—</span>
 											)}
