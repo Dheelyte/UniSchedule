@@ -41,18 +41,18 @@
 }
 
 /* The form beside a short column of related help. */
+/* The form on its own in the middle; the two notes sit in a row beneath it. */
 .layout {
-	max-width: 1080px;
+	max-width: 760px;
 	margin: 32px auto 0;
-	display: grid;
-	grid-template-columns: minmax(0, 1fr) 320px;
-	gap: 24px;
-	align-items: start;
+	display: flex;
+	flex-direction: column;
+	gap: 20px;
 }
 
 .aside {
-	display: flex;
-	flex-direction: column;
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
 	gap: 16px;
 }
 
@@ -261,8 +261,8 @@
 	font-weight: 700;
 }
 
-@media (max-width: 900px) {
-	.layout {
+@media (max-width: 700px) {
+	.aside {
 		grid-template-columns: minmax(0, 1fr);
 	}
 }
