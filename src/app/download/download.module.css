@@ -1,120 +1,152 @@
-.page {
-	min-height: 100vh;
-	background:
-		radial-gradient(ellipse 80% 50% at 50% 0%, rgba(99, 102, 241, 0.1), transparent 70%),
-		var(--color-bg);
-	color: var(--color-text);
-}
+/* The download page, in the public pages' style (src/components/Public):
+   colours and fonts come from the shared brand. */
 
-.shell {
-	max-width: 720px;
-	margin: 0 auto;
-	padding: 40px 16px 64px;
+.intro {
+	max-width: 760px;
 	display: flex;
 	flex-direction: column;
-	gap: 24px;
+	gap: 14px;
 }
 
-/* An official masthead: the crest large and centred */
-.masthead {
-	display: flex;
-	flex-direction: column;
-	align-items: center;
-	text-align: center;
-	gap: 6px;
-	padding-bottom: 20px;
-	border-bottom: 1px solid var(--color-border);
-}
-
-.crest {
-	display: block;
-	margin-bottom: 8px;
-}
-
-.crest img {
-	display: block;
-	width: 96px;
-	height: 96px;
-	object-fit: contain;
-}
-
-.university {
-	font-size: 0.85rem;
+.introSlot,
+.slot {
+	font-size: 0.8rem;
 	font-weight: 700;
-	letter-spacing: 0.16em;
-	text-transform: uppercase;
-	color: var(--color-text-secondary);
+	color: var(--blue-strong);
 }
 
-.title {
-	font-size: 2rem;
+.introTitle {
+	font-family: var(--display);
+	font-size: clamp(2rem, 4.6vw, 3.2rem);
+	font-weight: 800;
+	line-height: 1.08;
+	letter-spacing: -0.03em;
+}
+
+.introTitle mark {
+	color: inherit;
+	background: linear-gradient(to top, var(--yellow) 0 38%, transparent 38%);
+	padding: 0 2px;
+}
+
+.introText {
+	max-width: 62ch;
+	font-size: 1.05rem;
+	line-height: 1.6;
+	color: var(--ink-2);
+}
+
+/* The form beside a short column of related help. */
+.layout {
+	margin-top: 32px;
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) 320px;
+	gap: 24px;
+	align-items: start;
+}
+
+.aside {
+	display: flex;
+	flex-direction: column;
+	gap: 16px;
+}
+
+.side {
+	padding: 22px 22px 24px;
+	border-radius: 14px;
+	background: var(--blue-pale);
+	border-left: 5px solid var(--blue);
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	line-height: 1.55;
+	color: var(--ink-2);
+}
+
+.sideYellow {
+	background: var(--yellow-pale);
+	border-left-color: var(--yellow);
+}
+
+.sideTitle {
+	font-family: var(--display);
+	font-size: 1.2rem;
 	font-weight: 800;
 	letter-spacing: -0.02em;
-	line-height: 1.15;
-	color: var(--color-text);
+	color: var(--ink);
 }
 
-.tagline {
-	font-size: 0.9rem;
-	color: var(--color-text-muted);
+.sideLink {
+	align-self: flex-start;
+	margin-top: 6px;
+	padding: 10px 14px;
+	border-radius: 8px;
+	background: var(--ink);
+	color: var(--white) !important;
+	font-weight: 700;
+	text-decoration: none;
 }
 
-@media (max-width: 520px) {
-	.crest img {
-		width: 80px;
-		height: 80px;
-	}
-
-	.title {
-		font-size: 1.6rem;
-	}
+.sideLink:hover {
+	background: var(--blue-strong);
 }
 
+.facts {
+	margin: 0;
+	padding-left: 1.1em;
+	list-style: disc;
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+}
+
+/* The form, drawn as a booked timetable block. */
 .card {
-	background: var(--color-bg-card);
-	border: 1px solid var(--color-border);
-	border-radius: 16px;
-	padding: 28px;
-	box-shadow: 0 10px 30px -12px rgba(15, 23, 42, 0.12);
+	padding: 28px 30px 30px;
+	border-radius: 14px;
+	background: var(--white);
+	border: 1px solid var(--rule);
+	border-left: 6px solid var(--blue);
+	box-shadow: 0 18px 40px -26px rgba(13, 53, 80, 0.5);
 	display: flex;
 	flex-direction: column;
 	gap: 14px;
 }
 
 .heading {
+	font-family: var(--display);
 	font-size: 1.5rem;
 	font-weight: 800;
 	letter-spacing: -0.02em;
-	line-height: 1.2;
 }
 
 .body {
-	color: var(--color-text-secondary);
+	color: var(--ink-2);
 	line-height: 1.6;
 }
 
 .muted {
-	color: var(--color-text-muted);
+	color: var(--ink-3);
 }
 
 .notice {
 	padding: 12px 14px;
 	border-radius: 10px;
-	background: var(--color-warning-bg);
-	color: var(--color-text);
+	background: var(--yellow-pale);
+	border-left: 4px solid var(--yellow);
 	line-height: 1.5;
 }
 
 .form {
 	display: flex;
 	flex-direction: column;
-	gap: 14px;
+	gap: 16px;
 }
 
 .row {
 	display: grid;
-	grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-	gap: 12px;
+	grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+	gap: 14px;
 }
 
 .field {
@@ -125,102 +157,124 @@
 }
 
 .field span {
-	font-size: 0.85rem;
-	font-weight: 600;
-	color: var(--color-text-secondary);
+	font-size: 0.82rem;
+	font-weight: 700;
+	color: var(--ink-2);
 }
 
 .field select {
 	width: 100%;
-	padding: 10px 12px;
-	border: 1px solid var(--color-border-strong);
+	padding: 12px 14px;
+	border: 1px solid var(--rule);
 	border-radius: 10px;
+	background: var(--white);
+	color: var(--ink);
 	font: inherit;
-	background: var(--color-bg-input);
-	color: var(--color-text);
 }
 
 .field select:focus {
-	outline: 2px solid var(--color-primary);
+	outline: 2px solid var(--blue);
 	outline-offset: 1px;
+	border-color: var(--blue-strong);
 }
 
-.field select:disabled {
-	opacity: 0.6;
+/* Lectures / Exams / CBT, as day tabs on a timetable. */
+.segment {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+	padding: 6px;
+	border-radius: 12px;
+	background: var(--paper);
+	border: 1px solid var(--rule);
+}
+
+.segment button {
+	flex: 1 1 0;
+	min-width: 90px;
+	padding: 10px 14px;
+	border: 0;
+	border-radius: 8px;
+	background: transparent;
+	color: var(--ink-2);
+	font: inherit;
+	font-weight: 700;
+	cursor: pointer;
+}
+
+.segment button:hover {
+	background: var(--blue-pale);
+}
+
+.segment .segmentOn,
+.segment .segmentOn:hover {
+	background: var(--blue);
+	color: var(--ink);
 }
 
 .button {
-	display: flex;
-	justify-content: center;
+	align-self: flex-start;
+	display: inline-flex;
 	align-items: center;
-	padding: 13px 20px;
+	padding: 14px 22px;
 	border-radius: 10px;
-	background: var(--color-primary);
-	color: #fff;
+	background: var(--blue-strong);
+	color: var(--white) !important;
 	font-weight: 700;
 	text-decoration: none;
 }
 
 .button:hover {
-	filter: brightness(1.05);
+	background: var(--blue-dark);
 }
 
-.small {
-	font-size: 0.82rem;
-	color: var(--color-text-muted);
-	line-height: 1.5;
-}
+@media (hover: hover) and (prefers-reduced-motion: no-preference) {
+	.button {
+		transition: transform 180ms ease, box-shadow 180ms ease, background-color 180ms ease;
+	}
 
-.small a {
-	color: var(--color-primary);
-}
-
-.code {
-	font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-	font-size: 0.92em;
-	background: var(--color-bg-input);
-	border: 1px solid var(--color-border);
-	border-radius: 6px;
-	padding: 1px 6px;
-	white-space: nowrap;
-}
-
-@media (max-width: 480px) {
-	.card {
-		padding: 20px;
+	.button:hover {
+		transform: translateY(-1px);
+		box-shadow: 0 8px 18px -10px rgba(11, 31, 51, 0.55);
 	}
 }
 
-.subheading {
-	margin-top: 6px;
-	font-size: 1rem;
+.small {
+	font-size: 0.85rem;
+	color: var(--ink-3);
+}
+
+.small a {
+	color: var(--blue-strong) !important;
+	font-weight: 600;
+}
+
+.code {
+	padding: 2px 6px;
+	border-radius: 6px;
+	background: var(--blue-pale);
+	color: var(--ink);
+	font-family: ui-monospace, Menlo, Consolas, monospace;
 	font-weight: 700;
 }
 
-/* Lectures / Exams / CBT exams */
-.segment {
-	display: flex;
-	gap: 4px;
-	padding: 4px;
-	border: 1px solid var(--color-border);
-	border-radius: 12px;
-	background: var(--color-bg-input);
+@media (max-width: 900px) {
+	.layout {
+		grid-template-columns: minmax(0, 1fr);
+	}
 }
 
-.segment button {
-	flex: 1;
-	padding: 9px 10px;
-	border: 0;
-	border-radius: 9px;
-	background: transparent;
-	color: var(--color-text-secondary);
-	font: inherit;
-	font-weight: 600;
-	cursor: pointer;
-}
+@media (max-width: 600px) {
+	.layout {
+		margin-top: 24px;
+	}
 
-.segment .segmentOn {
-	background: var(--color-bg-card);
-	color: var(--color-primary);
-	box-shadow: 0 1px 3px rgba(15, 23, 42, 0.12);
+	.card {
+		padding: 22px 18px 24px;
+	}
+
+	.button {
+		align-self: stretch;
+		justify-content: center;
+	}
 }

@@ -99,11 +99,8 @@ export default function DownloadForm({ initialPublished = null }) {
 
 	return (
 		<section className={styles.card}>
-			<h2 className={styles.heading}>Download a timetable</h2>
-			<p className={styles.body}>
-				Official FINAL timetables, verified with a QR code. Choose a timetable, narrow it down if you
-				like, and download a print-ready A3 PDF. No account needed.
-			</p>
+			<p className={styles.slot}>Lectures · Exams · CBT · FINAL only</p>
+			<h2 className={styles.heading}>Choose your timetable</h2>
 
 			{published === null && <p className={styles.muted}>Loading published timetables…</p>}
 			{published !== null && published.length === 0 && (
