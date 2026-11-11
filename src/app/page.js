@@ -211,16 +211,36 @@ function DashboardPage() {
 		};
 	}, [state.rooms, roomCapacityFacultyId]);
 
-	// Distinct-course scheduling breakdown (by lecture vs exam)
+	// Distinct-course scheduling breakdown (by lecture vs exam), for the
+	// current semester only. The schedule items are already the current
+	// semester's; the courses are narrowed to the ones tagged for this
+	// semester. Courses with no semester belong to neither semester, so they
+	// are left out of the totals and reported separately; counting them in
+	// both would make the two semesters add up to more than every course.
 	const courseBreakdown = useMemo(() => {
+		const semesterName = currentTerm?.name || null;
+		// Old data stored "1" / "2" instead of the semester name.
+		const legacy = { "1": "First Semester", "2": "Second Semester" };
+		const semesterOf = (c) => {
+			const s = (c.semester || "").trim();
+			return legacy[s] || s;
+		};
+		const untagged = state.courses.filter((c) => !semesterOf(c)).length;
+		const semesterCourseIds = new Set(
+			state.courses
+				.filter((c) => !semesterName || semesterOf(c) === semesterName)
+				.map((c) => c.id),
+		);
 		const lectureIds = new Set();
 		const examIds = new Set();
 		state.scheduleItems.forEach((s) => {
+			// Only this semester's courses, so scheduled + unscheduled === total.
+			if (!semesterCourseIds.has(s.courseId)) return;
 			if (s.type === "lecture") lectureIds.add(s.courseId);
 			else if (s.type === "exam") examIds.add(s.courseId);
 		});
 		const scheduledIds = new Set([...lectureIds, ...examIds]);
-		const total = state.courses.length;
+		const total = semesterCourseIds.size;
 		const scheduled = scheduledIds.size;
 		// Courses with an exam but no lecture — keeps the segmented ring
 		// arcs additive (a course counted in both is shown once, as a lecture)
@@ -241,8 +261,9 @@ function DashboardPage() {
 			// courses, so scheduled + unscheduled === total on each row.
 			lectureUnscheduled: Math.max(0, total - lectureIds.size),
 			examUnscheduled: Math.max(0, total - examIds.size),
+			untagged: semesterName ? untagged : 0,
 		};
-	}, [state.scheduleItems, state.courses]);
+	}, [state.scheduleItems, state.courses, currentTerm]);
 
 	const firstName = user?.email?.split("@")[0]?.split(".")[0] || "there";
 	const displayName = firstName.charAt(0).toUpperCase() + firstName.slice(1);
@@ -503,6 +524,14 @@ function DashboardPage() {
 									</span>
 								</div>
 							))}
+							{courseBreakdown.untagged > 0 && (
+								<p className={styles.breakdownCaption}>
+									{courseBreakdown.untagged.toLocaleString()}{" "}
+									{courseBreakdown.untagged === 1 ? "course has" : "courses have"} no
+									semester set and {courseBreakdown.untagged === 1 ? "isn't" : "aren't"}{" "}
+									counted. Set a semester on them in Courses.
+								</p>
+							)}
 						</div>
 					</div>
 				</div>
