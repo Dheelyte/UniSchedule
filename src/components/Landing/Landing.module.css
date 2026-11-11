@@ -1,17 +1,22 @@
-/* Homepage. Bold and editorial: warm paper, near-black ink, one gold accent,
+/* Homepage. Bold and editorial: white and UNILAG blue, a touch of gold,
    big grotesk headings and monospace labels, ruled rows instead of cards.
    No decoration without information, and no motion. Light theme only. */
 
 .page {
-	--paper: #f4f1ea;
-	--paper-2: #ebe6db;
-	--ink: #0b0d12;
-	--ink-2: #3a3d45;
-	--ink-3: #6b6e76;
-	--rule: #d6d0c3;
+	/* UNILAG blue and white, with gold only as a small touch. */
+	--paper: #ffffff;
+	--paper-2: #f2f6fc;
+	--ink: #0a1b3d;
+	--ink-2: #36435c;
+	--ink-3: #66728a;
+	--rule: #d7e0ee;
+	--blue: #0b3d91;
+	--blue-dark: #082c6b;
+	--blue-deep: #061f4d;
+	--on-blue: #ffffff;
+	--on-blue-2: #c7d5ee;
+	--on-blue-rule: #24508f;
 	--gold: #f2b705;
-	--gold-ink: #0b0d12;
-	--night: #0e0f14;
 	--display: var(--font-display), 'Arial Black', Arial, sans-serif;
 	--label: var(--font-label), ui-monospace, Menlo, monospace;
 
@@ -149,8 +154,8 @@
 .lineMark {
 	margin-top: 10px;
 	padding: 0.02em 0.14em 0.08em;
-	background: var(--gold);
-	color: var(--gold-ink);
+	background: var(--blue);
+	color: var(--on-blue);
 }
 
 .heroFoot {
@@ -181,8 +186,8 @@
 	gap: 10px;
 	padding: 16px 26px;
 	border-radius: 999px;
-	background: var(--ink);
-	color: var(--paper) !important;
+	background: var(--blue);
+	color: var(--on-blue) !important;
 	font-family: var(--label);
 	font-size: 0.82rem;
 	letter-spacing: 0.12em;
@@ -191,7 +196,7 @@
 }
 
 .primary:hover {
-	background: #262a33;
+	background: var(--blue-dark);
 }
 
 .textLink {
@@ -209,8 +214,8 @@
 
 /* ---------- Facts band ---------- */
 .facts {
-	background: var(--night);
-	color: #f4f1ea;
+	background: var(--blue);
+	color: var(--on-blue);
 }
 
 .factsInner {
@@ -226,7 +231,7 @@
 	flex-direction: column;
 	gap: 6px;
 	padding: 0 32px;
-	border-left: 1px solid #2a2c33;
+	border-left: 1px solid var(--on-blue-rule);
 }
 
 .fact:first-child {
@@ -240,7 +245,7 @@
 	font-weight: 800;
 	line-height: 1;
 	letter-spacing: -0.04em;
-	color: var(--gold);
+	color: var(--on-blue);
 }
 
 .factLabel {
@@ -249,11 +254,11 @@
 	font-size: 0.74rem;
 	letter-spacing: 0.14em;
 	text-transform: uppercase;
-	color: #b9b6ae;
+	color: var(--on-blue-2);
 }
 
 .factDetail {
-	color: #d9d6ce;
+	color: var(--on-blue);
 	line-height: 1.5;
 }
 
@@ -277,7 +282,8 @@
 
 .sectionLabel span {
 	padding: 2px 6px;
-	background: var(--gold);
+	background: var(--blue);
+	color: var(--on-blue);
 }
 
 .sectionTitle {
@@ -350,7 +356,7 @@
 	letter-spacing: 0.1em;
 	text-transform: uppercase;
 	text-decoration: underline;
-	text-decoration-color: var(--gold);
+	text-decoration-color: var(--blue);
 	text-decoration-thickness: 3px;
 	text-underline-offset: 5px;
 }
@@ -435,8 +441,8 @@
 /* ---------- Footer ---------- */
 .footer {
 	margin-top: 120px;
-	background: var(--night);
-	color: #d9d6ce;
+	background: var(--blue-deep);
+	color: var(--on-blue-2);
 }
 
 .footerInner {
@@ -451,7 +457,7 @@
 	font-size: 0.74rem;
 	letter-spacing: 0.14em;
 	text-transform: uppercase;
-	color: #8d8a83;
+	color: #8fa6cf;
 }
 
 .footerCta {
@@ -462,8 +468,12 @@
 	line-height: 1;
 	letter-spacing: -0.045em;
 	text-transform: uppercase;
-	color: var(--gold) !important;
+	color: var(--on-blue) !important;
 	text-decoration: none;
+}
+
+.footerCta span {
+	color: var(--gold);
 }
 
 .footerCta:hover {
@@ -475,7 +485,7 @@
 .footerGrid {
 	margin-top: 72px;
 	padding-top: 40px;
-	border-top: 1px solid #2a2c33;
+	border-top: 1px solid var(--on-blue-rule);
 	display: grid;
 	grid-template-columns: 1fr 1fr;
 	gap: 40px;
@@ -502,7 +512,7 @@
 .footerLinks a {
 	display: block;
 	padding: 5px 0;
-	color: #f4f1ea !important;
+	color: var(--on-blue) !important;
 	text-decoration: none;
 }
 
@@ -513,7 +523,7 @@
 .footerBottom {
 	margin-top: 56px;
 	padding-top: 20px;
-	border-top: 1px solid #2a2c33;
+	border-top: 1px solid var(--on-blue-rule);
 	display: flex;
 	justify-content: space-between;
 	gap: 16px;
@@ -522,7 +532,7 @@
 	font-size: 0.72rem;
 	letter-spacing: 0.12em;
 	text-transform: uppercase;
-	color: #8d8a83;
+	color: #8fa6cf;
 }
 
 .footerBottom a {
@@ -530,7 +540,7 @@
 }
 
 .footerBottom a:hover {
-	color: #f4f1ea !important;
+	color: var(--on-blue) !important;
 }
 
 /* ---------- Narrower screens ---------- */
