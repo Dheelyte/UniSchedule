@@ -104,6 +104,7 @@ class EmailService:
             "title": title,
             "email": recipients[0],
             "code": code,
+            "expires_minutes": settings.PASSWORD_RESET_CODE_EXPIRE_MINUTES,
         }
 
         conf.TEMPLATE_FOLDER = settings.TEMPLATE_FOLDER
