@@ -119,7 +119,7 @@
 
 .signIn:hover {
 	background: var(--blue);
-	color: var(--ink) !important;
+	color: var(--white) !important;
 }
 
 .shortLabel {

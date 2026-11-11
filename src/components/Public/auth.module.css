@@ -194,8 +194,16 @@
 	text-decoration: none;
 }
 
+/* Hover: white on UNILAG blue, the line and arrow too. */
+a.choice:hover,
+a.choice:hover small,
+a.choice:hover .choiceArrow {
+	color: var(--white) !important;
+}
+
 a.choice:hover {
 	background: var(--blue);
+	text-shadow: 0 1px 1px rgba(13, 53, 80, 0.3);
 }
 
 .choice small {
