@@ -66,13 +66,19 @@ export default function TermsPage() {
                 // Load blocked slots for current semester
                 const currentSem = semList.find(s => s.is_current);
                 if (currentSem) {
-                    const slots = await apiClient.get(`/timetable/blocked-slots?semester_id=${currentSem.id}`);
-                    setBlockedSlots(slots || []);
+                    // Blocked slots failing shouldn't read as the sessions failing.
+                    try {
+                        const slots = await apiClient.get(`/timetable/blocked-slots?semester_id=${currentSem.id}`);
+                        setBlockedSlots(slots || []);
+                    } catch (e) {
+                        console.error(e);
+                        addToast({ type: 'error', title: 'Error', message: `Failed to load blocked slots: ${e?.message || 'unknown error'}` });
+                    }
                 }
             }
         } catch (e) {
             console.error(e);
-            addToast({ type: 'error', title: 'Error', message: 'Failed to load academic sessions.' });
+            addToast({ type: 'error', title: 'Error', message: `Failed to load academic sessions: ${e?.message || 'unknown error'}` });
         }
         setLoading(false);
     };
