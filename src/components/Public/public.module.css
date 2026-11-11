@@ -1,0 +1,496 @@
+/* The public pages' design: white, UNILAG blue (the blue of the university's
+   crest) and yellow; sentence-case headings in the display face; panels drawn
+   like timetable blocks. Pages use the primitives below so they all match. */
+
+.brand {
+	/* UNILAG blue is the crest's blue. It is light, so text on it is ink;
+	   where white text is needed (buttons, links), the deeper shade is used. */
+	--blue: #6ebdeb;
+	--blue-strong: #1a6aa0;
+	--blue-dark: #145683;
+	--blue-deep: #0d3550;
+	--blue-pale: #e9f5fd;
+	--yellow: #ffc20e;
+	--yellow-dark: #f0b400;
+	--yellow-pale: #fff4cf;
+	--white: #ffffff;
+	--paper: #f5f9fc;
+	--ink: #0b1f33;
+	--ink-2: #3a4b5e;
+	--ink-3: #66788b;
+	--rule: #d9e4ee;
+	--clash: #d92d20;
+	--clash-pale: #fff0ee;
+	--ok: #127a43;
+	--ok-pale: #e8f7ee;
+	--display: var(--font-display), var(--font-sans), system-ui, sans-serif;
+
+	position: relative;
+	isolation: isolate;
+	min-height: 100vh;
+	background: var(--white);
+	color: var(--ink);
+	font-family: var(--font-sans);
+	overflow-x: clip;
+}
+
+.brand a {
+	color: inherit;
+}
+
+.layout {
+	display: flex;
+	flex-direction: column;
+}
+
+.main {
+	flex: 1;
+	width: 100%;
+	max-width: 1240px;
+	margin: 0 auto;
+	padding: 40px 24px 0;
+}
+
+/* ---------- Header ---------- */
+.header {
+	position: sticky;
+	top: 0;
+	z-index: 20;
+	background: rgba(255, 255, 255, 0.96);
+	border-bottom: 1px solid var(--rule);
+}
+
+.headerInner {
+	max-width: 1240px;
+	margin: 0 auto;
+	padding: 14px 24px;
+	display: flex;
+	align-items: center;
+	gap: 14px;
+}
+
+.wordmark,
+.footerWordmark {
+	display: inline-flex;
+	align-items: center;
+	gap: 10px;
+	font-family: var(--display);
+	font-size: 1.25rem;
+	font-weight: 800;
+	letter-spacing: -0.02em;
+	text-decoration: none;
+}
+
+.logo {
+	width: 36px;
+	height: 36px;
+	object-fit: contain;
+	flex-shrink: 0;
+}
+
+.headerLinks {
+	margin-left: auto;
+	display: flex;
+	gap: 26px;
+}
+
+.headerLinks a {
+	font-size: 0.92rem;
+	font-weight: 500;
+	color: var(--ink-2);
+	text-decoration: none;
+}
+
+.headerLinks a:hover {
+	color: var(--blue-strong);
+}
+
+.signIn {
+	margin-left: 12px;
+	padding: 9px 16px;
+	border-radius: 8px;
+	background: var(--blue-pale);
+	color: var(--blue-dark) !important;
+	font-size: 0.9rem;
+	font-weight: 700;
+	text-decoration: none;
+	white-space: nowrap;
+}
+
+.signIn:hover {
+	background: var(--blue);
+	color: var(--white) !important;
+}
+
+.shortLabel {
+	display: none;
+}
+
+/* ---------- Footer ---------- */
+.footer {
+	margin-top: 112px;
+	background: var(--blue-deep);
+	color: #c4d7e6;
+}
+
+.footerInner {
+	max-width: 1240px;
+	margin: 0 auto;
+	padding: 56px 24px 28px;
+}
+
+.footerCall {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	flex-wrap: wrap;
+	gap: 20px;
+	margin-bottom: 48px;
+	padding: 28px 32px;
+	border-radius: 14px;
+	background: var(--yellow);
+	color: var(--ink);
+}
+
+.footerCall h2 {
+	font-family: var(--display);
+	font-size: clamp(1.5rem, 3vw, 2.1rem);
+	font-weight: 800;
+	letter-spacing: -0.02em;
+}
+
+.footerButton {
+	display: inline-flex;
+	align-items: center;
+	padding: 13px 20px;
+	border-radius: 10px;
+	background: var(--ink);
+	color: var(--white) !important;
+	font-weight: 700;
+	text-decoration: none;
+}
+
+.footerButton:hover {
+	background: var(--blue-strong);
+}
+
+.footerGrid {
+	display: grid;
+	grid-template-columns: 1.2fr 2fr;
+	gap: 40px;
+}
+
+.footerWordmark {
+	color: var(--white);
+}
+
+.footerLogo {
+	width: 32px;
+	height: 32px;
+	object-fit: contain;
+	padding: 2px;
+	border-radius: 50%;
+	background: var(--white);
+	flex-shrink: 0;
+}
+
+.footerAbout p + p {
+	margin-top: 12px;
+	max-width: 38ch;
+	line-height: 1.6;
+}
+
+.footerAbout a {
+	color: var(--white) !important;
+	text-decoration: underline;
+	text-decoration-color: var(--yellow);
+	text-underline-offset: 4px;
+}
+
+.footerLinks {
+	display: grid;
+	grid-template-columns: repeat(3, minmax(0, 1fr));
+	gap: 24px;
+}
+
+.footerLinks h3 {
+	margin-bottom: 10px;
+	font-size: 0.85rem;
+	font-weight: 700;
+	color: var(--yellow);
+}
+
+.footerLinks a {
+	display: block;
+	padding: 4px 0;
+	color: var(--white) !important;
+	text-decoration: none;
+}
+
+.footerLinks a:hover {
+	text-decoration: underline;
+}
+
+.copyright {
+	margin-top: 44px;
+	padding-top: 18px;
+	border-top: 1px solid #1d4a69;
+	font-size: 0.85rem;
+	color: #8eaac0;
+}
+
+/* ---------- Primitives for page content ---------- */
+
+/* A panel drawn like a booked timetable block: a coloured left edge. */
+.panel {
+	position: relative;
+	padding: 28px 30px;
+	border-radius: 14px;
+	background: var(--white);
+	border: 1px solid var(--rule);
+	border-left: 6px solid var(--blue);
+	box-shadow: 0 18px 40px -26px rgba(13, 53, 80, 0.5);
+}
+
+.panelYellow {
+	border-left-color: var(--yellow);
+}
+
+/* The small line at the top of a block, like a slot's time and room. */
+.slot {
+	font-size: 0.8rem;
+	font-weight: 700;
+	color: var(--blue-strong);
+}
+
+.title {
+	font-family: var(--display);
+	font-size: clamp(1.9rem, 4vw, 2.8rem);
+	font-weight: 800;
+	line-height: 1.1;
+	letter-spacing: -0.03em;
+}
+
+.title mark {
+	color: inherit;
+	background: linear-gradient(to top, var(--yellow) 0 38%, transparent 38%);
+	padding: 0 2px;
+}
+
+.subtitle {
+	font-family: var(--display);
+	font-size: 1.3rem;
+	font-weight: 800;
+	letter-spacing: -0.02em;
+}
+
+.lead {
+	max-width: 62ch;
+	font-size: 1.05rem;
+	line-height: 1.6;
+	color: var(--ink-2);
+}
+
+.muted {
+	color: var(--ink-3);
+	line-height: 1.5;
+}
+
+.small {
+	font-size: 0.85rem;
+	color: var(--ink-3);
+	line-height: 1.5;
+}
+
+.small a,
+.lead a,
+.muted a {
+	color: var(--blue-strong) !important;
+	font-weight: 600;
+}
+
+.code {
+	padding: 2px 6px;
+	border-radius: 6px;
+	background: var(--blue-pale);
+	color: var(--ink);
+	font-family: ui-monospace, Menlo, Consolas, monospace;
+	font-size: 0.92em;
+	font-weight: 700;
+}
+
+.notice {
+	padding: 12px 14px;
+	border-radius: 10px;
+	background: var(--yellow-pale);
+	border-left: 4px solid var(--yellow);
+	line-height: 1.5;
+}
+
+.error {
+	padding: 12px 14px;
+	border-radius: 10px;
+	background: var(--clash-pale);
+	border-left: 4px solid var(--clash);
+	color: #8a1c14;
+	line-height: 1.5;
+}
+
+/* Buttons: deep UNILAG blue for the main action, yellow for the other. */
+.button,
+.buttonAlt {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 8px;
+	padding: 13px 20px;
+	border: 0;
+	border-radius: 10px;
+	font: inherit;
+	font-weight: 700;
+	text-decoration: none;
+	cursor: pointer;
+}
+
+.button {
+	background: var(--blue-strong);
+	color: var(--white) !important;
+}
+
+.button:hover:not(:disabled) {
+	background: var(--blue-dark);
+}
+
+.buttonAlt {
+	background: var(--yellow);
+	color: var(--ink) !important;
+}
+
+.buttonAlt:hover:not(:disabled) {
+	background: var(--yellow-dark);
+}
+
+.button:disabled,
+.buttonAlt:disabled {
+	opacity: 0.5;
+	cursor: not-allowed;
+}
+
+/* Form fields */
+.field {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	min-width: 0;
+}
+
+.label {
+	font-size: 0.82rem;
+	font-weight: 700;
+	color: var(--ink-2);
+}
+
+.input {
+	width: 100%;
+	padding: 12px 14px;
+	border: 1px solid var(--rule);
+	border-radius: 10px;
+	background: var(--white);
+	color: var(--ink);
+	font: inherit;
+}
+
+.input:focus {
+	outline: 2px solid var(--blue);
+	outline-offset: 1px;
+	border-color: var(--blue-strong);
+}
+
+@media (hover: hover) {
+	.button,
+	.buttonAlt,
+	.footerButton {
+		transition: transform 180ms ease, box-shadow 180ms ease, background-color 180ms ease;
+	}
+
+	.button:hover:not(:disabled),
+	.buttonAlt:hover:not(:disabled),
+	.footerButton:hover {
+		transform: translateY(-1px);
+		box-shadow: 0 8px 18px -10px rgba(11, 31, 51, 0.55);
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.button:hover,
+	.buttonAlt:hover,
+	.footerButton:hover {
+		transform: none !important;
+	}
+}
+
+/* ---------- Narrower screens ---------- */
+@media (max-width: 1000px) {
+	.headerLinks {
+		display: none;
+	}
+
+	.signIn {
+		margin-left: auto;
+	}
+}
+
+@media (max-width: 760px) {
+	.footer {
+		margin-top: 88px;
+	}
+
+	.footerCall {
+		padding: 22px 20px;
+	}
+
+	.footerCall a {
+		width: 100%;
+		justify-content: center;
+	}
+
+	.footerGrid,
+	.footerLinks {
+		grid-template-columns: minmax(0, 1fr);
+	}
+
+	.panel {
+		padding: 22px 20px;
+	}
+}
+
+@media (max-width: 600px) {
+	.headerInner,
+	.main,
+	.footerInner {
+		padding-left: 16px;
+		padding-right: 16px;
+	}
+
+	.main {
+		padding-top: 24px;
+	}
+
+	.wordmark {
+		font-size: 1.1rem;
+		gap: 8px;
+	}
+
+	.logo {
+		width: 32px;
+		height: 32px;
+	}
+
+	.longLabel {
+		display: none;
+	}
+
+	.shortLabel {
+		display: inline;
+	}
+}

@@ -1,4 +1,4 @@
-import styles from './verify.module.css';
+import { PublicLayout } from '@/components/Public/PublicChrome';
 
 // One page per printed document: useful to whoever scans it, but not something
 // to put in search results.
@@ -9,5 +9,5 @@ export const metadata = {
 };
 
 export default function VerifyLayout({ children }) {
-	return <div className={styles.page}>{children}</div>;
+	return <PublicLayout>{children}</PublicLayout>;
 }

@@ -3,7 +3,6 @@
 import { usePathname } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/context/AuthContext';
-import { unilagLogoBase64 } from '@/lib/logo';
 import styles from './Sidebar.module.css';
 
 const navItems = [
@@ -176,7 +175,7 @@ export default function Sidebar({ isCollapsed, isMobileOpen = false, onMobileClo
       {/* Brand */}
       <div className={styles.brand}>
         <div className={styles.logo}>
-          <img src={unilagLogoBase64} alt="UNILAG Logo" width="32" height="32" style={{ borderRadius: '4px', objectFit: 'contain' }} />
+          <img src="/unilag-crest.png" alt="UNILAG Logo" width="32" height="32" style={{ borderRadius: '4px', objectFit: 'contain' }} />
         </div>
         {!isCollapsed && (
           <div className={styles.brandText}>

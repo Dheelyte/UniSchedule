@@ -5,8 +5,8 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { apiClient } from '@/lib/apiClient';
 import { useToast } from '@/components/Toast/Toast';
 import { useAuth } from '@/context/AuthContext';
-import styles from '../login/login.module.css';
-import { unilagLogoBase64 } from '@/lib/logo';
+import Link from 'next/link';
+import AuthPanel, { authStyles as styles } from '@/components/Public/AuthPanel';
 import { loginPath } from '@/lib/realm';
 
 
@@ -64,54 +64,60 @@ export default function RegisterPage() {
 
     if (!token) {
         return (
-            <div className={styles.container}>
-                <div className={styles.card}>
-                    <div className={styles.logo}>University of Lagos</div>
-                    <p style={{ textAlign: 'center', color: '#ef4444', padding: '20px' }}>Invalid or missing registration token.</p>
+            <AuthPanel
+                slot="Staff invitation"
+                title={<>This link is <mark>incomplete.</mark></>}
+                intro="Invitation links carry a code that identifies your invitation, and this one is missing it."
+            >
+                <h2 className={styles.panelTitle}>Invalid invitation link</h2>
+                <div className={styles.error} role="alert">
+                    Open the link from your invitation email again, or ask the timetable office to send a new one.
                 </div>
-            </div>
+                <div className={styles.links}>
+                    <Link href="/realms">Go to sign in</Link>
+                </div>
+            </AuthPanel>
         );
     }
 
     return (
-        <div className={styles.container}>
-            <div className={styles.card}>
-                <div className={styles.logo} style={{ display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
-                    <img src={unilagLogoBase64} alt="UNILAG Logo" width="100" height="100" style={{ borderRadius: '4px', objectFit: 'contain' }} />
+        <AuthPanel
+            slot="Staff invitation"
+            title={<>Welcome to <mark>UniSchedule.</mark></>}
+            intro="You've been invited to help manage University of Lagos timetables. Choose a password to activate your account."
+        >
+            <h2 className={styles.panelTitle}>Create your password</h2>
+            <form className={styles.form} onSubmit={handleSubmit}>
+                <div className={styles.field}>
+                    <label className={styles.label} htmlFor="password">Password</label>
+                    <input
+                        type="password"
+                        id="password"
+                        className={styles.input}
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        required
+                        autoComplete="new-password"
+                        placeholder="••••••••"
+                    />
                 </div>
-                <h1 className={styles.title}>University of Lagos</h1>
-                <p className={styles.subtitle} style={{ fontSize: '1rem', fontWeight: 'bold', letterSpacing: '1px' }}>Timetable Manager</p>
-
-                <p className={styles.subtitle}>Welcome! Enter a new robust password to activate your staff profile account.</p>
-
-                <form className={styles.form} onSubmit={handleSubmit}>
-                    <div className={styles.formGroup}>
-                        <label className={styles.label} htmlFor="password">Create Password</label>
-                        <input
-                            type="password"
-                            id="password"
-                            className={styles.input}
-                            value={password}
-                            onChange={(e) => setPassword(e.target.value)}
-                            required
-                        />
-                    </div>
-                    <div className={styles.formGroup}>
-                        <label className={styles.label} htmlFor="confirmPassword">Confirm Password</label>
-                        <input
-                            type="password"
-                            id="confirmPassword"
-                            className={styles.input}
-                            value={confirmPassword}
-                            onChange={(e) => setConfirmPassword(e.target.value)}
-                            required
-                        />
-                    </div>
-                    <button type="submit" className={styles.button} disabled={loading}>
-                        {loading ? 'Processing Registration...' : 'Complete Registration'}
-                    </button>
-                </form>
-            </div>
-        </div>
+                <div className={styles.field}>
+                    <label className={styles.label} htmlFor="confirmPassword">Confirm password</label>
+                    <input
+                        type="password"
+                        id="confirmPassword"
+                        className={styles.input}
+                        value={confirmPassword}
+                        onChange={(e) => setConfirmPassword(e.target.value)}
+                        required
+                        autoComplete="new-password"
+                        placeholder="••••••••"
+                    />
+                </div>
+                <button type="submit" className={styles.button} disabled={loading}>
+                    {loading ? 'Activating…' : 'Activate account'}
+                </button>
+            </form>
+        </AuthPanel>
     );
 }

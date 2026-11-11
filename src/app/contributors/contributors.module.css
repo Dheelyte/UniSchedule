@@ -1,374 +1,89 @@
-@property --angle {
-	syntax: '<angle>';
-	initial-value: 0deg;
-	inherits: false;
-}
+/* Contributors, in the public pages' style (src/components/Public): plain
+   cards, and a profile opens full screen on deep UNILAG blue.
+   The profile grows from its card (a transform, 500ms = EXPAND_MS in page.js);
+   on touch screens it fades instead (200ms = FADE_MS). */
 
 .page {
-	position: relative;
-	min-height: 100vh;
 	display: flex;
 	flex-direction: column;
-	background: var(--color-bg);
-	color: var(--color-text);
-	overflow-x: hidden;
-	isolation: isolate;
 }
 
-/* ---------- Animated background ---------- */
-.aurora {
-	position: fixed;
-	inset: 0;
-	z-index: -2;
-	overflow: hidden;
-	pointer-events: none;
-}
-
-.blobA,
-.blobB,
-.blobC {
-	position: absolute;
-	border-radius: 50%;
-	opacity: 0.55;
-	/* Soft from the gradient alone: a blur filter here is re-rendered every frame. */
-	will-change: transform;
-}
-
-.blobA {
-	top: -10%;
-	left: -10%;
-	width: 520px;
-	height: 520px;
-	background: radial-gradient(circle, rgba(99, 102, 241, 0.55) 0%, rgba(99, 102, 241, 0) 70%);
-	animation: driftA 18s ease-in-out infinite alternate;
-}
-
-.blobB {
-	top: 10%;
-	right: -12%;
-	width: 480px;
-	height: 480px;
-	background: radial-gradient(circle, rgba(8, 145, 178, 0.45) 0%, rgba(8, 145, 178, 0) 70%);
-	animation: driftB 22s ease-in-out infinite alternate;
-}
-
-.blobC {
-	bottom: -15%;
-	left: 30%;
-	width: 560px;
-	height: 560px;
-	background: radial-gradient(circle, rgba(219, 39, 119, 0.25) 0%, rgba(219, 39, 119, 0) 70%);
-	animation: driftC 26s ease-in-out infinite alternate;
-}
-
-@keyframes driftA {
-	to { transform: translate(18vw, 22vh) scale(1.15); }
-}
-
-@keyframes driftB {
-	to { transform: translate(-20vw, 30vh) scale(0.9); }
-}
-
-@keyframes driftC {
-	to { transform: translate(-15vw, -25vh) scale(1.2); }
-}
-
-.gridPattern {
-	position: fixed;
-	inset: 0;
-	z-index: -1;
-	pointer-events: none;
-	background-image:
-		linear-gradient(rgba(15, 23, 42, 0.05) 1px, transparent 1px),
-		linear-gradient(90deg, rgba(15, 23, 42, 0.05) 1px, transparent 1px);
-	background-size: 48px 48px;
-	mask-image: radial-gradient(ellipse 70% 55% at 50% 0%, #000 0%, transparent 100%);
-	-webkit-mask-image: radial-gradient(ellipse 70% 55% at 50% 0%, #000 0%, transparent 100%);
-}
-
-/* ---------- Nav ---------- */
-.nav {
-	position: sticky;
-	top: 0;
-	z-index: 20;
-	background: rgba(255, 255, 255, 0.9);
-	border-bottom: 1px solid var(--color-border);
-	box-shadow: 0 1px 0 rgba(15, 23, 42, 0.02), 0 4px 20px rgba(15, 23, 42, 0.03);
-}
-
-.navInner {
-	max-width: 1200px;
-	margin: 0 auto;
-	padding: 16px 32px;
-	display: flex;
-	align-items: center;
-	justify-content: space-between;
-	gap: 24px;
-}
-
-.brand {
-	display: flex;
-	align-items: center;
-	gap: 11px;
-	font-weight: 800;
-	font-size: 1.1rem;
-	letter-spacing: -0.02em;
-	color: var(--color-text);
-}
-
-.brandMark {
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	width: 38px;
-	height: 38px;
-	border-radius: 11px;
-	background: linear-gradient(135deg, var(--color-primary-bg) 0%, rgba(8, 145, 178, 0.1) 100%);
-	border: 1px solid var(--color-border);
-	flex-shrink: 0;
-}
-
-.brandLogo {
-	border-radius: 4px;
-	object-fit: contain;
-	flex-shrink: 0;
-}
-
-.backLink {
-	display: inline-flex;
-	align-items: center;
-	gap: 8px;
-	font-size: 0.9rem;
-	font-weight: 500;
-	color: var(--color-text-secondary);
-	transition: color var(--transition-fast), gap var(--transition-fast);
-}
-
-.backLink:hover {
-	color: var(--color-primary);
-	gap: 12px;
-}
-
-/* ---------- Hero ---------- */
-.hero {
-	max-width: 780px;
-	margin: 0 auto;
-	padding: 88px 32px 56px;
-	text-align: center;
-}
-
-.eyebrow,
-.title,
-.subtitle {
-	animation: riseIn 800ms cubic-bezier(0.22, 1, 0.36, 1) both;
-}
-
-.title {
-	animation-delay: 100ms;
-}
-
-.subtitle {
-	animation-delay: 200ms;
-}
-
-.eyebrow {
-	display: inline-flex;
-	align-items: center;
-	gap: 8px;
-	padding: 7px 16px;
-	border-radius: 50px;
-	background: rgba(255, 255, 255, 0.7);
-	border: 1px solid var(--color-border);
-	backdrop-filter: blur(8px);
-	color: var(--color-text-secondary);
-	font-size: 0.8rem;
-	font-weight: 600;
-	letter-spacing: 0.06em;
-	text-transform: uppercase;
-}
-
-.eyebrowDot {
-	position: relative;
-	width: 8px;
-	height: 8px;
-	border-radius: 50%;
-	background: var(--color-success);
-}
-
-/* The pulse is a ring that grows and fades: transform and opacity only, so it
-   doesn't repaint (animating box-shadow did, on every frame). */
-.eyebrowDot::after {
-	content: '';
-	position: absolute;
-	inset: 0;
-	border-radius: 50%;
-	background: rgba(5, 150, 105, 0.5);
-	animation: pulse 2s ease-out infinite;
-}
-
-@keyframes pulse {
-	from { transform: scale(1); opacity: 1; }
-	to { transform: scale(3.5); opacity: 0; }
-}
-
-.title {
-	margin-top: 20px;
-	font-size: clamp(2.4rem, 7vw, 4.2rem);
-	font-weight: 800;
-	letter-spacing: -0.04em;
-	line-height: 1.05;
-}
-
-.titleAccent {
-	background: linear-gradient(90deg, var(--color-primary), var(--color-accent), #db2777, var(--color-primary));
-	background-size: 300% 100%;
-	-webkit-background-clip: text;
-	background-clip: text;
-	color: transparent;
-	animation: shimmer 6s linear infinite;
-}
-
-@keyframes shimmer {
-	to { background-position: 300% 0; }
-}
-
-.subtitle {
-	margin-top: 18px;
-	font-size: 1.1rem;
-	line-height: 1.65;
-	color: var(--color-text-secondary);
-}
-
-@keyframes riseIn {
-	from {
-		opacity: 0;
-		transform: translateY(24px);
-	}
-	to {
-		opacity: 1;
-		transform: none;
-	}
-}
-
-/* ---------- Cards ---------- */
-.grid {
+.main {
 	width: 100%;
-	max-width: 1200px;
+	max-width: 1240px;
 	margin: 0 auto;
-	padding: 0 32px 96px;
+	padding: 40px 24px 0;
+}
+
+/* ---------- Introduction ---------- */
+.hero {
+	max-width: 760px;
+	display: flex;
+	flex-direction: column;
+	gap: 14px;
+}
+
+.slot {
+	font-size: 0.8rem;
+	font-weight: 700;
+	color: var(--blue-strong);
+}
+
+.title {
+	font-family: var(--display);
+	font-size: clamp(2.2rem, 5vw, 3.6rem);
+	font-weight: 800;
+	line-height: 1.05;
+	letter-spacing: -0.03em;
+}
+
+.title mark {
+	color: inherit;
+	background: linear-gradient(to top, var(--yellow) 0 38%, transparent 38%);
+	padding: 0 2px;
+}
+
+.subtitle {
+	max-width: 60ch;
+	font-size: 1.05rem;
+	line-height: 1.6;
+	color: var(--ink-2);
+}
+
+/* ---------- Cards, as timetable blocks ---------- */
+.grid {
+	margin-top: 36px;
 	display: grid;
 	grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-	gap: 24px;
+	gap: 16px;
 }
 
 .card {
 	position: relative;
 	display: flex;
 	flex-direction: column;
-	align-items: center;
-	text-align: center;
-	padding: 36px 24px 24px;
-	background: rgba(255, 255, 255, 0.88);
-	border: 1px solid var(--color-border);
-	border-radius: var(--radius-xl);
-	box-shadow: var(--shadow-sm);
-	cursor: pointer;
-	animation: cardIn 700ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
-	animation-delay: calc(300ms + var(--i) * 80ms);
-	transition: transform 400ms cubic-bezier(0.22, 1, 0.36, 1), box-shadow 400ms ease;
-}
-
-@keyframes cardIn {
-	from {
-		opacity: 0;
-		transform: translateY(40px) scale(0.94);
-	}
-	to {
-		opacity: 1;
-		transform: none;
-	}
-}
-
-/* Spinning gradient border, shown on hover */
-.card::before {
-	content: '';
-	position: absolute;
-	inset: -1px;
-	padding: 1.5px;
-	border-radius: inherit;
-	background: conic-gradient(from var(--angle), transparent 0 55%, var(--color-primary) 70%, var(--color-accent) 85%, transparent 100%);
-	-webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-	-webkit-mask-composite: xor;
-	mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
-	opacity: 0;
-	transition: opacity 300ms ease;
-	pointer-events: none;
-}
-
-@keyframes spin {
-	to { --angle: 360deg; }
-}
-
-.card:hover {
-	transform: translateY(-6px);
-	box-shadow: 0 20px 50px -12px rgba(99, 102, 241, 0.35);
-}
-
-.card:hover::before,
-.card:focus-within::before {
-	opacity: 1;
-	/* Repaints every frame, so it only runs while visible. */
-	animation: spin 3s linear infinite;
+	align-items: flex-start;
+	gap: 8px;
+	padding: 24px 22px 22px;
+	border-radius: 14px;
+	background: var(--white);
+	border: 1px solid var(--rule);
 }
 
 .cardHidden {
 	visibility: hidden;
 }
 
-/* Soft glow that follows the pointer */
-.cardSpotlight {
-	position: absolute;
-	inset: 0;
-	border-radius: inherit;
-	background: radial-gradient(260px circle at var(--mx, 50%) var(--my, 0%), rgba(99, 102, 241, 0.14), transparent 70%);
-	opacity: 0;
-	transition: opacity 300ms ease;
-	pointer-events: none;
-}
-
-.card:hover .cardSpotlight {
-	opacity: 1;
-}
-
 .avatar {
 	position: relative;
-	width: 88px;
-	height: 88px;
+	width: 80px;
+	height: 80px;
 	padding: 3px;
 	border-radius: 50%;
+	/* Every photo ringed in gold, as on the profile. */
+	background: var(--yellow);
 	flex-shrink: 0;
-	transition: transform 400ms cubic-bezier(0.22, 1, 0.36, 1);
-}
-
-/* The spinning ring behind each avatar. Rotated with transform so the GPU
-   moves it, rather than repainting a gradient on every frame. */
-.avatar::before,
-.detailAvatar::before {
-	content: '';
-	position: absolute;
-	inset: 0;
-	border-radius: 50%;
-	background: conic-gradient(var(--color-primary), var(--color-accent), #db2777, var(--color-primary));
-	animation: ringSpin 6s linear infinite;
-	will-change: transform;
-}
-
-@keyframes ringSpin {
-	to { transform: rotate(360deg); }
-}
-
-.card:hover .avatar {
-	transform: scale(1.08) rotate(-3deg);
+	margin-bottom: 6px;
 }
 
 .avatarInner {
@@ -377,18 +92,17 @@
 	height: 100%;
 	border-radius: 50%;
 	overflow: hidden;
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-accent) 100%);
-	border: 3px solid var(--color-bg-card);
+	background: var(--blue-pale);
+	border: 3px solid var(--white);
+	display: grid;
+	place-items: center;
 }
 
 .avatarInitials {
-	color: #fff;
-	font-weight: 700;
-	font-size: 1.4rem;
-	letter-spacing: 0.02em;
+	font-family: var(--display);
+	font-weight: 800;
+	font-size: 1.3rem;
+	color: var(--blue-strong);
 }
 
 .avatarImg {
@@ -400,19 +114,20 @@
 }
 
 .name {
-	margin-top: 18px;
-	font-size: 1.12rem;
-	font-weight: 700;
-	letter-spacing: -0.01em;
+	font-family: var(--display);
+	font-size: 1.25rem;
+	font-weight: 800;
+	letter-spacing: -0.02em;
 }
 
-/* The whole card is clickable through this button's overlay. */
+/* The whole card opens the profile; the button carries it for keyboards. */
 .cardButton {
-	font: inherit;
-	color: inherit;
-	background: none;
-	border: 0;
 	padding: 0;
+	border: 0;
+	background: none;
+	color: inherit;
+	font: inherit;
+	text-align: left;
 	cursor: pointer;
 }
 
@@ -420,89 +135,88 @@
 	content: '';
 	position: absolute;
 	inset: 0;
-	border-radius: var(--radius-xl);
+	border-radius: inherit;
 }
 
 .cardButton:focus-visible {
 	outline: none;
 }
 
-.cardButton:focus-visible::after {
-	outline: 2px solid var(--color-primary);
-	outline-offset: 3px;
+.card:has(.cardButton:focus-visible) {
+	outline: 3px solid var(--blue);
+	outline-offset: 2px;
 }
 
 .role {
-	margin-top: 4px;
-	font-size: 0.875rem;
-	font-weight: 600;
-	color: var(--color-primary);
+	font-size: 0.85rem;
+	font-weight: 700;
+	color: var(--blue-strong);
 }
 
 .bio {
-	margin-top: 12px;
-	font-size: 0.9rem;
-	line-height: 1.6;
-	color: var(--color-text-secondary);
+	color: var(--ink-2);
+	line-height: 1.55;
+	display: -webkit-box;
+	-webkit-line-clamp: 3;
+	-webkit-box-orient: vertical;
+	overflow: hidden;
 }
 
 .socials {
 	position: relative;
 	z-index: 1;
-	margin-top: auto;
-	padding-top: 20px;
 	display: flex;
 	flex-wrap: wrap;
-	justify-content: center;
-	gap: 8px;
+	gap: 6px;
+	margin-top: 4px;
 }
 
 .socialLink {
-	display: inline-flex;
-	align-items: center;
-	justify-content: center;
-	width: 38px;
-	height: 38px;
-	border-radius: var(--radius-md);
-	background: var(--color-bg-input);
-	border: 1px solid var(--color-border);
-	color: var(--color-text-secondary);
-	transition: all var(--transition-fast);
+	display: grid;
+	place-items: center;
+	width: 34px;
+	height: 34px;
+	border-radius: 8px;
+	background: var(--paper);
+	border: 1px solid var(--rule);
+	color: var(--ink-2) !important;
 }
 
 .socialLink:hover {
-	color: #fff;
-	border-color: transparent;
-	background: linear-gradient(135deg, var(--color-primary), var(--color-accent));
-	transform: translateY(-2px) scale(1.06);
+	background: var(--blue-pale);
+	color: var(--blue-dark) !important;
+}
+
+.socialLink svg {
+	width: 16px;
+	height: 16px;
 }
 
 .cardHint {
+	margin-top: auto;
+	padding-top: 8px;
 	display: inline-flex;
 	align-items: center;
 	gap: 6px;
-	margin-top: 16px;
-	font-size: 0.8rem;
-	font-weight: 600;
-	color: var(--color-primary);
-	opacity: 0;
-	transform: translateY(6px);
-	transition: opacity 300ms ease, transform 300ms ease;
-}
-
-.card:hover .cardHint {
-	opacity: 1;
-	transform: none;
-}
-
-/* ---------- Footer ---------- */
-.footer {
-	margin-top: auto;
-	padding: 28px 32px;
-	text-align: center;
 	font-size: 0.85rem;
-	color: rgba(255, 255, 255, 0.55);
-	background: var(--color-text);
+	font-weight: 700;
+	color: var(--blue-strong);
+}
+
+.cardHint svg {
+	width: 14px;
+	height: 14px;
+}
+
+@media (hover: hover) {
+	.card {
+		transition: transform 180ms ease, box-shadow 180ms ease;
+	}
+
+	.card:hover {
+		transform: translateY(-4px);
+		box-shadow: 0 16px 32px -18px rgba(13, 53, 80, 0.55);
+	}
 }
 
 /* ---------- Expanded profile ---------- */
@@ -510,56 +224,47 @@
 	position: fixed;
 	inset: 0;
 	z-index: 100;
-	background: rgba(15, 23, 42, 0);
-	transition: background 600ms ease;
 }
 
-.overlayOpen {
-	background: rgba(15, 23, 42, 0.55);
+/* The dimmed backdrop fades by opacity: cheap, unlike animating its colour. */
+.overlay::before {
+	content: '';
+	position: fixed;
+	inset: 0;
+	background: rgba(11, 31, 51, 0.55);
+	opacity: 0;
+	transition: opacity 500ms ease;
+}
+
+.overlayOpen::before {
+	opacity: 1;
 }
 
 .panel {
 	position: fixed;
 	inset: 0;
 	overflow: hidden;
-	background: #0b1020;
-	color: #fff;
-	/* The panel is always full screen; clip-path reveals it from the card.
-	   Animating its size instead would re-lay out the profile on every frame. */
-	transition: clip-path 600ms cubic-bezier(0.22, 1, 0.36, 1);
-}
-
-.panelGlowA,
-.panelGlowB {
-	position: absolute;
-	border-radius: 50%;
-	pointer-events: none;
-	opacity: 0;
+	background: var(--blue-deep);
+	color: var(--white);
+	/* Scaled from the card (see panelStyle in page.js): transform only, so it
+	   runs on the GPU; resizing it would re-lay out the profile every frame. */
+	transform-origin: 0 0;
 	will-change: transform;
-	transition: opacity 800ms ease 200ms;
+	transition:
+		transform 500ms cubic-bezier(0.22, 1, 0.36, 1),
+		border-radius 500ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-.panelOpen .panelGlowA,
-.panelOpen .panelGlowB {
-	opacity: 1;
-}
-
-.panelGlowA {
-	top: -20%;
-	left: -10%;
-	width: 60vw;
-	height: 60vw;
-	background: radial-gradient(circle, rgba(99, 102, 241, 0.45) 0%, rgba(99, 102, 241, 0) 65%);
-	animation: driftA 20s ease-in-out infinite alternate;
-}
-
-.panelGlowB {
-	bottom: -30%;
-	right: -10%;
-	width: 55vw;
-	height: 55vw;
-	background: radial-gradient(circle, rgba(8, 145, 178, 0.4) 0%, rgba(8, 145, 178, 0) 65%);
-	animation: driftB 24s ease-in-out infinite alternate;
+/* Faint timetable rules on the profile, as on the homepage. */
+.panel::before {
+	content: '';
+	position: absolute;
+	inset: 0;
+	pointer-events: none;
+	background-image:
+		linear-gradient(to right, rgba(110, 189, 235, 0.08) 1px, transparent 1px),
+		linear-gradient(to bottom, rgba(110, 189, 235, 0.08) 1px, transparent 1px);
+	background-size: 64px 64px;
 }
 
 .closeButton {
@@ -567,30 +272,26 @@
 	top: 24px;
 	right: 24px;
 	z-index: 2;
-	display: flex;
-	align-items: center;
-	justify-content: center;
+	display: grid;
+	place-items: center;
 	width: 48px;
 	height: 48px;
-	border-radius: 50%;
-	border: 1px solid rgba(255, 255, 255, 0.15);
-	background: rgba(255, 255, 255, 0.06);
-	color: #fff;
+	border-radius: 12px;
+	border: 0;
+	background: var(--yellow);
+	color: var(--ink);
 	cursor: pointer;
 	opacity: 0;
-	transform: rotate(-90deg) scale(0.6);
-	transition: opacity 300ms ease, transform 500ms cubic-bezier(0.22, 1, 0.36, 1), background 200ms ease;
+	transition: opacity 300ms ease, background-color 160ms ease;
 }
 
 .panelOpen .closeButton {
 	opacity: 1;
-	transform: none;
-	transition-delay: 250ms, 250ms, 0ms;
+	transition-delay: 250ms, 0ms;
 }
 
 .closeButton:hover {
-	background: rgba(255, 255, 255, 0.14);
-	transform: rotate(90deg);
+	background: var(--white);
 }
 
 .panelContent {
@@ -616,7 +317,7 @@
 	display: grid;
 	grid-template-columns: auto 1fr;
 	align-items: center;
-	gap: 64px;
+	gap: 56px;
 }
 
 .detailHero {
@@ -626,100 +327,81 @@
 
 .detailAvatar {
 	position: relative;
-	width: 260px;
-	height: 260px;
-	padding: 5px;
+	width: 240px;
+	height: 240px;
+	padding: 6px;
 	border-radius: 50%;
-	box-shadow: 0 0 80px -10px rgba(99, 102, 241, 0.7);
-	animation: popIn 800ms cubic-bezier(0.34, 1.56, 0.64, 1) 250ms both;
+	background: var(--yellow);
 }
 
 .detailAvatar .avatarInner {
-	border: 6px solid #0b1020;
+	border: 6px solid var(--blue-deep);
 }
 
 .detailAvatar .avatarInitials {
-	font-size: 4rem;
-}
-
-@keyframes popIn {
-	from {
-		opacity: 0;
-		transform: scale(0.6) rotate(-8deg);
-	}
-	to {
-		opacity: 1;
-		transform: none;
-	}
+	font-size: 3.4rem;
 }
 
 .detailBody {
 	display: flex;
 	flex-direction: column;
-	align-items: flex-start;
-	gap: 20px;
+	gap: 14px;
 	min-width: 0;
 }
 
-.detailBody > * {
-	animation: riseIn 700ms cubic-bezier(0.22, 1, 0.36, 1) both;
-	animation-delay: calc(320ms + var(--d, 0) * 70ms);
-}
-
 .detailEyebrow {
-	font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-	font-size: 0.8rem;
-	letter-spacing: 0.12em;
-	color: rgba(255, 255, 255, 0.5);
+	align-self: flex-start;
+	padding: 4px 10px;
+	border-radius: 999px;
+	background: rgba(110, 189, 235, 0.18);
+	color: var(--blue);
+	font-size: 0.78rem;
+	font-weight: 800;
+	letter-spacing: 0.04em;
 }
 
 .detailName {
-	font-size: clamp(2.2rem, 5.5vw, 4rem);
+	font-family: var(--display);
+	font-size: clamp(2.2rem, 5vw, 3.8rem);
 	font-weight: 800;
-	letter-spacing: -0.04em;
-	line-height: 1.02;
-	background: linear-gradient(90deg, #fff 0%, #c7d2fe 40%, #67e8f9 70%, #fff 100%);
-	background-size: 250% 100%;
-	-webkit-background-clip: text;
-	background-clip: text;
-	color: transparent;
-	animation-name: riseIn, shimmer;
-	animation-duration: 700ms, 8s;
-	animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1), linear;
-	animation-iteration-count: 1, infinite;
-	animation-fill-mode: both, none;
+	line-height: 1.05;
+	letter-spacing: -0.03em;
+	overflow-wrap: anywhere;
 }
 
 .detailMeta {
 	display: flex;
 	flex-wrap: wrap;
+	gap: 8px 18px;
 	align-items: center;
-	gap: 12px;
 }
 
 .detailRole {
-	padding: 6px 14px;
-	border-radius: 50px;
-	background: rgba(99, 102, 241, 0.2);
-	border: 1px solid rgba(129, 140, 248, 0.4);
-	color: #c7d2fe;
-	font-size: 0.875rem;
-	font-weight: 600;
+	padding: 4px 10px;
+	border-radius: 8px;
+	background: var(--yellow);
+	color: var(--ink);
+	font-weight: 800;
+	font-size: 0.85rem;
 }
 
 .detailLocation {
 	display: inline-flex;
 	align-items: center;
 	gap: 6px;
-	font-size: 0.9rem;
-	color: rgba(255, 255, 255, 0.65);
+	color: #c4d7e6;
+}
+
+.detailLocation svg {
+	width: 14px;
+	height: 14px;
 }
 
 .detailBio {
-	max-width: 560px;
-	font-size: 1.1rem;
-	line-height: 1.7;
-	color: rgba(255, 255, 255, 0.75);
+	max-width: 62ch;
+	font-size: 1.08rem;
+	line-height: 1.65;
+	color: #dbe8f2;
 }
 
 .detailStats {
@@ -729,54 +411,52 @@
 }
 
 .detailStat {
+	min-width: 120px;
+	padding: 12px 16px;
+	border-radius: 12px;
+	background: rgba(255, 255, 255, 0.06);
 	display: flex;
 	flex-direction: column;
-	gap: 4px;
-	min-width: 120px;
-	padding: 14px 18px;
-	border-radius: var(--radius-lg);
-	background: rgba(255, 255, 255, 0.05);
-	border: 1px solid rgba(255, 255, 255, 0.1);
+	gap: 2px;
 }
 
 .detailStatValue {
+	font-family: var(--display);
 	font-size: 1.6rem;
 	font-weight: 800;
-	letter-spacing: -0.02em;
+	color: var(--yellow);
 }
 
 .detailStatLabel {
-	font-size: 0.75rem;
-	text-transform: uppercase;
-	letter-spacing: 0.08em;
-	color: rgba(255, 255, 255, 0.5);
+	font-size: 0.8rem;
+	color: #c4d7e6;
 }
 
 .detailLinks {
 	display: flex;
 	flex-wrap: wrap;
-	gap: 10px;
+	gap: 8px;
 }
 
 .detailLink {
 	display: inline-flex;
 	align-items: center;
-	gap: 10px;
-	padding: 12px 20px;
-	border-radius: 50px;
-	background: rgba(255, 255, 255, 0.08);
-	border: 1px solid rgba(255, 255, 255, 0.14);
-	color: #fff;
-	font-size: 0.9rem;
-	font-weight: 600;
-	transition: all 250ms cubic-bezier(0.22, 1, 0.36, 1);
+	gap: 8px;
+	padding: 10px 14px;
+	border-radius: 10px;
+	background: var(--white);
+	color: var(--ink) !important;
+	font-weight: 700;
+	text-decoration: none;
+}
+
+.detailLink svg {
+	width: 16px;
+	height: 16px;
 }
 
 .detailLink:hover {
-	background: linear-gradient(135deg, var(--color-primary), var(--color-accent));
-	border-color: transparent;
-	transform: translateY(-3px);
-	box-shadow: 0 12px 30px -8px rgba(99, 102, 241, 0.7);
+	background: var(--blue);
 }
 
 .panelNav {
@@ -789,14 +469,12 @@
 	gap: 16px;
 	padding: 24px 32px;
 	opacity: 0;
-	transform: translateY(16px);
-	transition: opacity 200ms ease, transform 300ms ease;
+	transition: opacity 200ms ease;
 }
 
 .panelOpen .panelNav {
 	opacity: 1;
-	transform: none;
-	transition: opacity 400ms ease 400ms, transform 500ms cubic-bezier(0.22, 1, 0.36, 1) 400ms;
+	transition: opacity 400ms ease 400ms;
 }
 
 .navButton {
@@ -805,14 +483,19 @@
 	gap: 10px;
 	max-width: 45%;
 	padding: 10px 16px;
-	border-radius: 50px;
-	border: 1px solid rgba(255, 255, 255, 0.12);
-	background: rgba(255, 255, 255, 0.04);
-	color: rgba(255, 255, 255, 0.7);
+	border-radius: 10px;
+	border: 1px solid rgba(255, 255, 255, 0.18);
+	background: rgba(255, 255, 255, 0.06);
+	color: #dbe8f2;
 	font: inherit;
-	font-size: 0.875rem;
+	font-size: 0.9rem;
+	font-weight: 600;
 	cursor: pointer;
-	transition: all 200ms ease;
+}
+
+.navButton:hover {
+	background: rgba(255, 255, 255, 0.14);
+	color: var(--white);
 }
 
 .navButton span {
@@ -821,16 +504,18 @@
 	white-space: nowrap;
 }
 
-.navButton:hover {
-	color: #fff;
-	background: rgba(255, 255, 255, 0.1);
+.navButton svg {
+	width: 16px;
+	height: 16px;
+	flex-shrink: 0;
 }
 
-/* ---------- Responsive ---------- */
+/* ---------- Narrower screens ---------- */
 @media (max-width: 860px) {
 	.detail {
-		grid-template-columns: 1fr;
-		gap: 32px;
+		grid-template-columns: minmax(0, 1fr);
+		gap: 28px;
+		justify-items: center;
 		text-align: center;
 	}
 
@@ -838,9 +523,8 @@
 		align-items: center;
 	}
 
-	.detailAvatar {
-		width: 180px;
-		height: 180px;
+	.detailEyebrow {
+		align-self: center;
 	}
 
 	.detailMeta,
@@ -848,28 +532,25 @@
 	.detailLinks {
 		justify-content: center;
 	}
+
+	.detailAvatar {
+		width: 180px;
+		height: 180px;
+	}
 }
 
-@media (max-width: 640px) {
-	.navInner {
-		padding: 14px 16px;
-	}
-
-	.hero {
-		padding: 56px 16px 36px;
+@media (max-width: 600px) {
+	.main {
+		padding: 24px 16px 0;
 	}
 
 	.grid {
-		padding: 0 16px 56px;
-	}
-
-	.footer {
-		padding: 24px 16px;
+		grid-template-columns: minmax(0, 1fr);
 	}
 
 	.panelContent {
+		padding: 80px 20px 110px;
 		align-items: flex-start;
-		padding: 88px 16px 110px;
 	}
 
 	.closeButton {
@@ -880,72 +561,14 @@
 	.panelNav {
 		padding: 16px;
 	}
-
-	.detailStat {
-		min-width: 0;
-		flex: 1;
-	}
 }
 
-/* Phones and tablets, including a phone in "desktop site" mode (which still
-   has a touch screen): the decoration stays but stands still. Endless drifting
-   glows, spinning rings, a shimmering title and a blur cost every frame, and a
-   phone drawing the full desktop layout can't keep up. Hover effects are off
-   too: a tap leaves :hover stuck on, which started the spinning border. */
+/* Touch screens (a phone in desktop mode included): the profile fades in and
+   out quickly instead of growing from the card (FADE_MS in page.js). */
 @media (hover: none), (pointer: coarse) {
-	.blobA,
-	.blobB,
-	.blobC,
-	.panelGlowA,
-	.panelGlowB,
-	.avatar::before,
-	.detailAvatar::before {
-		animation: none;
-		will-change: auto;
-	}
-
-	.titleAccent {
-		animation: none;
-	}
-
-	.eyebrowDot::after {
-		display: none;
-	}
-
-	.eyebrow {
-		backdrop-filter: none;
-		background: rgba(255, 255, 255, 0.92);
-	}
-
-	/* Scrolls with the page instead of being re-drawn under it. */
-	.gridPattern {
-		position: absolute;
-	}
-
-	.card:hover {
-		transform: none;
-		box-shadow: var(--shadow-sm);
-	}
-
-	.card:hover::before,
-	.card:focus-within::before {
-		animation: none;
-		opacity: 0;
-	}
-
-	.card:hover .cardSpotlight {
-		opacity: 0;
-	}
-
-	.card:hover .avatar {
-		transform: none;
-	}
-
-	/* Opening a profile: a quick fade instead of growing a full-screen clip
-	   from the card, which a phone redraws on every frame. FADE_MS in
-	   page.js matches the 200ms here. */
 	.panel {
-		clip-path: none !important;
+		transform: none !important;
+		border-radius: 0 !important;
 		opacity: 0;
 		transition: opacity 200ms ease;
 	}
@@ -954,26 +577,8 @@
 		opacity: 1;
 	}
 
-	/* The panel covers the screen, so the dimmed backdrop behind it needn't fade. */
-	.overlay {
+	.overlay::before {
 		transition: none;
-	}
-
-	.panelGlowA,
-	.panelGlowB {
-		display: none;
-	}
-
-	/* The profile appears as it is: no staggered rise, no pop, no shimmering
-	   name, and a small shadow instead of a large glow. */
-	.detailAvatar,
-	.detailName,
-	.detailBody > * {
-		animation: none;
-	}
-
-	.detailAvatar {
-		box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
 	}
 
 	.panelContent,

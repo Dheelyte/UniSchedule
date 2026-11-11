@@ -2,10 +2,15 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import styles from './realms.module.css';
-import { unilagLogoBase64 } from '@/lib/logo';
+import AuthPanel, { authStyles as styles } from '@/components/Public/AuthPanel';
 import { apiClient } from '@/lib/apiClient';
 import { FALLBACK_REALMS, loginPath } from '@/lib/realm';
+
+// What each programme is, for the choice list. Others show their name only.
+const ABOUT = {
+	UG: 'Full-time undergraduate degrees',
+	ICE: 'Part-time programmes (Institute of Continuing Education)',
+};
 
 export default function RealmSelectPage() {
 	// The static list shows until the API answers, and stays if it can't.
@@ -25,43 +30,35 @@ export default function RealmSelectPage() {
 	}, []);
 
 	return (
-		<div className={styles.container}>
-			<div className={styles.card}>
-				<div
-					className={styles.logo}
-					style={{ display: 'flex', justifyContent: 'center', alignItems: 'center' }}
-				>
-					<img
-						src={unilagLogoBase64}
-						alt="UNILAG Logo"
-						width="100"
-						height="100"
-						style={{ borderRadius: '4px', objectFit: 'contain' }}
-					/>
-				</div>
-				<h1 className={styles.title}>Select a program</h1>
-				<p
-					className={styles.subtitle}
-					style={{ fontSize: '1rem', fontWeight: 'bold', letterSpacing: '1px' }}
-				>
-					Choose a program to log in to
+		<AuthPanel
+			slot="Staff sign in"
+			title={<>Choose your <mark>programme.</mark></>}
+			intro="Each programme has its own calendar, faculties and rooms. Sign in to the one you work on; super admins can switch later."
+			after={
+				<p className={styles.aside}>
+					Looking for a timetable? You don&apos;t need to sign in. <Link href="/download">Download one here</Link>.
 				</p>
-
-				<div className={styles.realmList}>
-					{realms.map((realm) =>
-						realm.is_live ? (
-							<Link key={realm.key} href={loginPath(realm.key)} className={styles.button}>
-								Sign in as {realm.name}
-							</Link>
-						) : (
-							<button key={realm.key} type="button" className={styles.buttonDisabled} disabled>
+			}
+		>
+			<h2 className={styles.panelTitle}>Programmes</h2>
+			<div className={styles.choices}>
+				{realms.map((realm) =>
+					realm.is_live ? (
+						<Link key={realm.key} href={loginPath(realm.key)} className={styles.choice}>
+							<span>
 								{realm.name}
-								<span className={styles.comingSoon}>Coming soon</span>
-							</button>
-						)
-					)}
-				</div>
+								{ABOUT[realm.key] && <small>{ABOUT[realm.key]}</small>}
+							</span>
+							<span className={styles.choiceArrow} aria-hidden="true">→</span>
+						</Link>
+					) : (
+						<button key={realm.key} type="button" className={`${styles.choice} ${styles.choiceSoon}`} disabled>
+							<span>{realm.name}</span>
+							<span className={styles.soonTag}>Coming soon</span>
+						</button>
+					)
+				)}
 			</div>
-		</div>
+		</AuthPanel>
 	);
 }
