@@ -98,3 +98,25 @@ export async function downloadFacultyIndex({ semesterId, type, session, semester
 	saveFile(await response.blob(), fileName);
 	return `The ${session} ${semester} index of faculties was downloaded.`;
 }
+
+/**
+ * Tell the public download page a timetable was locked or unlocked, so it
+ * offers the change at once instead of after its cache runs out. Best effort:
+ * the lock has already happened, and the page catches up within minutes anyway.
+ */
+export async function refreshPublicDownloads(semesterId, type) {
+	try {
+		const { ticket } = await apiClient.post("/export/ticket", {
+			semester_id: Number(semesterId),
+			timetable_type: type,
+		});
+		const q = new URLSearchParams({ semester: String(semesterId), type });
+		await fetch(`/api/export/refresh?${q}`, {
+			method: "POST",
+			headers: { "X-Export-Ticket": ticket },
+			cache: "no-store",
+		});
+	} catch {
+		// Not worth troubling the user over.
+	}
+}

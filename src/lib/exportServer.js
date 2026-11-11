@@ -29,24 +29,36 @@ function serverHeaders() {
 	return process.env.PUBLIC_EXPORT_KEY ? { "X-Export-Key": process.env.PUBLIC_EXPORT_KEY } : {};
 }
 
+// Every public read carries this tag, so locking or unlocking a timetable can
+// drop them all at once (src/app/api/export/refresh/route.js) instead of the
+// download page showing the old list until the cache runs out.
+export const PUBLISHED_TAG = "published-timetables";
+
 /**
  * GET a public backend read as JSON; null for a 404. Throws on other failures.
  * Sends PUBLIC_EXPORT_KEY: the backend answers its public reads only for this server.
  */
 export async function getPublic(path) {
 	const headers = serverHeaders();
-	const response = await fetch(`${apiBase()}${path}`, { headers, next: { revalidate: BACKEND_CACHE_SECONDS } });
+	const response = await fetch(`${apiBase()}${path}`, {
+		headers,
+		next: { revalidate: BACKEND_CACHE_SECONDS, tags: [PUBLISHED_TAG] },
+	});
 	if (response.status === 404) return null;
 	if (!response.ok) throw new Error(`${path}: ${response.status}`);
 	return response.json();
 }
 
-/** JSON for the download page, cached at the edge like the backend reads behind it. */
+/**
+ * JSON for the download page. Not kept at the edge: the backend reads behind it
+ * are cached on this server (and cleared when a timetable is locked or
+ * unlocked), which an edge copy would outlive.
+ */
 export function jsonResponse(data) {
 	return new Response(JSON.stringify(data), {
 		headers: {
 			"Content-Type": "application/json",
-			"Cache-Control": `public, max-age=60, s-maxage=${BACKEND_CACHE_SECONDS}`,
+			"Cache-Control": "public, max-age=0, must-revalidate",
 		},
 	});
 }
