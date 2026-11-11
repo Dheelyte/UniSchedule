@@ -99,6 +99,59 @@ const STRUCTURED_DATA = {
 
 const pad = (n) => String(n).padStart(2, '0');
 
+/*
+ * What the product does, at a glance: a few lectures on a timetable grid with
+ * one clash flagged, as an officer would see it. An illustration (the codes
+ * and rooms are examples), so it is described for screen readers as one.
+ */
+const PREVIEW_DAYS = ['Mon', 'Tue', 'Wed'];
+const PREVIEW_TIMES = ['8:00', '10:00', '12:00'];
+const PREVIEW_CELLS = {
+	'Mon-8:00': { code: 'CSC 201', room: 'LT 1' },
+	'Mon-12:00': { code: 'MTH 203', room: 'Main Aud.' },
+	'Tue-8:00': { code: 'PHY 211', room: 'LT 2' },
+	'Tue-10:00': { code: 'STA 201 · CSC 203', room: 'Both in LT 1', clash: true },
+	'Tue-12:00': { code: 'GST 201', room: 'Online' },
+	'Wed-10:00': { code: 'CSC 203', room: 'LT 2' },
+	'Wed-12:00': { code: 'CSC 205', room: 'Lab 3' },
+};
+
+function TimetablePreview() {
+	return (
+		<figure
+			className={styles.preview}
+			role="img"
+			aria-label="Example: a lecture timetable grid with one clash flagged: STA 201 and CSC 203 both in LT 1 on Tuesday at 10:00."
+		>
+			<div className={styles.previewHead} aria-hidden="true">
+				<span>Faculty of Science · Lectures</span>
+				<span className={styles.previewDraft}>Draft</span>
+			</div>
+			<div className={styles.previewGrid} aria-hidden="true">
+				<span />
+				{PREVIEW_DAYS.map((d) => <span key={d} className={styles.previewDay}>{d}</span>)}
+				{PREVIEW_TIMES.map((t) => (
+					<div key={t} className={styles.previewRow}>
+						<span className={styles.previewTime}>{t}</span>
+						{PREVIEW_DAYS.map((d) => {
+							const c = PREVIEW_CELLS[`${d}-${t}`];
+							return (
+								<span key={d} className={c ? (c.clash ? styles.previewClash : styles.previewCell) : styles.previewEmpty}>
+									{c && <><b>{c.code}</b><small>{c.room}</small></>}
+								</span>
+							);
+						})}
+					</div>
+				))}
+			</div>
+			<p className={styles.previewAlert} aria-hidden="true">
+				<span className={styles.previewAlertMark}>!</span>
+				STA 201 and CSC 203 are both in LT 1 on Tuesday at 10:00. Fix it before locking.
+			</p>
+		</figure>
+	);
+}
+
 export default function Landing() {
 	return (
 		<div className={`${styles.page} ${display.variable} ${mono.variable}`}>
@@ -126,29 +179,34 @@ export default function Landing() {
 
 			<main>
 				{/* ---------- Hero ---------- */}
-				<section className={styles.hero}>
-					<div className={styles.heroMeta}>
-						<span>{'// Timetable manager for UNILAG'}</span>
-						<span>Lectures · Exams · CBT</span>
-					</div>
-					<h1 className={styles.heroTitle}>
-						<span className={styles.lineSolid}>Every timetable.</span>
-						<span className={styles.lineOutline}>Every faculty.</span>
-						<span className={styles.lineMark}>No clashes.</span>
-					</h1>
-					<div className={styles.heroFoot}>
-						<p className={styles.heroText}>
-							Timetable officers build each semester&apos;s lecture and exam timetables in
-							UniSchedule, and every one is checked against rooms, courses and students as it
-							is placed. When a timetable is FINAL, anyone can download it.
-						</p>
-						<div className={styles.heroActions}>
-							<Link href="/download" className={styles.primary}>
-								Download a timetable <span aria-hidden="true">→</span>
-							</Link>
-							<Link href="/realms" className={styles.textLink}>
-								Staff sign in <span aria-hidden="true">→</span>
-							</Link>
+				<section className={styles.heroBand}>
+					<div className={styles.hero}>
+						<div className={styles.heroMeta}>
+							<span>{'// Timetable manager for UNILAG'}</span>
+							<span>Lectures · Exams · CBT</span>
+						</div>
+						<h1 className={styles.heroTitle}>
+							<span className={styles.lineSolid}>Every timetable.</span>
+							<span className={styles.lineOutline}>Every faculty.</span>
+							<span className={styles.lineMark}>No clashes.</span>
+						</h1>
+						<div className={styles.heroFoot}>
+							<div className={styles.heroCopy}>
+								<p className={styles.heroText}>
+									Timetable officers build each semester&apos;s lecture and exam timetables in
+									UniSchedule, and every one is checked against rooms, courses and students as it
+									is placed. When a timetable is FINAL, anyone can download it.
+								</p>
+								<div className={styles.heroActions}>
+									<Link href="/download" className={styles.primary}>
+										Download a timetable <span className={styles.arrow} aria-hidden="true">→</span>
+									</Link>
+									<Link href="/realms" className={styles.textLink}>
+										Staff sign in <span className={styles.arrow} aria-hidden="true">→</span>
+									</Link>
+								</div>
+							</div>
+							<TimetablePreview />
 						</div>
 					</div>
 				</section>
@@ -167,7 +225,7 @@ export default function Landing() {
 				</section>
 
 				{/* ---------- Who it's for ---------- */}
-				<section id="for" className={styles.section}>
+				<section id="for" className={`${styles.section} ${styles.tinted}`}>
 					<p className={styles.sectionLabel}><span>01</span> Who it&apos;s for</p>
 					<div className={styles.audiences}>
 						<div className={styles.audience}>
