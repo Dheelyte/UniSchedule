@@ -224,3 +224,90 @@
 	color: var(--color-primary);
 	box-shadow: 0 1px 3px rgba(15, 23, 42, 0.12);
 }
+
+/* The index of faculties: one row per faculty, a column per programme */
+.indexCard {
+	background: var(--color-bg-card);
+	border: 1px solid var(--color-border);
+	border-radius: 16px;
+	padding: 28px;
+	box-shadow: 0 10px 30px -12px rgba(15, 23, 42, 0.12);
+	display: flex;
+	flex-direction: column;
+	gap: 14px;
+}
+
+.tableWrap {
+	overflow-x: auto;
+	border: 1px solid var(--color-border);
+	border-radius: 12px;
+}
+
+.indexTable {
+	width: 100%;
+	border-collapse: collapse;
+	font-size: 0.92rem;
+}
+
+.indexTable th,
+.indexTable td {
+	padding: 11px 14px;
+	border-top: 1px solid var(--color-border);
+	text-align: left;
+	vertical-align: middle;
+}
+
+.indexTable thead th {
+	border-top: 0;
+	background: var(--color-bg-input);
+	font-size: 0.75rem;
+	font-weight: 700;
+	letter-spacing: 0.06em;
+	text-transform: uppercase;
+	color: var(--color-text-secondary);
+	white-space: nowrap;
+}
+
+.indexTable tbody th {
+	font-weight: 600;
+	color: var(--color-text);
+}
+
+.indexTable td {
+	width: 1%;
+	white-space: nowrap;
+}
+
+.indexTable tbody tr:nth-child(even) {
+	background: var(--color-bg-input);
+}
+
+.allRow th,
+.allRow td {
+	font-weight: 700;
+}
+
+.indexTable a {
+	color: var(--color-primary);
+	font-weight: 600;
+	text-decoration: none;
+}
+
+.indexTable a:hover {
+	text-decoration: underline;
+}
+
+.none {
+	color: var(--color-text-muted);
+}
+
+@media (max-width: 520px) {
+	.indexCard {
+		padding: 20px 16px;
+	}
+
+	.indexTable th,
+	.indexTable td {
+		padding: 10px;
+	}
+}

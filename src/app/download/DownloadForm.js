@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import { downloadableEntries } from './entries';
+import FacultyIndex from './FacultyIndex';
 import styles from './download.module.css';
 
 // The site's own routes: they read the backend with its key and are cached.
@@ -96,106 +97,112 @@ export default function DownloadForm({ initialPublished = null }) {
 	}, [entry, faculty, department, level]);
 
 	return (
-		<section className={styles.card}>
-			<h2 className={styles.heading}>Download a timetable</h2>
-			<p className={styles.body}>
-				Official FINAL timetables, verified with a QR code. Choose a timetable, narrow it down if you
-				like, and download a print-ready A3 PDF. No account needed.
-			</p>
-
-			{published === null && <p className={styles.muted}>Loading published timetables…</p>}
-			{published !== null && published.length === 0 && (
-				<p className={styles.notice}>
-					{loadError
-						? "The timetables couldn't be loaded. Check your connection and try again."
-						: 'No timetables have been published yet. Check back once the timetable office releases them.'}
+		<>
+			<section className={styles.card}>
+				<h2 className={styles.heading}>Download a timetable</h2>
+				<p className={styles.body}>
+					Official FINAL timetables, verified with a QR code. Choose a timetable, narrow it down if you
+					like, and download a print-ready A3 PDF. No account needed.
 				</p>
-			)}
 
-			{all.length > 0 && (
-				<div className={styles.form}>
-					<div className={styles.row}>
-						<label className={styles.field}>
-							<span>Session</span>
-							<select value={session} onChange={(e) => setSession(e.target.value)}>
-								{sessions.map((v) => <option key={v} value={v}>{v}</option>)}
-							</select>
-						</label>
-						<label className={styles.field}>
-							<span>Semester</span>
-							<select value={semester} onChange={(e) => setSemester(e.target.value)}>
-								{semesters.map((v) => <option key={v} value={v}>{v}</option>)}
-							</select>
-						</label>
+				{published === null && <p className={styles.muted}>Loading published timetables…</p>}
+				{published !== null && published.length === 0 && (
+					<p className={styles.notice}>
+						{loadError
+							? "The timetables couldn't be loaded. Check your connection and try again."
+							: 'No timetables have been published yet. Check back once the timetable office releases them.'}
+					</p>
+				)}
+
+				{all.length > 0 && (
+					<div className={styles.form}>
+						<div className={styles.row}>
+							<label className={styles.field}>
+								<span>Session</span>
+								<select value={session} onChange={(e) => setSession(e.target.value)}>
+									{sessions.map((v) => <option key={v} value={v}>{v}</option>)}
+								</select>
+							</label>
+							<label className={styles.field}>
+								<span>Semester</span>
+								<select value={semester} onChange={(e) => setSemester(e.target.value)}>
+									{semesters.map((v) => <option key={v} value={v}>{v}</option>)}
+								</select>
+							</label>
+						</div>
+
+						<div className={styles.segment} role="radiogroup" aria-label="Timetable">
+							{kinds.map((k) => (
+								<button
+									key={k}
+									type="button"
+									role="radio"
+									aria-checked={kind === k}
+									className={kind === k ? styles.segmentOn : undefined}
+									onClick={() => setKind(k)}
+								>
+									{KIND_LABEL[k]}
+								</button>
+							))}
+						</div>
+
+
+						{realms.length > 1 && (
+							<label className={styles.field}>
+								<span>Programme</span>
+								<select value={realm} onChange={(e) => setRealm(e.target.value)}>
+									{realms.map((r) => <option key={r.key} value={r.key}>{r.name}</option>)}
+								</select>
+							</label>
+						)}
+
+						{optionsError && (
+							<p className={styles.notice}>The filters couldn&apos;t be loaded. You can still download the whole timetable.</p>
+						)}
+
+						<div className={styles.row}>
+							<label className={styles.field}>
+								<span>Faculty</span>
+								<select value={faculty} onChange={(e) => setFaculty(e.target.value)}>
+									<option value="ALL">All faculties</option>
+									{(options?.faculties || []).map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
+								</select>
+							</label>
+							<label className={styles.field}>
+								<span>Department</span>
+								<select value={department} onChange={(e) => setDepartment(e.target.value)}>
+									<option value="ALL">All departments</option>
+									{departments.map((d) => <option key={d.id} value={String(d.id)}>{d.name}</option>)}
+								</select>
+							</label>
+							<label className={styles.field}>
+								<span>Level</span>
+								<select value={level} onChange={(e) => setLevel(e.target.value)}>
+									<option value="ALL">All levels</option>
+									{(options?.levels || []).map((l) => <option key={l} value={String(l)}>{l} Level</option>)}
+								</select>
+							</label>
+						</div>
+
+						{href && (
+							<a className={styles.button} href={href} download>
+								Download PDF
+							</a>
+						)}
+
+						{entry?.code && (
+							<p className={styles.small}>
+								FINAL version <code className={styles.code}>{entry.code}</code> ·{' '}
+								<Link href={`/verify/${entry.code}`}>check a printed copy</Link>
+							</p>
+						)}
 					</div>
+				)}
+			</section>
 
-					<div className={styles.segment} role="radiogroup" aria-label="Timetable">
-						{kinds.map((k) => (
-							<button
-								key={k}
-								type="button"
-								role="radio"
-								aria-checked={kind === k}
-								className={kind === k ? styles.segmentOn : undefined}
-								onClick={() => setKind(k)}
-							>
-								{KIND_LABEL[k]}
-							</button>
-						))}
-					</div>
-
-
-					{realms.length > 1 && (
-						<label className={styles.field}>
-							<span>Programme</span>
-							<select value={realm} onChange={(e) => setRealm(e.target.value)}>
-								{realms.map((r) => <option key={r.key} value={r.key}>{r.name}</option>)}
-							</select>
-						</label>
-					)}
-
-					{optionsError && (
-						<p className={styles.notice}>The filters couldn&apos;t be loaded. You can still download the whole timetable.</p>
-					)}
-
-					<div className={styles.row}>
-						<label className={styles.field}>
-							<span>Faculty</span>
-							<select value={faculty} onChange={(e) => setFaculty(e.target.value)}>
-								<option value="ALL">All faculties</option>
-								{(options?.faculties || []).map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
-							</select>
-						</label>
-						<label className={styles.field}>
-							<span>Department</span>
-							<select value={department} onChange={(e) => setDepartment(e.target.value)}>
-								<option value="ALL">All departments</option>
-								{departments.map((d) => <option key={d.id} value={String(d.id)}>{d.name}</option>)}
-							</select>
-						</label>
-						<label className={styles.field}>
-							<span>Level</span>
-							<select value={level} onChange={(e) => setLevel(e.target.value)}>
-								<option value="ALL">All levels</option>
-								{(options?.levels || []).map((l) => <option key={l} value={String(l)}>{l} Level</option>)}
-							</select>
-						</label>
-					</div>
-
-					{href && (
-						<a className={styles.button} href={href} download>
-							Download PDF
-						</a>
-					)}
-
-					{entry?.code && (
-						<p className={styles.small}>
-							FINAL version <code className={styles.code}>{entry.code}</code> ·{' '}
-							<Link href={`/verify/${entry.code}`}>check a printed copy</Link>
-						</p>
-					)}
-				</div>
-			)}
-		</section>
+			{/* Every faculty of this session, semester and timetable, one row each,
+			    with a link per programme. */}
+			<FacultyIndex entries={forKind} />
+		</>
 	);
 }
