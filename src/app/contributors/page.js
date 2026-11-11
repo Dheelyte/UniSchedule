@@ -1,9 +1,8 @@
 'use client';
 
-import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
 import styles from './contributors.module.css';
-import { unilagLogoBase64 } from '@/lib/logo';
+import { PublicFooter, PublicHeader, PublicPage } from '@/components/Public/PublicChrome';
 import { CONTRIBUTORS } from '@/data/contributors';
 
 // Must match the panel transitions in contributors.module.css.
@@ -195,22 +194,12 @@ function Avatar({ person, size, className }) {
 
 function ContributorCard({ person, index, hidden, cardRef, onOpen }) {
 	const links = socialLinks(person);
-	const handlePointerMove = (e) => {
-		// The glow follows a mouse only: on a touch screen this fired on every
-		// finger movement while scrolling and repainted the card each time.
-		if (e.pointerType !== 'mouse') return;
-		const r = e.currentTarget.getBoundingClientRect();
-		e.currentTarget.style.setProperty('--mx', `${e.clientX - r.left}px`);
-		e.currentTarget.style.setProperty('--my', `${e.clientY - r.top}px`);
-	};
 	return (
 		<article
 			ref={cardRef}
 			className={`${styles.card} ${hidden ? styles.cardHidden : ''}`}
 			style={{ '--i': index }}
-			onPointerMove={handlePointerMove}
 		>
-			<span className={styles.cardSpotlight} aria-hidden="true" />
 			<Avatar person={person} size={80} className={styles.avatar} />
 			<h2 className={styles.name}>
 				<button type="button" className={styles.cardButton} onClick={onOpen}>
@@ -380,54 +369,36 @@ export default function ContributorsPage() {
 	const person = active !== null ? CONTRIBUTORS[active] : null;
 
 	return (
-		<div className={styles.page}>
-			<div className={styles.aurora} aria-hidden="true">
-				<span className={styles.blobA} />
-				<span className={styles.blobB} />
-				<span className={styles.blobC} />
-			</div>
-			<div className={styles.gridPattern} aria-hidden="true" />
+		<PublicPage className={styles.page}>
+			<PublicHeader />
 
-			<header className={styles.nav}>
-				<div className={styles.navInner}>
-					<Link href="/" className={styles.brand}>
-						<span className={styles.brandMark}>
-							<img src={unilagLogoBase64} alt="UNILAG Logo" width="24" height="24" className={styles.brandLogo} />
-						</span>
-						<span>UniSchedule</span>
-					</Link>
-					<Link href="/" className={styles.backLink}>
-						<ArrowLeftIcon /> Back to home
-					</Link>
-				</div>
-			</header>
+			<main className={styles.main}>
+				<section className={styles.hero}>
+					<p className={styles.slot}>The people behind UniSchedule</p>
+					<h1 className={styles.title}>
+						Meet the <mark>builders.</mark>
+					</h1>
+					<p className={styles.subtitle}>
+						The people who designed, built and maintain UniSchedule for the University of Lagos.
+						Open anyone to see more.
+					</p>
+				</section>
 
-			<section className={styles.hero}>			
-				<h1 className={styles.title}>
-					Meet the <span className={styles.titleAccent}>builders</span>
-				</h1>
-				<p className={styles.subtitle}>
-					The people who designed, built and maintain UniSchedule for the University of Lagos.
-					Tap anyone to see more.
-				</p>
-			</section>
+				<section className={styles.grid} aria-label="Contributors">
+					{CONTRIBUTORS.map((p, i) => (
+						<ContributorCard
+							key={p.name}
+							person={p}
+							index={i}
+							hidden={active === i}
+							cardRef={(el) => { cardRefs.current[i] = el; }}
+							onOpen={() => openCard(i)}
+						/>
+					))}
+				</section>
+			</main>
 
-			<section className={styles.grid}>
-				{CONTRIBUTORS.map((p, i) => (
-					<ContributorCard
-						key={p.name}
-						person={p}
-						index={i}
-						hidden={active === i}
-						cardRef={(el) => { cardRefs.current[i] = el; }}
-						onOpen={() => openCard(i)}
-					/>
-				))}
-			</section>
-
-			<footer className={styles.footer}>
-				<p>© {new Date().getFullYear()} UniSchedule. All rights reserved.</p>
-			</footer>
+			<PublicFooter />
 
 			{person && (
 				<div className={`${styles.overlay} ${expanded ? styles.overlayOpen : ''}`}>
@@ -438,9 +409,6 @@ export default function ContributorsPage() {
 						aria-modal="true"
 						aria-label={person.name}
 					>
-						<div className={styles.panelGlowA} aria-hidden="true" />
-						<div className={styles.panelGlowB} aria-hidden="true" />
-
 						<button ref={closeRef} type="button" className={styles.closeButton} onClick={closeCard} aria-label="Close">
 							<CloseIcon />
 						</button>
@@ -462,6 +430,6 @@ export default function ContributorsPage() {
 					</div>
 				</div>
 			)}
-		</div>
+		</PublicPage>
 	);
 }
