@@ -80,13 +80,10 @@
 	height: 80px;
 	padding: 3px;
 	border-radius: 50%;
-	background: var(--blue);
+	/* Every photo ringed in gold, as on the profile. */
+	background: var(--yellow);
 	flex-shrink: 0;
 	margin-bottom: 6px;
-}
-
-.card:nth-child(3n + 2) .avatar {
-	background: var(--yellow);
 }
 
 .avatarInner {
