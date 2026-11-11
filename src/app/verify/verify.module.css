@@ -2,7 +2,10 @@
    colours and fonts come from the shared brand. */
 
 .shell {
-	max-width: 760px;
+	/* One centred column, like the sign-in pages. */
+	width: 100%;
+	max-width: 720px;
+	margin: 0 auto;
 	display: flex;
 	flex-direction: column;
 	gap: 28px;
@@ -11,7 +14,9 @@
 .intro {
 	display: flex;
 	flex-direction: column;
+	align-items: center;
 	gap: 12px;
+	text-align: center;
 }
 
 .slot {
