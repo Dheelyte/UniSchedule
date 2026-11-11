@@ -1,6 +1,6 @@
 // The index of faculties: one PDF that lists every faculty of every programme
 // for a session, semester and timetable type, each linking to a download of
-// that faculty's own timetable. Built on the server (src/app/api/export/faculties).
+// that faculty's own timetable. Built on the server for staff (src/lib/exportIndex.js).
 //
 // Laid out like the office's printed index: crest, university name and motto,
 // a gold rule, the title, then one bordered table per programme.
@@ -15,6 +15,38 @@ const PENDING = [156, 163, 175];
 const GOLD = [212, 175, 55];
 const BORDER = [203, 213, 225];
 const ZEBRA = [241, 245, 251];
+const WARN = [185, 28, 28];
+
+export const STAFF_NOTICE = "STAFF COPY: for internal use only. Do not share, forward or post this index.";
+
+/** A faint diagonal "STAFF COPY · DO NOT SHARE" across the page, over the content. */
+function drawStaffWatermark(pdf, pageW, pageH) {
+	const lines = [
+		{ text: "STAFF COPY", size: 64, offset: 0 },
+		{ text: "DO NOT SHARE", size: 30, offset: 16 },
+	];
+	const angle = 35;
+	const rad = (angle * Math.PI) / 180;
+	let saved = false;
+	try {
+		pdf.saveGraphicsState();
+		saved = true;
+		pdf.setGState(new pdf.GState({ opacity: 0.07 }));
+	} catch {
+		// Without transparency it is drawn solid; still light grey.
+	}
+	pdf.setFont("helvetica", "bold");
+	pdf.setTextColor(185, 28, 28);
+	for (const l of lines) {
+		pdf.setFontSize(l.size);
+		const w = pdf.getTextWidth(l.text);
+		// Centred on the page (jsPDF rotates text about its start point).
+		const cx = pageW / 2 + Math.sin(rad) * l.offset;
+		const cy = pageH / 2 + Math.cos(rad) * l.offset;
+		pdf.text(l.text, cx - (w / 2) * Math.cos(rad), cy + (w / 2) * Math.sin(rad), { angle });
+	}
+	if (saved) pdf.restoreGraphicsState();
+}
 
 /** The printed name: General Studies is known by its course prefix. */
 export function facultyLabel(name) {
@@ -91,8 +123,8 @@ export function buildIndexPDF({ title, sections, siteUrl, compress = true }) {
 	pdf.setFontSize(11.5);
 	pdf.setTextColor(...INK);
 	const lead = `This document presents the FINAL ${title.toLowerCase().replace(/ timetable$/, " timetables")}, as published on `
-		+ "UniSchedule, the University's timetable platform. Each faculty below links to its timetable, signed, stamped "
-		+ "and carrying a QR code to check it. Every timetable can also be filtered by department and level on the";
+		+ "UniSchedule, the University's timetable platform. Each faculty below links to its timetable, which "
+		+ "carries a QR code to check it. Every timetable can also be filtered by department and level on the";
 	const lines = pdf.splitTextToSize(lead, tableW);
 	pdf.text(lines, m, y, { lineHeightFactor: 1.35 });
 	y += (lines.length - 1) * 5.6;
@@ -221,15 +253,23 @@ export function buildIndexPDF({ title, sections, siteUrl, compress = true }) {
 		y += 11;
 	});
 
-	// ---- Footer on every page ----
+	// ---- Watermark and footer on every page ----
+	// The index is for staff (the public download page has its own); the mark
+	// says so on every page, so a forwarded or posted copy is plainly not for
+	// circulation.
 	const pages = pdf.getNumberOfPages();
 	for (let p = 1; p <= pages; p++) {
 		pdf.setPage(p);
+		drawStaffWatermark(pdf, pageW, pageH);
 		pdf.setFont("times", "italic");
 		pdf.setFontSize(9);
 		pdf.setTextColor(...MUTED);
 		pdf.text(`University of Lagos · ${title} (FINAL) · UniSchedule`, m, pageH - 12);
 		pdf.text(`Page ${p}`, pageW - m, pageH - 12, { align: "right" });
+		pdf.setFont("helvetica", "bold");
+		pdf.setFontSize(7.5);
+		pdf.setTextColor(...WARN);
+		pdf.text(STAFF_NOTICE, pageW / 2, pageH - 7, { align: "center" });
 	}
 
 	pdf.fileName = `${fileSlug(title)}_index.pdf`;

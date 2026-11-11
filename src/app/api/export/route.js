@@ -4,7 +4,8 @@
 // use (src/lib/exportJob.js) and returns the PDF or CSV. Drafts are not
 // available here; the backend's public bundle refuses them.
 //
-// The query is read by src/lib/exportRequest.js. `code` is the verification
+// Always a PDF on A3, the whole week, in black and white: the public page
+// offers no file options. The query is read by src/lib/exportRequest.js. `code` is the verification
 // code the page saw; if a newer FINAL version has been issued since, the
 // request is redirected to it.
 import { buildExport, EXPORT_KINDS, ExportError, signoffQrDataUrl } from "@/lib/exportJob";
@@ -17,7 +18,7 @@ export const maxDuration = 60;
 export async function GET(request) {
 	let req;
 	try {
-		req = readExportRequest(request.nextUrl.searchParams, { realm: true });
+		req = readExportRequest(request.nextUrl.searchParams, { realm: true, publicCopy: true });
 	} catch (error) {
 		return problem(error.message, 400);
 	}

@@ -6,7 +6,7 @@ import { useApp, ACTION_TYPES } from "@/context/AppContext";
 import { useAuth } from "@/context/AuthContext";
 import { apiClient } from "@/lib/apiClient";
 import { loadTerms } from "@/lib/loadTerms";
-import { downloadTimetable } from "@/lib/exportClient";
+import { downloadTimetable, refreshPublicDownloads } from "@/lib/exportClient";
 import { detectAllConflicts, toExternalBooking } from "@/lib/conflicts";
 import TimetableGrid from "@/components/TimetableGrid/TimetableGrid";
 import { useToast } from "@/components/Toast/Toast";
@@ -296,6 +296,8 @@ export default function CBTTimetablePage() {
 				{ is_locked: next },
 			);
 			setIsLocked(!!res?.is_locked);
+			// So /download offers (or stops offering) it at once.
+			refreshPublicDownloads(selectedSemesterId, "exam");
 			addToast({
 				type: "success",
 				title: next ? "Timetable Locked" : "Timetable Unlocked",

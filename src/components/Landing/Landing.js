@@ -218,7 +218,7 @@ const FEATURES = [
 	{
 		icon: <DownloadIcon />,
 		title: 'Export & share instantly',
-		description: 'Anyone can download a FINAL timetable as a print-ready PDF or CSV, no sign-in needed, filtered by faculty, department and level, or get one index that links to every faculty.',
+		description: 'Anyone can download a FINAL timetable as a print-ready A3 PDF, no sign-in needed, filtered by faculty, department and level.',
 	},
 	{
 		icon: <LockIcon />,
