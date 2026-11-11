@@ -17,6 +17,27 @@ function getApiBaseUrl() {
 	return "http://127.0.0.1:8000/api/v1";
 }
 
+// Reads are kept for a few minutes, so moving between sections doesn't load
+// the same data again. Any write (POST, PUT, PATCH, DELETE: saving, signing in
+// or out, switching realm) clears every kept read, so your own changes always
+// show at once; a browser refresh starts clean. Someone else's edits show
+// within READ_CACHE_MS, or on refresh. Sign-in checks and notifications
+// (which are polled) are never kept.
+const READ_CACHE_MS = 5 * 60 * 1000;
+const NEVER_KEPT = ["/auth", "/notifications"];
+const readCache = new Map(); // endpoint -> { at, promise }
+
+export function clearReadCache() {
+	readCache.clear();
+}
+
+function keepable(endpoint) {
+	return typeof window !== "undefined" && !NEVER_KEPT.some((p) => endpoint.startsWith(p));
+}
+
+// Each caller gets its own copy: pages sort and edit what they're given.
+const copy = (data) => (data == null ? data : structuredClone(data));
+
 export const apiClient = {
 	async request(endpoint, options = {}) {
 		const url = `${getApiBaseUrl()}${endpoint}`;
@@ -33,12 +54,18 @@ export const apiClient = {
 			credentials: "include",
 		};
 
+		const method = (options.method || "GET").toUpperCase();
+		// Export tickets are POSTs but change nothing.
+		const writes = method !== "GET" && !endpoint.startsWith("/export/");
+		if (writes) clearReadCache();
+
 		const response = await fetch(url, config);
-		// fetch(url, {
-		// 	cre,
-		// });
+		// A write that finished after a read started may have changed what that
+		// read returns; drop anything kept in the meantime.
+		if (writes) clearReadCache();
 
 		if (!response.ok) {
+			if (response.status === 401) clearReadCache();
 			if (response.status === 401 && typeof window !== "undefined") {
 				// Pages open to signed-out visitors (publicPaths and standalonePaths
 				// in ClientLayout): their sign-in check is expected to 401.
@@ -66,8 +93,23 @@ export const apiClient = {
 		return await response.json();
 	},
 
-	get(endpoint, options = {}) {
-		return this.request(endpoint, { method: "GET", ...options });
+	// `fresh: true` skips the kept copy (and replaces it).
+	get(endpoint, { fresh = false, ...options } = {}) {
+		if (!keepable(endpoint) || options.headers) {
+			return this.request(endpoint, { method: "GET", ...options });
+		}
+		const kept = readCache.get(endpoint);
+		if (!fresh && kept && Date.now() - kept.at < READ_CACHE_MS) {
+			return kept.promise.then(copy);
+		}
+		const entry = { at: Date.now(), promise: null };
+		entry.promise = this.request(endpoint, { method: "GET", ...options }).catch((error) => {
+			// Never keep a failure.
+			if (readCache.get(endpoint) === entry) readCache.delete(endpoint);
+			throw error;
+		});
+		readCache.set(endpoint, entry);
+		return entry.promise.then(copy);
 	},
 
 	post(endpoint, data, options = {}) {

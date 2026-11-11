@@ -3,11 +3,12 @@
 import styles from "./page.module.css";
 import Link from "next/link";
 import { useEffect, useState, useMemo } from "react";
-import { useApp, ACTION_TYPES } from "@/context/AppContext";
+import { useApp } from "@/context/AppContext";
 import { useAuth } from "@/context/AuthContext";
 import { apiClient } from "@/lib/apiClient";
 import { DashboardSkeleton } from "@/components/Skeleton/Skeleton";
 import Landing from "@/components/Landing/Landing";
+import { buildSchedulesWithDetails } from "@/lib/exportFilters";
 
 const BAR_COLORS = [
 	"#6366f1",
@@ -26,6 +27,22 @@ const RING_EXAM_COLOR = "#d97706";
 const RING_ACTIVE_COLOR = "#059669";
 const RING_INACTIVE_COLOR = "#d97706";
 
+// The dashboard's last figures, kept for the life of the tab. Coming back to
+// the dashboard shows them at once and refreshes them in the background,
+// instead of a skeleton every time. Keyed by account and realm (a realm switch
+// or sign-in as someone else never shows another's figures).
+let dashboardCache = null;
+
+const toItem = (s) => ({
+	...s,
+	courseId: s.course_id,
+	roomIds: s.room_ids,
+	facultyId: s.faculty_id,
+	day: s.day_of_week,
+	startTime: s.start_time,
+	endTime: s.end_time,
+});
+
 function getGreeting() {
 	const h = new Date().getHours();
 	if (h < 12) return "Good morning";
@@ -34,105 +51,48 @@ function getGreeting() {
 }
 
 function DashboardPage() {
-	const { state, dispatch, isInitialized, getSchedulesWithDetails } = useApp();
+	const { state, isInitialized, metadataLoading } = useApp();
 	const { user } = useAuth();
-	const [currentTerm, setCurrentTerm] = useState(null);
-	const [currentSession, setCurrentSession] = useState(null);
+	const cacheKey = `${user?.id ?? user?.email ?? ""}:${user?.realm ?? ""}`;
+	const cached = dashboardCache?.key === cacheKey ? dashboardCache : null;
+	const [currentTerm, setCurrentTerm] = useState(cached?.term ?? null);
+	const [currentSession, setCurrentSession] = useState(cached?.session ?? null);
+	// The dashboard's own copy: other pages replace the shared schedule items
+	// with only lectures or only exams.
+	const [scheduleItems, setScheduleItems] = useState(cached?.items ?? []);
 	const [facultyOverviewType, setFacultyOverviewType] = useState('exams');
 	const [roomCapacityFacultyId, setRoomCapacityFacultyId] = useState("all");
-	const [loaded, setLoaded] = useState(false);
+	const [loaded, setLoaded] = useState(!!cached);
+	const getSchedulesWithDetails = useMemo(
+		() => buildSchedulesWithDetails(scheduleItems, state),
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+		[scheduleItems, state.courses, state.rooms, state.departments, state.faculties],
+	);
 
 	useEffect(() => {
 		let mounted = true;
 		async function loadDashboard() {
 			try {
-				// {new changes...}
 				// Only count the current semester's schedules: a new session
 				// starts from zero instead of showing earlier sessions' items.
 				const [semester, sessions] = await Promise.all([
 					apiClient.get("/calendar/semesters/current").catch(() => null),
 					apiClient.get("/calendar/sessions").catch(() => []),
 				]);
-				const scheduleItemsRequest = semester
-					? apiClient
+				const items = semester
+					? await apiClient
 							.get(`/timetable/schedule-items?semester_id=${semester.id}`)
-							.catch(() => [])
-					: Promise.resolve([]);
-				if (isInitialized) {
-					const scheduleItems = await scheduleItemsRequest;
-					if (mounted) {
-						dispatch({
-							type: ACTION_TYPES.INIT_STATE,
-							payload: {
-								scheduleItems: (scheduleItems || []).map((s) => ({
-									...s,
-									courseId: s.course_id,
-									roomIds: s.room_ids,
-									facultyId: s.faculty_id,
-									day: s.day_of_week,
-									startTime: s.start_time,
-									endTime: s.end_time,
-								})),
-							},
-						});
-						setCurrentTerm(semester);
-						const active = (sessions || []).find((s) => s.is_current);
-						setCurrentSession(active || null);
-						setLoaded(true);
-					}
-				} else {
-					const [
-						faculties,
-						departments,
-						rooms,
-						courses,
-						scheduleItems,
-					] = await Promise.all([
-						apiClient.get("/timetable/faculties").catch(() => []),
-						apiClient.get("/timetable/departments").catch(() => []),
-						apiClient.get("/timetable/rooms").catch(() => []),
-						apiClient.get("/timetable/courses").catch(() => []),
-						scheduleItemsRequest,
-					]);
-					if (mounted) {
-						dispatch({
-							type: ACTION_TYPES.INIT_STATE,
-							payload: {
-								faculties: faculties || [],
-								departments: (departments || []).map((d) => ({
-									...d,
-									facultyId: d.faculty_id,
-								})),
-								rooms: (rooms || []).map((r) => ({
-									...r,
-									facultyId: r.faculty_id ?? r.facultyId ?? null,
-									isActive: r.is_active !== false,
-									activeSeats: r.active_seats ?? r.activeSeats ?? 0,
-									inactiveSeats: r.inactive_seats ?? r.inactiveSeats ?? 0,
-								})),
-								courses: (courses || []).map((c) => ({
-									...c,
-									creditLoad: c.credit_load,
-									departmentId: c.department_id,
-									isCbtExam: c.is_cbt_exam || false,
-								})),
-								scheduleItems: (scheduleItems || []).map((s) => ({
-									...s,
-									courseId: s.course_id,
-									roomIds: s.room_ids,
-									facultyId: s.faculty_id,
-									day: s.day_of_week,
-									startTime: s.start_time,
-									endTime: s.end_time,
-								})),
-							},
-						});
-						setCurrentTerm(semester);
-						const active = (sessions || []).find((s) => s.is_current);
-						setCurrentSession(active || null);
-						setLoaded(true);
-					}
-				}
+							.catch(() => null)
+					: [];
+				if (!mounted) return;
+				const active = (sessions || []).find((s) => s.is_current) || null;
+				// A failed refresh keeps what is on screen rather than zeroing it.
+				const nextItems = items ? items.map(toItem) : dashboardCache?.key === cacheKey ? dashboardCache.items : [];
+				dashboardCache = { key: cacheKey, term: semester, session: active, items: nextItems };
+				setScheduleItems(nextItems);
+				setCurrentTerm(semester);
+				setCurrentSession(active);
+				setLoaded(true);
 			} catch (e) {
 				console.error("Dashboard sync error", e);
 			}
@@ -141,7 +101,7 @@ function DashboardPage() {
 		return () => {
 			mounted = false;
 		};
-	}, [dispatch]);
+	}, [cacheKey]);
 
 	// Faculty distribution by schedule type
 	const facultyOverviewDistribution = useMemo(() => {
@@ -233,7 +193,7 @@ function DashboardPage() {
 		);
 		const lectureIds = new Set();
 		const examIds = new Set();
-		state.scheduleItems.forEach((s) => {
+		scheduleItems.forEach((s) => {
 			// Only this semester's courses, so scheduled + unscheduled === total.
 			if (!semesterCourseIds.has(s.courseId)) return;
 			if (s.type === "lecture") lectureIds.add(s.courseId);
@@ -263,12 +223,14 @@ function DashboardPage() {
 			examUnscheduled: Math.max(0, total - examIds.size),
 			untagged: semesterName ? untagged : 0,
 		};
-	}, [state.scheduleItems, state.courses, currentTerm]);
+	}, [scheduleItems, state.courses, currentTerm]);
 
 	const firstName = user?.email?.split("@")[0]?.split(".")[0] || "there";
 	const displayName = firstName.charAt(0).toUpperCase() + firstName.slice(1);
 
-	if (!loaded) return <DashboardSkeleton />;
+	// Courses, rooms and faculties come from the app's shared data, loaded once
+	// per tab; wait for them so the first visit doesn't flash zeros.
+	if (!loaded || (!isInitialized && metadataLoading)) return <DashboardSkeleton />;
 
 	return (
 		<div className={styles.dashboard}>
