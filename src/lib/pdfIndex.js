@@ -1,6 +1,6 @@
 // The index of faculties: one PDF that lists every faculty of every programme
 // for a session, semester and timetable type, each linking to a download of
-// that faculty's own timetable. Built on the server (src/app/api/export/faculties).
+// that faculty's own timetable. Built on the server for staff (src/lib/exportIndex.js).
 //
 // Laid out like the office's printed index: crest, university name and motto,
 // a gold rule, the title, then one bordered table per programme.

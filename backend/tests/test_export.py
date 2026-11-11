@@ -263,3 +263,29 @@ async def test_staff_bundles_need_the_export_key_when_one_is_set(ug, client, mon
     assert (await client.get(url, headers={"X-Export-Ticket": ticket})).status_code == 403
     response = await client.get(url, headers={"X-Export-Ticket": ticket, "X-Export-Key": "frontend-secret"})
     assert response.status_code == 200
+
+
+async def test_the_staff_check_accepts_only_a_valid_ticket(ug, signed_in, client, monkeypatch):
+    from sqlalchemy import update
+    from core.database import async_session_maker
+    from modules.auth.models import User
+
+    semester_id = ug["semester"]["id"]
+    url = f"{API}/export/staff-check?semester_id={semester_id}&timetable_type=lecture"
+    viewer, user = await signed_in(RoleEnum.SUPER_VIEWER)
+    ticket = await _ticket(viewer, semester_id)
+
+    assert (await client.get(url)).status_code == 401
+    assert (await client.get(url, headers={"X-Export-Ticket": "junk"})).status_code == 401
+    assert (await client.get(url.replace("lecture", "exam"), headers={"X-Export-Ticket": ticket})).status_code == 401
+    assert (await client.get(url, headers={"X-Export-Ticket": ticket})).status_code == 204
+
+    monkeypatch.setattr(settings, "PUBLIC_EXPORT_KEY", "frontend-secret")
+    assert (await client.get(url, headers={"X-Export-Ticket": ticket})).status_code == 403
+    keyed = {"X-Export-Ticket": ticket, "X-Export-Key": "frontend-secret"}
+    assert (await client.get(url, headers=keyed)).status_code == 204
+
+    async with async_session_maker() as session:
+        await session.execute(update(User).where(User.id == user["id"]).values(is_active=False))
+        await session.commit()
+    assert (await client.get(url, headers=keyed)).status_code == 403

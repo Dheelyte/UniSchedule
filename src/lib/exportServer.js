@@ -80,6 +80,22 @@ export async function getStaffBundle(semesterId, timetableType, ticket) {
 	return { status: response.status, detail: typeof detail === "string" ? detail : null };
 }
 
+/**
+ * Whether a ticket stands for a signed-in, active user (for staff-only files
+ * built from public data, like the index of faculties). 204 when it does.
+ *
+ * @returns {{ status: number, detail?: string }}
+ */
+export async function checkStaffTicket(semesterId, timetableType, ticket) {
+	const response = await fetch(
+		`${apiBase()}/export/staff-check?semester_id=${semesterId}&timetable_type=${timetableType}`,
+		{ headers: { ...serverHeaders(), "X-Export-Ticket": ticket }, cache: "no-store" },
+	);
+	if (response.ok) return { status: 204 };
+	const detail = await response.json().then((b) => b?.detail).catch(() => null);
+	return { status: response.status, detail: typeof detail === "string" ? detail : null };
+}
+
 /** A file download response. */
 export function fileResponse({ data, contentType, fileName }, extraHeaders = {}) {
 	const body = typeof data === "string" ? new TextEncoder().encode(data) : new Uint8Array(data);

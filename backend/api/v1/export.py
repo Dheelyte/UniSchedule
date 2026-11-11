@@ -85,6 +85,26 @@ async def staff_export_bundle(
     return await service.bundle(user, semester_id, timetable_type)
 
 
+@router.get("/export/staff-check", status_code=204, dependencies=[Depends(require_export_key)])
+@limiter.limit(SERVER_ONLY_LIMIT)
+async def staff_export_check(
+    request: Request,
+    semester_id: int = Query(...),
+    timetable_type: Literal["lecture", "exam"] = Query(...),
+    x_export_ticket: str | None = Header(default=None),
+    repo: AuthRepository = Depends(),
+    realm_repo: RealmRepository = Depends(),
+):
+    """Whether a ticket stands for a signed-in, active user. For the frontend server only.
+
+    The index of faculties is for staff, not the public, but it lists only FINAL
+    timetables (public data), so a valid ticket is all it needs; no bundle is read.
+    """
+    claims = read_ticket(x_export_ticket, semester_id, timetable_type)
+    await resolve_user(claims, repo, realm_repo)
+    return Response(status_code=204)
+
+
 # ---------- Public: FINAL timetables only, for the frontend server ----------
 
 @router.get("/public/timetables", response_model=list[PublishedTimetable], dependencies=[Depends(require_export_key)])

@@ -66,3 +66,35 @@ export async function downloadTimetable({ semesterId, kind, ...options }) {
 	saveFile(await response.blob(), fileName);
 	return decodeURIComponent(response.headers.get("X-Export-Message") || "Timetable downloaded.");
 }
+
+/**
+ * Download the index of faculties for a session and semester: one PDF linking
+ * every faculty's FINAL timetable, across programmes. `type` is "lecture" or
+ * "exam" (CBT is listed in the exam index). Staff only.
+ *
+ * @returns the success message to show
+ * @throws Error with a message fit to show the user
+ */
+export async function downloadFacultyIndex({ semesterId, type, session, semester }) {
+	const { ticket } = await apiClient.post("/export/ticket", {
+		semester_id: Number(semesterId),
+		timetable_type: type,
+	});
+	const q = new URLSearchParams({ semester: String(semesterId), type, session, name: semester });
+	let response;
+	try {
+		response = await fetch(`/api/export/staff/index?${q}`, {
+			headers: { "X-Export-Ticket": ticket },
+			cache: "no-store",
+		});
+	} catch {
+		throw new Error("The index couldn't reach the server. Check your connection and try again.");
+	}
+	if (!response.ok) {
+		const detail = await response.json().then((b) => b?.detail).catch(() => null);
+		throw new Error(detail || "The index couldn't be built. Try again.");
+	}
+	const fileName = decodeURIComponent(response.headers.get("X-Export-File-Name") || "timetable_index.pdf");
+	saveFile(await response.blob(), fileName);
+	return `The ${session} ${semester} index of faculties was downloaded.`;
+}

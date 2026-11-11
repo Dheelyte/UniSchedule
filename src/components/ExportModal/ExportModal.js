@@ -2,6 +2,8 @@ import { useState, useEffect } from "react";
 import { useApp } from "@/context/AppContext";
 import { useAuth } from "@/context/AuthContext";
 import { dailyLayoutsFor } from "@/lib/timetableLayout";
+import { downloadFacultyIndex } from "@/lib/exportClient";
+import { useToast } from "@/components/Toast/Toast";
 import styles from "./ExportModal.module.css";
 
 export default function ExportModal({
@@ -18,6 +20,7 @@ export default function ExportModal({
 }) {
 	const { state } = useApp();
 	const { realm, realmConfig } = useAuth();
+	const { addToast } = useToast();
 	const fallbackSemester = realmConfig.semester_names[0];
 
 	// Default values
@@ -99,6 +102,28 @@ export default function ExportModal({
 			gstOnly,
 			layout: mode === "lecture" ? layout : "standard",
 		});
+	};
+
+	// The index of faculties: one PDF linking every faculty's FINAL timetable for
+	// this session and semester, across programmes. CBT is in the exam index.
+	const downloadIndex = async () => {
+		if (semesterId === null || semesterId === undefined) {
+			addToast({ type: "error", title: "Export Failed", message: "Choose a semester to export." });
+			return;
+		}
+		onClose();
+		addToast({ type: "info", title: "Preparing index", message: `Building the ${session} ${semester} index of faculties…` });
+		try {
+			const message = await downloadFacultyIndex({
+				semesterId,
+				type: mode === "lecture" ? "lecture" : "exam",
+				session,
+				semester,
+			});
+			addToast({ type: "success", title: "Index Downloaded", message });
+		} catch (error) {
+			addToast({ type: "error", title: "Index Failed", message: error.message || "The index couldn't be built." });
+		}
 	};
 
 	const handleSubmit = (e) => {
@@ -289,6 +314,16 @@ export default function ExportModal({
 							</div>
 						</>
 					)}
+
+					<div className={styles.formGroup}>
+						<button
+							type="button"
+							className={`btn btn-secondary ${styles.btn}`}
+							onClick={downloadIndex}
+							title="One PDF that lists every faculty and links to each FINAL timetable for this semester">
+							Download index of all faculties (FINAL only)
+						</button>
+					</div>
 
 					<div className={styles.footer}>
 						<button
