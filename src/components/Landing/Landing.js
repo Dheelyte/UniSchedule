@@ -479,7 +479,7 @@ export default function Landing() {
 				</div>
 
 				<div className={styles.footerBottom}>
-					<p className={styles.footerCopy}>© {new Date().getFullYear()} University of Lagos. All rights reserved.</p>
+					<p className={styles.footerCopy}>© {new Date().getFullYear()} UniSchedule. All rights reserved.</p>
 					<p className={styles.footerCopy}>Timetable Manager</p>
 				</div>
 			</footer>

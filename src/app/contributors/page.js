@@ -418,7 +418,7 @@ export default function ContributorsPage() {
 			</section>
 
 			<footer className={styles.footer}>
-				<p>© {new Date().getFullYear()} University of Lagos. All rights reserved.</p>
+				<p>© {new Date().getFullYear()} UniSchedule. All rights reserved.</p>
 			</footer>
 
 			{person && (
