@@ -205,7 +205,9 @@
 .segment .segmentOn,
 .segment .segmentOn:hover {
 	background: var(--blue);
-	color: var(--ink);
+	color: var(--white);
+	/* A light blue behind white text: a soft shadow keeps the letters crisp. */
+	text-shadow: 0 1px 1px rgba(13, 53, 80, 0.35);
 }
 
 .button {
