@@ -1,18 +1,23 @@
-/* Sign-in pages, in the public pages' style (src/components/Public). */
+/* Sign-in pages, in the public pages' style (src/components/Public): a
+   centred column, the introduction above the form. */
 
 .wrap {
-	display: grid;
-	grid-template-columns: minmax(0, 1fr) minmax(0, 460px);
-	gap: 48px;
-	align-items: start;
+	/* One centred column: the introduction above the form. */
+	width: 100%;
+	max-width: 520px;
+	margin: 0 auto;
+	display: flex;
+	flex-direction: column;
+	gap: 28px;
 	padding-top: 24px;
 }
 
 .intro {
 	display: flex;
 	flex-direction: column;
-	gap: 14px;
-	padding-top: 12px;
+	align-items: center;
+	gap: 12px;
+	text-align: center;
 }
 
 .slot {
@@ -23,7 +28,7 @@
 
 .title {
 	font-family: var(--display);
-	font-size: clamp(2rem, 4.4vw, 3.1rem);
+	font-size: clamp(2rem, 4.4vw, 2.8rem);
 	font-weight: 800;
 	line-height: 1.08;
 	letter-spacing: -0.03em;
@@ -36,7 +41,7 @@
 }
 
 .text {
-	max-width: 52ch;
+	max-width: 46ch;
 	font-size: 1.05rem;
 	line-height: 1.6;
 	color: var(--ink-2);
@@ -253,12 +258,7 @@ a.choice:hover {
 
 @media (max-width: 860px) {
 	.wrap {
-		grid-template-columns: minmax(0, 1fr);
-		gap: 24px;
-		padding-top: 0;
-	}
-
-	.intro {
+		gap: 22px;
 		padding-top: 0;
 	}
 }

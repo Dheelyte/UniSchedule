@@ -1,8 +1,8 @@
 'use client';
 
-// The sign-in pages (programme choice, sign in, password reset): the shared
-// header and footer, an introduction on the left and the form in a timetable
-// block on the right. They stack on phones.
+// The sign-in pages (programme choice, sign in, password reset, register):
+// the shared header and footer around one centred column, the introduction
+// above the form.
 import { PublicLayout } from './PublicChrome';
 import styles from './auth.module.css';
 

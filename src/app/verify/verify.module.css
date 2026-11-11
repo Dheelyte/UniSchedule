@@ -34,32 +34,21 @@
 	padding: 0 2px;
 }
 
-/* A result or the code form, drawn as a timetable block. Its edge says how
-   the check went: blue to ask, green genuine, yellow check needed, red not
-   recognised. */
+/* A result or the code form. Its badge says how the check went: green
+   genuine, yellow check needed, red not recognised. */
 .card {
 	padding: 28px 30px 30px;
 	border-radius: 14px;
 	background: var(--white);
 	border: 1px solid var(--rule);
-	border-left: 6px solid var(--blue);
 	box-shadow: 0 18px 40px -26px rgba(13, 53, 80, 0.5);
 	display: flex;
 	flex-direction: column;
 	gap: 14px;
 }
 
-.ok {
-	border-left-color: var(--ok);
-}
 
-.warn {
-	border-left-color: var(--yellow);
-}
 
-.bad {
-	border-left-color: var(--clash);
-}
 
 .badge {
 	align-self: flex-start;
