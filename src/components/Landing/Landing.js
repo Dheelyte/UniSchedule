@@ -81,13 +81,14 @@ function useReveal(rootRef) {
 		if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
 		const items = [...root.querySelectorAll('[data-reveal]')];
 		for (const el of items) {
-			if (el.getBoundingClientRect().top < window.innerHeight) el.dataset.revealed = '';
+			// Already on screen: shown as it is, no entrance.
+			if (el.getBoundingClientRect().top < window.innerHeight) el.dataset.revealed = 'load';
 		}
 		const observer = new IntersectionObserver(
 			(entries) => {
 				for (const entry of entries) {
 					if (!entry.isIntersecting) continue;
-					entry.target.dataset.revealed = '';
+					entry.target.dataset.revealed = 'scroll';
 					observer.unobserve(entry.target);
 				}
 			},
@@ -99,13 +100,62 @@ function useReveal(rootRef) {
 	}, [rootRef]);
 }
 
+/*
+ * Scroll-linked background: the page's faint timetable grid drifts slowly
+ * (a light parallax), and a yellow "now" line moves down the hero's week grid
+ * as the hero scrolls past, like the current-time line in a calendar. One
+ * transform per element per frame; still for people who ask for reduced motion.
+ */
+function useScrollScene(gridRef, weekRef, nowRef) {
+	useEffect(() => {
+		if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+		let frame = 0;
+		const update = () => {
+			frame = 0;
+			const y = window.scrollY;
+			if (gridRef.current) {
+				// Wraps every 64px (the grid's cell size), so the layer never runs out.
+				gridRef.current.style.transform = `translate3d(0, ${-((y * 0.25) % 64)}px, 0)`;
+			}
+			const week = weekRef.current;
+			const now = nowRef.current;
+			if (week && now) {
+				const r = week.getBoundingClientRect();
+				const span = r.height || 1;
+				// 0 at the top of the page (the line sits at 8:00), 1 once the grid's
+				// bottom has scrolled up to a third of the way down the screen.
+				const end = r.top + y + span - window.innerHeight / 3;
+				const progress = Math.min(1, Math.max(0, y / Math.max(1, end)));
+				const top = 44 + progress * (span - 44 - 2);
+				now.style.transform = `translate3d(0, ${top}px, 0)`;
+			}
+		};
+		const onScroll = () => {
+			if (!frame) frame = requestAnimationFrame(update);
+		};
+		update();
+		window.addEventListener('scroll', onScroll, { passive: true });
+		window.addEventListener('resize', onScroll);
+		return () => {
+			cancelAnimationFrame(frame);
+			window.removeEventListener('scroll', onScroll);
+			window.removeEventListener('resize', onScroll);
+		};
+	}, [gridRef, weekRef, nowRef]);
+}
+
 const toneClass = (tone) => ({ blue: styles.toneBlue, yellow: styles.toneYellow, pale: styles.tonePale })[tone];
 
 /* ---------- Hero: a week grid with the headline booked into it ---------- */
 
-function HeroGrid() {
+function HeroGrid({ weekRef, nowRef }) {
 	return (
-		<div className={styles.week}>
+		<div className={styles.week} ref={weekRef}>
+			{/* The "now" line, moved by useScrollScene. */}
+			<div className={styles.nowLine} ref={nowRef} aria-hidden="true">
+				<span className={styles.nowTag}>Now</span>
+			</div>
+
 			{/* Day and time labels: the grid reads as a timetable. */}
 			<span className={styles.corner} aria-hidden="true" />
 			{DAYS.map((d, i) => (
@@ -161,9 +211,14 @@ function HeroGrid() {
 
 export default function Landing() {
 	const pageRef = useRef(null);
+	const gridRef = useRef(null);
+	const weekRef = useRef(null);
+	const nowRef = useRef(null);
 	useReveal(pageRef);
+	useScrollScene(gridRef, weekRef, nowRef);
 	return (
 		<div ref={pageRef} className={`${styles.page} ${display.variable}`}>
+			<div className={styles.scrollGrid} ref={gridRef} aria-hidden="true" />
 			<script
 				type="application/ld+json"
 				dangerouslySetInnerHTML={{ __html: JSON.stringify(STRUCTURED_DATA).replace(/</g, '\\u003c') }}
@@ -192,7 +247,7 @@ export default function Landing() {
 
 			<main>
 				<section className={styles.hero}>
-					<HeroGrid />
+					<HeroGrid weekRef={weekRef} nowRef={nowRef} />
 					<ul className={styles.covers} aria-label="What it covers">
 						<li><b>Lectures, exams and CBT</b> in one place</li>
 						<li><b>Undergraduate and ICE</b>, each with its own calendar</li>

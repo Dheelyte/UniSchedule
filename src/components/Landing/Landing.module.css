@@ -19,10 +19,30 @@
 	--clash-pale: #fff0ee;
 	--display: var(--font-display), var(--font-sans), system-ui, sans-serif;
 
+	position: relative;
+	isolation: isolate;
 	min-height: 100vh;
 	background: var(--white);
 	color: var(--ink);
 	font-family: var(--font-sans);
+	overflow-x: clip;
+}
+
+/* Faint timetable rules behind the whole page, drifting as it scrolls
+   (useScrollScene). Taller than the screen so the drift never shows an edge. */
+.scrollGrid {
+	position: fixed;
+	top: -64px;
+	left: 0;
+	right: 0;
+	height: calc(100vh + 128px);
+	z-index: -1;
+	pointer-events: none;
+	background-image:
+		linear-gradient(to right, rgba(11, 61, 145, 0.05) 1px, transparent 1px),
+		linear-gradient(to bottom, rgba(11, 61, 145, 0.05) 1px, transparent 1px);
+	background-size: 64px 64px;
+	will-change: transform;
 }
 
 .page a {
@@ -126,6 +146,7 @@
 }
 
 .week {
+	position: relative;
 	display: grid;
 	grid-template-columns: 64px repeat(5, minmax(0, 1fr));
 	grid-template-rows: 44px repeat(5, minmax(96px, auto));
@@ -168,6 +189,46 @@
 	font-variant-numeric: tabular-nums;
 	color: var(--ink-3);
 	background: var(--paper);
+}
+
+/* The current-time line, moved down the week as the hero scrolls. */
+.nowLine {
+	position: absolute;
+	top: 0;
+	left: 64px;
+	right: 0;
+	z-index: 3;
+	height: 2px;
+	background: var(--yellow);
+	box-shadow: 0 0 0 1px rgba(255, 194, 14, 0.25);
+	pointer-events: none;
+	transform: translate3d(0, 44px, 0);
+	will-change: transform;
+}
+
+.nowLine::before {
+	content: '';
+	position: absolute;
+	left: -6px;
+	top: -5px;
+	width: 12px;
+	height: 12px;
+	border-radius: 50%;
+	background: var(--yellow);
+}
+
+.nowTag {
+	position: absolute;
+	right: 8px;
+	top: -11px;
+	padding: 1px 8px;
+	border-radius: 999px;
+	background: var(--yellow);
+	color: var(--ink);
+	font-size: 0.68rem;
+	font-weight: 800;
+	letter-spacing: 0.04em;
+	text-transform: uppercase;
 }
 
 /* The headline: a booking across Mon-Thu, 8:00-2:00. */
@@ -640,16 +701,83 @@
 	color: #8fa3c9;
 }
 
+/* ---------- Hover (mouse only) ---------- */
+@media (hover: hover) {
+	.feature,
+	.audience,
+	.block,
+	.primary,
+	.secondary,
+	.footerButton,
+	.milestoneDot {
+		transition:
+			transform 180ms ease,
+			box-shadow 180ms ease,
+			background-color 180ms ease,
+			border-color 180ms ease;
+	}
+
+	/* Blocks lift off the page, like picking up a card. */
+	.feature:hover,
+	.audience:hover {
+		transform: translateY(-4px);
+		box-shadow: 0 16px 32px -18px rgba(11, 61, 145, 0.55);
+	}
+
+	.block:hover {
+		transform: scale(1.04);
+		box-shadow: 0 10px 22px -12px rgba(11, 61, 145, 0.6);
+		z-index: 2;
+	}
+
+	.primary:hover,
+	.secondary:hover,
+	.footerButton:hover {
+		transform: translateY(-1px);
+		box-shadow: 0 8px 18px -10px rgba(10, 27, 61, 0.55);
+	}
+
+	.milestone:hover .milestoneDot {
+		background: var(--blue);
+	}
+
+	.milestone:last-child:hover .milestoneDot {
+		background: var(--yellow);
+	}
+}
+
+/* Movement on hover only when motion is welcome; the colours above still apply. */
+@media (prefers-reduced-motion: reduce) {
+	.feature:hover,
+	.audience:hover,
+	.block:hover,
+	.primary:hover,
+	.secondary:hover,
+	.footerButton:hover {
+		transform: none;
+	}
+}
+
 /* ---------- Scroll reveals (see useReveal in Landing.js) ---------- */
 .page[data-motion] [data-reveal]:not([data-revealed]) {
 	opacity: 0;
 	transform: translateY(16px);
 }
 
-.page[data-motion] [data-reveal] {
-	transition:
-		opacity 500ms ease var(--delay, 0ms),
-		transform 500ms cubic-bezier(0.22, 1, 0.36, 1) var(--delay, 0ms);
+.page[data-motion] [data-reveal]:not([data-revealed]) {
+	transition: none;
+}
+
+/* While revealing, the entrance timing; once shown, hover timing takes over. */
+.page[data-motion] [data-reveal][data-revealed='scroll'] {
+	animation: reveal 500ms cubic-bezier(0.22, 1, 0.36, 1) var(--delay, 0ms) backwards;
+}
+
+@keyframes reveal {
+	from {
+		opacity: 0;
+		transform: translateY(16px);
+	}
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -696,7 +824,8 @@
 	.dayLabel,
 	.timeLabel,
 	.slot,
-	.block {
+	.block,
+	.nowLine {
 		display: none;
 	}
 
