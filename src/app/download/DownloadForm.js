@@ -145,7 +145,9 @@ export default function DownloadForm({ initialPublished = null }) {
 					</div>
 
 
-					{realms.length > 1 && (
+					{/* Shown even with one choice, so it's clear which programme this is
+					    (another programme may not have published this timetable yet). */}
+					{realms.length > 0 && (
 						<label className={styles.field}>
 							<span>Programme</span>
 							<select value={realm} onChange={(e) => setRealm(e.target.value)}>
