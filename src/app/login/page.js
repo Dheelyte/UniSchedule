@@ -6,8 +6,7 @@ import { useSearchParams } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import { apiClient } from '@/lib/apiClient';
 import { DEFAULT_REALM, FALLBACK_REALMS } from '@/lib/realm';
-import styles from './login.module.css';
-import { unilagLogoBase64 } from '@/lib/logo';
+import AuthPanel, { authStyles as styles } from '@/components/Public/AuthPanel';
 
 
 function LoginForm() {
@@ -45,51 +44,55 @@ function LoginForm() {
     };
 
     return (
-        <div className={styles.container}>
-            <div className={styles.card}>
-                <div className={styles.logo} style={{ display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
-                    <img src={unilagLogoBase64} alt="UNILAG Logo" width="100" height="100" style={{ borderRadius: '4px', objectFit: 'contain' }} />
-                </div>
-                <h1 className={styles.title}>University of Lagos</h1>
-                <p className={styles.subtitle} style={{ fontSize: '1rem', fontWeight: 'bold', letterSpacing: '1px' }}>Timetable Manager</p>
-                <span className={styles.realmBadge}>{realmName} Login</span>
+        <AuthPanel
+            slot={`${realmName} · staff sign in`}
+            title={<>Sign in to <mark>UniSchedule.</mark></>}
+            intro="For timetable officers and staff of the University of Lagos. Students don't need an account to download a timetable."
+            after={
+                <p className={styles.aside}>
+                    Wrong programme? <Link href="/realms">Choose another</Link>.
+                </p>
+            }
+        >
+            <h2 className={styles.panelTitle}>{realmName}</h2>
 
-                {error && <div className={styles.error}>{error}</div>}
+            {error && <div className={styles.error} role="alert">{error}</div>}
 
-                <form onSubmit={handleSubmit} className={styles.form}>
-                    <div className={styles.formGroup}>
-                        <label className={styles.label}>Email Address</label>
-                        <input
-                            type="email"
-                            className={styles.input}
-                            value={email}
-                            onChange={(e) => setEmail(e.target.value)}
-                            required
-                            placeholder="e.g., admin@unilag.edu.ng"
-                        />
-                    </div>
-                    <div className={styles.formGroup}>
-                        <label className={styles.label}>Password</label>
-                        <input
-                            type="password"
-                            className={styles.input}
-                            value={password}
-                            onChange={(e) => setPassword(e.target.value)}
-                            required
-                            placeholder="••••••••"
-                        />
-                    </div>
-                    <button type="submit" className={styles.button} disabled={loading}>
-                        {loading ? 'Authenticating...' : 'Sign In'}
-                    </button>
-                </form>
-                <div style={{ marginTop: '20px', fontSize: '13px', textAlign: 'center' }}>
-                    <Link href="/forgot-password" style={{ color: '#2563eb', textDecoration: 'none' }}>
-                        Forgot your password?
-                    </Link>
+            <form onSubmit={handleSubmit} className={styles.form}>
+                <div className={styles.field}>
+                    <label className={styles.label} htmlFor="login-email">Email address</label>
+                    <input
+                        id="login-email"
+                        type="email"
+                        className={styles.input}
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        required
+                        autoComplete="email"
+                        placeholder="e.g. admin@unilag.edu.ng"
+                    />
                 </div>
+                <div className={styles.field}>
+                    <label className={styles.label} htmlFor="login-password">Password</label>
+                    <input
+                        id="login-password"
+                        type="password"
+                        className={styles.input}
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        required
+                        autoComplete="current-password"
+                        placeholder="••••••••"
+                    />
+                </div>
+                <button type="submit" className={styles.button} disabled={loading}>
+                    {loading ? 'Signing in…' : 'Sign in'}
+                </button>
+            </form>
+            <div className={styles.links}>
+                <Link href="/forgot-password">Forgot your password?</Link>
             </div>
-        </div>
+        </AuthPanel>
     );
 }
 

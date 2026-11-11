@@ -5,8 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { apiClient } from '@/lib/apiClient';
 import { useToast } from '@/components/Toast/Toast';
-import styles from '../login/login.module.css';
-import { unilagLogoBase64 } from '@/lib/logo';
+import AuthPanel, { authStyles as styles } from '@/components/Public/AuthPanel';
 
 export default function ForgotPasswordPage() {
     const router = useRouter();
@@ -89,118 +88,116 @@ export default function ForgotPasswordPage() {
         }
     };
 
+    const STEP_TITLE = { request: 'Reset your password', verify: 'Enter your code', reset: 'Choose a new password' };
     return (
-        <div className={styles.container}>
-            <div className={styles.card}>
-                <div className={styles.logo} style={{ display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
-                    <img src={unilagLogoBase64} alt="UNILAG Logo" width="100" height="100" style={{ borderRadius: '4px', objectFit: 'contain' }} />
-                </div>
-                <h1 className={styles.title}>University of Lagos</h1>
-                <p className={styles.subtitle} style={{ fontSize: '1rem', fontWeight: 'bold', letterSpacing: '1px' }}>
-                    Timetable Manager
-                </p>
+        <AuthPanel
+            slot="Staff · password reset"
+            title={<>Forgot your password? <mark>We&apos;ll send a code.</mark></>}
+            intro="Enter the email you sign in with. If it has an account, a 6-digit code arrives within a minute and works for 10 minutes."
+        >
+            <h2 className={styles.panelTitle}>{STEP_TITLE[step]}</h2>
 
-                {step === 'request' && (
-                    <>
-                        <p className={styles.subtitle}>
-                            Enter your email and we&apos;ll send you a 6-digit code to reset your password.
-                        </p>
-                        {error && <div className={styles.error}>{error}</div>}
-                        <form onSubmit={handleRequest} className={styles.form}>
-                            <div className={styles.formGroup}>
-                                <label className={styles.label}>Email Address</label>
-                                <input
-                                    type="email"
-                                    className={styles.input}
-                                    value={email}
-                                    onChange={(e) => setEmail(e.target.value)}
-                                    required
-                                    placeholder="e.g., admin@unilag.edu.ng"
-                                />
-                            </div>
-                            <button type="submit" className={styles.button} disabled={loading}>
-                                {loading ? 'Sending...' : 'Send Reset Code'}
-                            </button>
-                        </form>
-                    </>
-                )}
+            {step === 'request' && (
+                <>
+                    {error && <div className={styles.error} role="alert">{error}</div>}
+                    <form onSubmit={handleRequest} className={styles.form}>
+                        <div className={styles.field}>
+                            <label className={styles.label} htmlFor="reset-email">Email address</label>
+                            <input
+                                id="reset-email"
+                                type="email"
+                                className={styles.input}
+                                value={email}
+                                onChange={(e) => setEmail(e.target.value)}
+                                required
+                                autoComplete="email"
+                                placeholder="e.g. admin@unilag.edu.ng"
+                            />
+                        </div>
+                        <button type="submit" className={styles.button} disabled={loading}>
+                            {loading ? 'Sending…' : 'Send reset code'}
+                        </button>
+                    </form>
+                </>
+            )}
 
-                {step === 'verify' && (
-                    <>
-                        <p className={styles.subtitle}>
-                            Enter the 6-digit code sent to <strong>{email}</strong>.
-                        </p>
-                        {error && <div className={styles.error}>{error}</div>}
-                        <form onSubmit={handleVerify} className={styles.form}>
-                            <div className={styles.formGroup}>
-                                <label className={styles.label}>Reset Code</label>
-                                <input
-                                    type="text"
-                                    inputMode="numeric"
-                                    pattern="\d{6}"
-                                    maxLength={6}
-                                    className={styles.input}
-                                    value={code}
-                                    onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
-                                    required
-                                    placeholder="000000"
-                                    style={{ letterSpacing: '0.5em', textAlign: 'center', fontSize: '18px' }}
-                                />
-                            </div>
-                            <button type="submit" className={styles.button} disabled={loading}>
-                                {loading ? 'Verifying...' : 'Verify Code'}
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => { setStep('request'); setCode(''); setError(''); }}
-                                style={{ background: 'none', border: 'none', color: '#2563eb', cursor: 'pointer', fontSize: '13px', marginTop: '4px' }}
-                            >
-                                Use a different email
-                            </button>
-                        </form>
-                    </>
-                )}
+            {step === 'verify' && (
+                <>
+                    <p className={styles.note}>
+                        Enter the 6-digit code sent to <strong>{email}</strong>.
+                    </p>
+                    {error && <div className={styles.error} role="alert">{error}</div>}
+                    <form onSubmit={handleVerify} className={styles.form}>
+                        <div className={styles.field}>
+                            <label className={styles.label} htmlFor="reset-code">Reset code</label>
+                            <input
+                                id="reset-code"
+                                type="text"
+                                inputMode="numeric"
+                                pattern="\d{6}"
+                                maxLength={6}
+                                className={`${styles.input} ${styles.codeInput}`}
+                                value={code}
+                                onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
+                                required
+                                autoComplete="one-time-code"
+                                placeholder="000000"
+                            />
+                        </div>
+                        <button type="submit" className={styles.button} disabled={loading}>
+                            {loading ? 'Checking…' : 'Verify code'}
+                        </button>
+                        <button
+                            type="button"
+                            className={styles.textButton}
+                            onClick={() => { setStep('request'); setCode(''); setError(''); }}
+                        >
+                            Use a different email
+                        </button>
+                    </form>
+                </>
+            )}
 
-                {step === 'reset' && (
-                    <>
-                        <p className={styles.subtitle}>Choose a new password for your account.</p>
-                        {error && <div className={styles.error}>{error}</div>}
-                        <form onSubmit={handleReset} className={styles.form}>
-                            <div className={styles.formGroup}>
-                                <label className={styles.label}>New Password</label>
-                                <input
-                                    type="password"
-                                    className={styles.input}
-                                    value={newPassword}
-                                    onChange={(e) => setNewPassword(e.target.value)}
-                                    required
-                                    placeholder="••••••••"
-                                />
-                            </div>
-                            <div className={styles.formGroup}>
-                                <label className={styles.label}>Confirm New Password</label>
-                                <input
-                                    type="password"
-                                    className={styles.input}
-                                    value={confirmPassword}
-                                    onChange={(e) => setConfirmPassword(e.target.value)}
-                                    required
-                                    placeholder="••••••••"
-                                />
-                            </div>
-                            <button type="submit" className={styles.button} disabled={loading}>
-                                {loading ? 'Updating...' : 'Reset Password'}
-                            </button>
-                        </form>
-                    </>
-                )}
+            {step === 'reset' && (
+                <>
+                    {error && <div className={styles.error} role="alert">{error}</div>}
+                    <form onSubmit={handleReset} className={styles.form}>
+                        <div className={styles.field}>
+                            <label className={styles.label} htmlFor="reset-new">New password</label>
+                            <input
+                                id="reset-new"
+                                type="password"
+                                className={styles.input}
+                                value={newPassword}
+                                onChange={(e) => setNewPassword(e.target.value)}
+                                required
+                                autoComplete="new-password"
+                                placeholder="••••••••"
+                            />
+                        </div>
+                        <div className={styles.field}>
+                            <label className={styles.label} htmlFor="reset-confirm">Confirm new password</label>
+                            <input
+                                id="reset-confirm"
+                                type="password"
+                                className={styles.input}
+                                value={confirmPassword}
+                                onChange={(e) => setConfirmPassword(e.target.value)}
+                                required
+                                autoComplete="new-password"
+                                placeholder="••••••••"
+                            />
+                        </div>
+                        <button type="submit" className={styles.button} disabled={loading}>
+                            {loading ? 'Updating…' : 'Reset password'}
+                        </button>
+                    </form>
+                </>
+            )}
 
-                <div style={{ marginTop: '20px', fontSize: '13px', textAlign: 'center' }}>
-                    <Link href="/login" style={{ color: '#2563eb', textDecoration: 'none' }}>
-                        Back to Sign In
-                    </Link>
-                </div>
+            <div className={styles.links}>
+                <Link href="/login">Back to sign in</Link>
             </div>
-        </div>
+        </AuthPanel>
     );
 }
