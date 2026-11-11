@@ -10,13 +10,11 @@
 // or links somewhere.
 import Link from 'next/link';
 import { useEffect, useRef } from 'react';
-import { Plus_Jakarta_Sans } from 'next/font/google';
 import styles from './Landing.module.css';
-import { unilagLogoBase64 } from '@/lib/logo';
 import { loginPath } from '@/lib/realm';
+import { PublicFooter, PublicHeader, PublicPage } from '@/components/Public/PublicChrome';
 import { SITE_DESCRIPTION, SITE_NAME, SITE_URL } from '@/lib/site';
 
-const display = Plus_Jakarta_Sans({ subsets: ['latin'], weight: ['600', '700', '800'], variable: '--font-display', display: 'swap' });
 
 /* ---------- Content ---------- */
 
@@ -217,33 +215,14 @@ export default function Landing() {
 	useReveal(pageRef);
 	useScrollScene(gridRef, weekRef, nowRef);
 	return (
-		<div ref={pageRef} className={`${styles.page} ${display.variable}`}>
+		<PublicPage ref={pageRef} className={styles.page}>
 			<div className={styles.scrollGrid} ref={gridRef} aria-hidden="true" />
 			<script
 				type="application/ld+json"
 				dangerouslySetInnerHTML={{ __html: JSON.stringify(STRUCTURED_DATA).replace(/</g, '\\u003c') }}
 			/>
 
-			{/* ---------- Nav ---------- */}
-			<header className={styles.nav}>
-				<div className={styles.navInner}>
-					<Link href="/" className={styles.wordmark}>
-						{/* eslint-disable-next-line @next/next/no-img-element */}
-						<img src={unilagLogoBase64} alt="University of Lagos logo" width="36" height="36" className={styles.navLogo} />
-						UniSchedule
-					</Link>
-					<nav className={styles.navLinks} aria-label="Main">
-						<a href="#for">Who it&apos;s for</a>
-						<a href="#features">Features</a>
-						<a href="#how">How it works</a>
-						<Link href="/download">Download</Link>
-					</nav>
-					<Link href="/realms" className={styles.navSignIn}>
-						<span className={styles.longLabel}>Staff sign in</span>
-						<span className={styles.shortLabel}>Sign in</span>
-					</Link>
-				</div>
-			</header>
+			<PublicHeader />
 
 			<main>
 				<section className={styles.hero}>
@@ -324,45 +303,7 @@ export default function Landing() {
 				</section>
 			</main>
 
-			{/* ---------- Footer ---------- */}
-			<footer className={styles.footer}>
-				<div className={styles.footerInner}>
-					<div className={styles.footerCall}>
-						<h2>Looking for your timetable?</h2>
-						<Link href="/download" className={styles.footerButton}>Download a timetable</Link>
-					</div>
-					<div className={styles.footerGrid}>
-						<div className={styles.footerAbout}>
-							<p className={styles.footerWordmark}>
-								{/* eslint-disable-next-line @next/next/no-img-element */}
-								<img src={unilagLogoBase64} alt="" width="32" height="32" className={styles.footerLogo} />
-								UniSchedule
-							</p>
-							<p>
-								A timetable manager built for the University of Lagos by{' '}
-								<Link href="/contributors">its contributors</Link>.
-							</p>
-						</div>
-						<nav aria-label="Footer" className={styles.footerLinks}>
-							<div>
-								<h3>Timetables</h3>
-								<Link href="/download">Download a timetable</Link>
-								<Link href="/verify">Check a printed copy</Link>
-							</div>
-							<div>
-								<h3>Staff</h3>
-								<Link href={loginPath('UG')}>Undergraduate sign in</Link>
-								<Link href={loginPath('ICE')}>ICE sign in</Link>
-							</div>
-							<div>
-								<h3>Project</h3>
-								<Link href="/contributors">Contributors</Link>
-							</div>
-						</nav>
-					</div>
-					<p className={styles.copyright}>© {new Date().getFullYear()} UniSchedule. All rights reserved.</p>
-				</div>
-			</footer>
-		</div>
+			<PublicFooter />
+		</PublicPage>
 	);
 }

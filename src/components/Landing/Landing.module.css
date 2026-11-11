@@ -1,31 +1,9 @@
 /* Homepage, laid out as a timetable: a week grid in the hero, course blocks
-   for features, a semester timeline for how it works. White, UNILAG blue and
-   yellow; sentence-case headings; no decoration that doesn't inform. */
+   for features, a semester timeline for how it works. Colours, font, header
+   and footer come from src/components/Public. */
 
 .page {
-	--white: #ffffff;
-	--paper: #f5f8fd;
-	--ink: #0a1b3d;
-	--ink-2: #3b4863;
-	--ink-3: #6a7690;
-	--rule: #dbe3f0;
-	--blue: #0b3d91;
-	--blue-dark: #082c6b;
-	--blue-deep: #071f4a;
-	--blue-pale: #e8eefa;
-	--yellow: #ffc20e;
-	--yellow-pale: #fff4cf;
-	--clash: #d92d20;
-	--clash-pale: #fff0ee;
-	--display: var(--font-display), var(--font-sans), system-ui, sans-serif;
-
-	position: relative;
-	isolation: isolate;
-	min-height: 100vh;
-	background: var(--white);
-	color: var(--ink);
-	font-family: var(--font-sans);
-	overflow-x: clip;
+	/* Colours and fonts come from the shared public kit (PublicPage). */
 }
 
 /* Faint timetable rules behind the whole page, drifting as it scrolls
@@ -39,8 +17,8 @@
 	z-index: -1;
 	pointer-events: none;
 	background-image:
-		linear-gradient(to right, rgba(11, 61, 145, 0.05) 1px, transparent 1px),
-		linear-gradient(to bottom, rgba(11, 61, 145, 0.05) 1px, transparent 1px);
+		linear-gradient(to right, rgba(26, 106, 160, 0.06) 1px, transparent 1px),
+		linear-gradient(to bottom, rgba(26, 106, 160, 0.06) 1px, transparent 1px);
 	background-size: 64px 64px;
 	will-change: transform;
 }
@@ -51,91 +29,6 @@
 
 .page section[id] {
 	scroll-margin-top: 84px;
-}
-
-/* ---------- Nav ---------- */
-.nav {
-	position: sticky;
-	top: 0;
-	z-index: 20;
-	background: rgba(255, 255, 255, 0.96);
-	border-bottom: 1px solid var(--rule);
-}
-
-.navInner {
-	max-width: 1240px;
-	margin: 0 auto;
-	padding: 14px 24px;
-	display: flex;
-	align-items: center;
-	gap: 14px;
-}
-
-.wordmark,
-.footerWordmark {
-	display: inline-flex;
-	align-items: center;
-	gap: 10px;
-	font-family: var(--display);
-	font-size: 1.25rem;
-	font-weight: 800;
-	letter-spacing: -0.02em;
-	text-decoration: none;
-}
-
-.navLogo {
-	width: 36px;
-	height: 36px;
-	object-fit: contain;
-	flex-shrink: 0;
-}
-
-.footerLogo {
-	width: 32px;
-	height: 32px;
-	object-fit: contain;
-	padding: 2px;
-	border-radius: 50%;
-	background: var(--white);
-	flex-shrink: 0;
-}
-
-.navLinks {
-	margin-left: auto;
-	display: flex;
-	gap: 26px;
-}
-
-.navLinks a {
-	font-size: 0.92rem;
-	font-weight: 500;
-	color: var(--ink-2);
-	text-decoration: none;
-}
-
-.navLinks a:hover {
-	color: var(--blue);
-}
-
-.navSignIn {
-	margin-left: 12px;
-	padding: 9px 16px;
-	border-radius: 8px;
-	background: var(--blue-pale);
-	color: var(--blue) !important;
-	font-size: 0.9rem;
-	font-weight: 700;
-	text-decoration: none;
-	white-space: nowrap;
-}
-
-.shortLabel {
-	display: none;
-}
-
-.navSignIn:hover {
-	background: var(--blue);
-	color: var(--white) !important;
 }
 
 /* ---------- Hero: the week grid ---------- */
@@ -243,7 +136,7 @@
 	background: var(--white);
 	border: 1px solid var(--rule);
 	border-left: 6px solid var(--blue);
-	box-shadow: 0 18px 40px -24px rgba(11, 61, 145, 0.45);
+	box-shadow: 0 18px 40px -24px rgba(13, 53, 80, 0.45);
 	display: flex;
 	flex-direction: column;
 	gap: 16px;
@@ -252,7 +145,7 @@
 .headlineSlot {
 	font-size: 0.8rem;
 	font-weight: 600;
-	color: var(--blue);
+	color: var(--blue-strong);
 }
 
 .headlineTitle {
@@ -286,8 +179,7 @@
 }
 
 .primary,
-.secondary,
-.footerButton {
+.secondary {
 	display: inline-flex;
 	align-items: center;
 	padding: 13px 20px;
@@ -297,7 +189,7 @@
 }
 
 .primary {
-	background: var(--blue);
+	background: var(--blue-strong);
 	color: var(--white) !important;
 }
 
@@ -340,8 +232,8 @@
 
 .toneBlue {
 	background: var(--blue);
-	color: var(--white);
-	border-left-color: var(--blue-dark);
+	color: var(--ink);
+	border-left-color: var(--blue-strong);
 }
 
 .toneYellow {
@@ -353,7 +245,7 @@
 .tonePale {
 	background: var(--blue-pale);
 	color: var(--ink);
-	border-left-color: var(--blue);
+	border-left-color: var(--blue-strong);
 }
 
 /* The flagged clash: the one thing the hero is there to show. */
@@ -587,7 +479,7 @@
 .milestoneWeek {
 	font-size: 0.8rem;
 	font-weight: 700;
-	color: var(--blue);
+	color: var(--blue-strong);
 }
 
 .milestone h3 {
@@ -604,103 +496,6 @@
 	line-height: 1.55;
 }
 
-/* ---------- Footer ---------- */
-.footer {
-	margin-top: 112px;
-	background: var(--blue-deep);
-	color: #c9d5ec;
-}
-
-.footerInner {
-	max-width: 1240px;
-	margin: 0 auto;
-	padding: 56px 24px 28px;
-}
-
-.footerCall {
-	display: flex;
-	align-items: center;
-	justify-content: space-between;
-	flex-wrap: wrap;
-	gap: 20px;
-	padding: 28px 32px;
-	border-radius: 14px;
-	background: var(--yellow);
-	color: var(--ink);
-}
-
-.footerCall h2 {
-	font-family: var(--display);
-	font-size: clamp(1.5rem, 3vw, 2.1rem);
-	font-weight: 800;
-	letter-spacing: -0.02em;
-}
-
-.footerButton {
-	background: var(--ink);
-	color: var(--white) !important;
-}
-
-.footerButton:hover {
-	background: var(--blue);
-}
-
-.footerGrid {
-	margin-top: 48px;
-	display: grid;
-	grid-template-columns: 1.2fr 2fr;
-	gap: 40px;
-}
-
-.footerWordmark {
-	color: var(--white);
-}
-
-.footerAbout p + p {
-	margin-top: 12px;
-	max-width: 38ch;
-	line-height: 1.6;
-}
-
-.footerAbout a {
-	color: var(--white) !important;
-	text-decoration: underline;
-	text-decoration-color: var(--yellow);
-	text-underline-offset: 4px;
-}
-
-.footerLinks {
-	display: grid;
-	grid-template-columns: repeat(3, minmax(0, 1fr));
-	gap: 24px;
-}
-
-.footerLinks h3 {
-	margin-bottom: 10px;
-	font-size: 0.85rem;
-	font-weight: 700;
-	color: var(--yellow);
-}
-
-.footerLinks a {
-	display: block;
-	padding: 4px 0;
-	color: var(--white) !important;
-	text-decoration: none;
-}
-
-.footerLinks a:hover {
-	text-decoration: underline;
-}
-
-.copyright {
-	margin-top: 44px;
-	padding-top: 18px;
-	border-top: 1px solid #1d3a73;
-	font-size: 0.85rem;
-	color: #8fa3c9;
-}
-
 /* ---------- Hover (mouse only) ---------- */
 @media (hover: hover) {
 	.feature,
@@ -708,7 +503,6 @@
 	.block,
 	.primary,
 	.secondary,
-	.footerButton,
 	.milestoneDot {
 		transition:
 			transform 180ms ease,
@@ -721,18 +515,17 @@
 	.feature:hover,
 	.audience:hover {
 		transform: translateY(-4px);
-		box-shadow: 0 16px 32px -18px rgba(11, 61, 145, 0.55);
+		box-shadow: 0 16px 32px -18px rgba(13, 53, 80, 0.55);
 	}
 
 	.block:hover {
 		transform: scale(1.04);
-		box-shadow: 0 10px 22px -12px rgba(11, 61, 145, 0.6);
+		box-shadow: 0 10px 22px -12px rgba(13, 53, 80, 0.6);
 		z-index: 2;
 	}
 
 	.primary:hover,
-	.secondary:hover,
-	.footerButton:hover {
+	.secondary:hover {
 		transform: translateY(-1px);
 		box-shadow: 0 8px 18px -10px rgba(10, 27, 61, 0.55);
 	}
@@ -752,8 +545,7 @@
 	.audience:hover,
 	.block:hover,
 	.primary:hover,
-	.secondary:hover,
-	.footerButton:hover {
+	.secondary:hover {
 		transform: none;
 	}
 }
@@ -790,14 +582,6 @@
 
 /* ---------- Narrower screens ---------- */
 @media (max-width: 1000px) {
-	.navLinks {
-		display: none;
-	}
-
-	.navSignIn {
-		margin-left: auto;
-	}
-
 	.features {
 		grid-template-columns: repeat(2, minmax(0, 1fr));
 	}
@@ -885,51 +669,13 @@
 		left: -34px;
 	}
 
-	.footer {
-		margin-top: 88px;
-	}
-
-	.footerCall {
-		padding: 22px 20px;
-	}
-
-	.footerCall a {
-		width: 100%;
-		justify-content: center;
-	}
-
-	.footerGrid,
-	.footerLinks {
-		grid-template-columns: minmax(0, 1fr);
-	}
 }
 
 @media (max-width: 600px) {
-	/* The full name fits in two lines beside a shorter button. */
-	.wordmark {
-		font-size: 1rem;
-		line-height: 1.15;
-		gap: 8px;
-	}
-
-	.navLogo {
-		width: 32px;
-		height: 32px;
-	}
-
-	.longLabel {
-		display: none;
-	}
-
-	.shortLabel {
-		display: inline;
-	}
-
-	.navInner,
 	.hero,
-	.section,
-	.footerInner {
+	.section {
 		padding-left: 16px;
 		padding-right: 16px;
 	}
 }
+
