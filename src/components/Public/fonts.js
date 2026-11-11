@@ -4,7 +4,8 @@ import { Plus_Jakarta_Sans } from 'next/font/google';
 
 export const displayFont = Plus_Jakarta_Sans({
 	subsets: ['latin'],
-	weight: ['600', '700', '800'],
+	// Headings only use the heaviest weight; one file instead of three.
+	weight: ['800'],
 	variable: '--font-display',
 	display: 'swap',
 });

@@ -7,11 +7,14 @@
 // UniSchedule is a product built for the University of Lagos: its name sits
 // beside the university's crest, in UNILAG blue, white and yellow.
 import Link from 'next/link';
-import { unilagLogoBase64 } from '@/lib/logo';
 import { loginPath } from '@/lib/realm';
 import { displayFont } from './fonts';
 import { scrollToSection } from './smoothScroll';
 import styles from './public.module.css';
+
+// A small cached file (public/unilag-crest.png, 21 KB), not the embedded copy
+// the PDFs use: embedding it put ~75 KB into every page, twice.
+const CREST = '/unilag-crest.png';
 
 /** The page root: brand colours and font for everything inside. */
 export function PublicPage({ children, className = '', ...rest }) {
@@ -35,7 +38,7 @@ export function PublicHeader() {
 			<div className={styles.headerInner}>
 				<Link href="/" className={styles.wordmark}>
 					{/* eslint-disable-next-line @next/next/no-img-element */}
-					<img src={unilagLogoBase64} alt="University of Lagos logo" width="36" height="36" className={styles.logo} />
+					<img src={CREST} alt="University of Lagos logo" width="36" height="32" className={styles.logo} />
 					UniSchedule
 				</Link>
 				<nav className={styles.headerLinks} aria-label="Main">
@@ -69,7 +72,7 @@ export function PublicFooter({ callout = true }) {
 					<div className={styles.footerAbout}>
 						<p className={styles.footerWordmark}>
 							{/* eslint-disable-next-line @next/next/no-img-element */}
-							<img src={unilagLogoBase64} alt="" width="32" height="32" className={styles.footerLogo} />
+							<img src={CREST} alt="" width="32" height="32" className={styles.footerLogo} loading="lazy" />
 							UniSchedule
 						</p>
 						<p>

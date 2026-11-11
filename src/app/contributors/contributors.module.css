@@ -1,6 +1,6 @@
 /* Contributors, in the public pages' style (src/components/Public): plain
    cards, and a profile opens full screen on deep UNILAG blue.
-   The profile grows from its card (a clip-path, 600ms = EXPAND_MS in page.js);
+   The profile grows from its card (a transform, 500ms = EXPAND_MS in page.js);
    on touch screens it fades instead (200ms = FADE_MS). */
 
 .page {
@@ -224,12 +224,20 @@
 	position: fixed;
 	inset: 0;
 	z-index: 100;
-	background: rgba(11, 31, 51, 0);
-	transition: background 600ms ease;
 }
 
-.overlayOpen {
+/* The dimmed backdrop fades by opacity: cheap, unlike animating its colour. */
+.overlay::before {
+	content: '';
+	position: fixed;
+	inset: 0;
 	background: rgba(11, 31, 51, 0.55);
+	opacity: 0;
+	transition: opacity 500ms ease;
+}
+
+.overlayOpen::before {
+	opacity: 1;
 }
 
 .panel {
@@ -238,9 +246,13 @@
 	overflow: hidden;
 	background: var(--blue-deep);
 	color: var(--white);
-	/* Always full screen; clip-path reveals it from the card. Animating its
-	   size instead would re-lay out the profile on every frame. */
-	transition: clip-path 600ms cubic-bezier(0.22, 1, 0.36, 1);
+	/* Scaled from the card (see panelStyle in page.js): transform only, so it
+	   runs on the GPU; resizing it would re-lay out the profile every frame. */
+	transform-origin: 0 0;
+	will-change: transform;
+	transition:
+		transform 500ms cubic-bezier(0.22, 1, 0.36, 1),
+		border-radius 500ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 /* Faint timetable rules on the profile, as on the homepage. */
@@ -555,7 +567,8 @@
    out quickly instead of growing from the card (FADE_MS in page.js). */
 @media (hover: none), (pointer: coarse) {
 	.panel {
-		clip-path: none !important;
+		transform: none !important;
+		border-radius: 0 !important;
 		opacity: 0;
 		transition: opacity 200ms ease;
 	}
@@ -564,7 +577,7 @@
 		opacity: 1;
 	}
 
-	.overlay {
+	.overlay::before {
 		transition: none;
 	}
 

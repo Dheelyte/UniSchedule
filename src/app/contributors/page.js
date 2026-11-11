@@ -6,7 +6,7 @@ import { PublicFooter, PublicHeader, PublicPage } from '@/components/Public/Publ
 import { CONTRIBUTORS } from '@/data/contributors';
 
 // Must match the panel transitions in contributors.module.css.
-const EXPAND_MS = 600;
+const EXPAND_MS = 500;
 // Touch screens fade the panel instead of growing it from the card.
 const FADE_MS = 200;
 
@@ -359,13 +359,19 @@ export default function ContributorsPage() {
 	useEffect(() => () => clearTimeout(closeTimer.current), []);
 
 	const expanded = phase === 'open';
-	// The panel is always full screen; clip it down to the card while it opens
-	// and closes, so the browser never has to re-lay it out mid-animation.
-	const panelStyle = expanded || !rect
-		? { clipPath: 'inset(0px round 0px)' }
-		: {
-			clipPath: `inset(${rect.top}px ${window.innerWidth - rect.right}px ${window.innerHeight - rect.bottom}px ${rect.left}px round var(--radius-xl))`,
+	// The panel is always full screen. While it opens and closes it is scaled
+	// down onto the card with a transform, which the GPU moves without
+	// repainting (a clip-path reshaped the whole screen on every frame). The
+	// corner radius is divided by the scale so the card's corners stay round.
+	let panelStyle = { transform: 'none', borderRadius: '0px' };
+	if (!expanded && rect) {
+		const sx = rect.width / window.innerWidth;
+		const sy = rect.height / window.innerHeight;
+		panelStyle = {
+			transform: `translate(${rect.left}px, ${rect.top}px) scale(${sx}, ${sy})`,
+			borderRadius: `${14 / sx}px / ${14 / sy}px`,
 		};
+	}
 	const person = active !== null ? CONTRIBUTORS[active] : null;
 
 	return (
