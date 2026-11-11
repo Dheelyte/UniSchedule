@@ -13,10 +13,13 @@ export function problem(message, status) {
 	});
 }
 
-// A rendered FINAL timetable is cached at the edge, so repeat downloads of the
-// same filters don't re-render. An hour keeps a re-locked timetable from being
-// served stale for long; links from /download carry the version code anyway.
-export const CACHE_FINAL = "public, max-age=0, s-maxage=3600, stale-while-revalidate=600";
+// A rendered FINAL timetable is kept at the edge for a minute, so a rush of
+// downloads of the same file renders it once a minute at most. Kept short so an
+// unlocked timetable stops being served within about two minutes (the minute,
+// plus one more stale copy while the edge checks again). The edge can't be
+// cleared on unlock like this server's cache can, so its time is the limit.
+// Each re-render reads the bundle from this server's cache, not the database.
+export const CACHE_FINAL = "public, max-age=0, s-maxage=60, stale-while-revalidate=60";
 
 // How long the frontend server reuses a public backend read. Timetables change
 // only when they are locked or unlocked, so a few minutes is safe, and it means
