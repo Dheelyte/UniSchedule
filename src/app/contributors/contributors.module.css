@@ -188,16 +188,27 @@
 }
 
 .eyebrowDot {
+	position: relative;
 	width: 8px;
 	height: 8px;
 	border-radius: 50%;
 	background: var(--color-success);
-	box-shadow: 0 0 0 0 rgba(5, 150, 105, 0.5);
+}
+
+/* The pulse is a ring that grows and fades: transform and opacity only, so it
+   doesn't repaint (animating box-shadow did, on every frame). */
+.eyebrowDot::after {
+	content: '';
+	position: absolute;
+	inset: 0;
+	border-radius: 50%;
+	background: rgba(5, 150, 105, 0.5);
 	animation: pulse 2s ease-out infinite;
 }
 
 @keyframes pulse {
-	to { box-shadow: 0 0 0 10px rgba(5, 150, 105, 0); }
+	from { transform: scale(1); opacity: 1; }
+	to { transform: scale(3.5); opacity: 0; }
 }
 
 .title {
@@ -873,6 +884,61 @@
 	.detailStat {
 		min-width: 0;
 		flex: 1;
+	}
+}
+
+/* Phones and tablets, including a phone in "desktop site" mode (which still
+   has a touch screen): the decoration stays but stands still. Endless drifting
+   glows, spinning rings, a shimmering title and a blur cost every frame, and a
+   phone drawing the full desktop layout can't keep up. Hover effects are off
+   too: a tap leaves :hover stuck on, which started the spinning border. */
+@media (hover: none), (pointer: coarse) {
+	.blobA,
+	.blobB,
+	.blobC,
+	.panelGlowA,
+	.panelGlowB,
+	.avatar::before,
+	.detailAvatar::before {
+		animation: none;
+		will-change: auto;
+	}
+
+	.titleAccent {
+		animation: none;
+	}
+
+	.eyebrowDot::after {
+		display: none;
+	}
+
+	.eyebrow {
+		backdrop-filter: none;
+		background: rgba(255, 255, 255, 0.92);
+	}
+
+	/* Scrolls with the page instead of being re-drawn under it. */
+	.gridPattern {
+		position: absolute;
+	}
+
+	.card:hover {
+		transform: none;
+		box-shadow: var(--shadow-sm);
+	}
+
+	.card:hover::before,
+	.card:focus-within::before {
+		animation: none;
+		opacity: 0;
+	}
+
+	.card:hover .cardSpotlight {
+		opacity: 0;
+	}
+
+	.card:hover .avatar {
+		transform: none;
 	}
 }
 

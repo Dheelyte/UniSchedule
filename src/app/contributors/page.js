@@ -188,6 +188,9 @@ function Avatar({ person, size, className }) {
 function ContributorCard({ person, index, hidden, cardRef, onOpen }) {
 	const links = socialLinks(person);
 	const handlePointerMove = (e) => {
+		// The glow follows a mouse only: on a touch screen this fired on every
+		// finger movement while scrolling and repainted the card each time.
+		if (e.pointerType !== 'mouse') return;
 		const r = e.currentTarget.getBoundingClientRect();
 		e.currentTarget.style.setProperty('--mx', `${e.clientX - r.left}px`);
 		e.currentTarget.style.setProperty('--my', `${e.clientY - r.top}px`);
@@ -415,7 +418,7 @@ export default function ContributorsPage() {
 			</section>
 
 			<footer className={styles.footer}>
-				<p>© {new Date().getFullYear()} University of Lagos. All rights reserved.</p>
+				<p>© {new Date().getFullYear()} UniSchedule. All rights reserved.</p>
 			</footer>
 
 			{person && (
