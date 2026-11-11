@@ -2,82 +2,52 @@
 
 // The homepage for signed-out visitors (src/app/page.js shows the dashboard to
 // staff). UniSchedule is a product built for the University of Lagos, not by
-// it: the product is the brand here, and the university is who it serves.
+// it: the product is the brand, and the university is who it serves.
 //
-// Bold and editorial, but everything on the page tells a visitor something or
-// takes them somewhere: no particles, tickers, invented statistics or motion.
+// The page is laid out as what the product makes: a timetable. The hero is a
+// week grid with the headline booked into it and a clash flagged; features are
+// course blocks; how it works is a semester timeline. Everything on it informs
+// or links somewhere.
 import Link from 'next/link';
 import { useEffect, useRef } from 'react';
-import { Bricolage_Grotesque, JetBrains_Mono } from 'next/font/google';
+import { Plus_Jakarta_Sans } from 'next/font/google';
 import styles from './Landing.module.css';
 import { loginPath } from '@/lib/realm';
 import { SITE_DESCRIPTION, SITE_NAME, SITE_URL } from '@/lib/site';
 
-// Display type for headings, and a monospace for the small labels.
-const display = Bricolage_Grotesque({ subsets: ['latin'], weight: ['600', '800'], variable: '--font-display', display: 'swap' });
-const mono = JetBrains_Mono({ subsets: ['latin'], weight: ['500'], variable: '--font-label', display: 'swap' });
+const display = Plus_Jakarta_Sans({ subsets: ['latin'], weight: ['600', '700', '800'], variable: '--font-display', display: 'swap' });
 
 /* ---------- Content ---------- */
 
-// Real facts about what it covers, not marketing numbers.
-const FACTS = [
-	{ figure: '3', label: 'Timetable types', detail: 'Lectures, examinations and CBT.' },
-	{ figure: '2', label: 'Programmes', detail: 'Undergraduate and ICE, each with its own calendar.' },
-	{ figure: 'A3', label: 'Print-ready PDFs', detail: 'Every copy checkable by its QR code.' },
+const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
+const TIMES = ['8:00', '10:00', '12:00', '2:00', '4:00'];
+
+// Course blocks around the headline in the hero grid. Examples, not real data.
+const HERO_BLOCKS = [
+	{ code: 'MTH 101', room: 'Main Auditorium', col: 6, row: 2, tone: 'blue' },
+	{ code: 'PHY 102', room: 'LT 2', col: 2, row: 5, tone: 'pale' },
+	{ code: 'GST 111', room: 'Online', col: 3, row: 5, tone: 'yellow' },
+	{ code: 'CHM 101', room: 'Chem Lab', col: 5, row: 6, tone: 'pale' },
+	{ code: 'BIO 101', room: 'LT 4', col: 6, row: 6, tone: 'blue' },
 ];
 
 const FEATURES = [
-	{
-		title: 'Clash checks',
-		description: 'Every lecture and exam is checked against rooms, courses and the students who take them, as it is placed. Exams may share a hall; lectures may not.',
-	},
-	{
-		title: 'Course priority',
-		description: 'University-wide and interfaculty courses take precedence, so a clash says which class has to move.',
-	},
-	{
-		title: 'Protected dates',
-		description: 'Holidays and blocked slots are set once for the semester, and nothing can be placed on them.',
-	},
-	{
-		title: 'Imports',
-		description: 'Bring in a faculty\'s Excel or Word timetable, or copy last semester\'s. Imports are previewed, checked for clashes and can be undone.',
-	},
-	{
-		title: 'CBT timetables',
-		description: 'Computer-based exams have their own timetable, run by CITS, with CBT centres checked like any other room.',
-	},
-	{
-		title: 'Shared halls',
-		description: 'Undergraduate and ICE keep their own rooms. A hall both use is checked across both, so it is never booked twice.',
-	},
-	{
-		title: 'Public downloads',
-		description: 'Anyone can download a FINAL timetable as an A3 PDF, by faculty, department and level, without an account.',
-	},
-	{
-		title: 'Verified copies',
-		description: 'A FINAL timetable carries the approving officer\'s name and a QR code that confirms a printed copy is genuine and current. Drafts are marked as drafts.',
-	},
-	{
-		title: 'Access by office',
-		description: 'Timetable officers, faculty editors, GS and CITS administrators and exam officers each change only what is theirs.',
-	},
+	{ title: 'Clash checks', slot: 'Every placement', text: 'Each lecture and exam is checked against rooms, courses and the students who take them, as it is placed. Exams may share a hall; lectures may not.', tone: 'blue' },
+	{ title: 'Course priority', slot: 'University-wide first', text: 'University-wide and interfaculty courses take precedence, so a clash says which class has to move.', tone: 'yellow' },
+	{ title: 'Protected dates', slot: 'Set once a semester', text: 'Holidays and blocked slots are marked once, and nothing can be placed on them.', tone: 'pale' },
+	{ title: 'Imports', slot: 'Excel, Word, last semester', text: 'Bring in a faculty\'s existing timetable or copy last semester\'s. Previewed, checked for clashes, and undoable.', tone: 'pale' },
+	{ title: 'CBT timetables', slot: 'Run by CITS', text: 'Computer-based exams have their own timetable, with CBT centres checked like any other room.', tone: 'blue' },
+	{ title: 'Shared halls', slot: 'Undergraduate and ICE', text: 'Each programme keeps its own rooms; a hall both use is checked across both, so it is never booked twice.', tone: 'yellow' },
+	{ title: 'Public downloads', slot: 'No account needed', text: 'Anyone can download a FINAL timetable as an A3 PDF, by faculty, department and level.', tone: 'yellow' },
+	{ title: 'Verified copies', slot: 'QR code on every page', text: 'A FINAL timetable names its approving officer, and its QR code confirms a printed copy is genuine and current.', tone: 'pale' },
+	{ title: 'Access by office', slot: 'Officers, editors, CITS, GS', text: 'Each office sees the whole picture but changes only what is theirs.', tone: 'blue' },
 ];
 
-const STEPS = [
-	{
-		title: 'Set up the semester',
-		description: 'Faculties, departments, courses and rooms, then import existing timetables or copy an earlier semester.',
-	},
-	{
-		title: 'Set the rules',
-		description: 'Each course\'s scope, the semester\'s holidays and blocked slots. Every timetable is checked against them.',
-	},
-	{
-		title: 'Lock and publish',
-		description: 'Place lectures and exams, fix what is flagged, then lock the FINAL version. It is available to download at once.',
-	},
+// A semester, start to finish, as the timeline under "How it works".
+const MILESTONES = [
+	{ week: 'Before week 1', title: 'Set up the semester', text: 'Faculties, departments, courses and rooms; import existing timetables or copy an earlier semester.' },
+	{ week: 'Week 1', title: 'Set the rules', text: 'Each course\'s scope, holidays and blocked slots. Every timetable is checked against them from here on.' },
+	{ week: 'When ready', title: 'Lock and publish', text: 'Fix what is flagged and lock the FINAL version. Students can download it at once.' },
 ];
 
 // Structured data for search engines: a web application for the University
@@ -98,13 +68,10 @@ const STRUCTURED_DATA = {
 	},
 };
 
-const pad = (n) => String(n).padStart(2, '0');
-
 /*
- * Below the hero, sections fade and rise a little the first time they scroll
- * into view. Nothing is hidden until this runs (so the page reads fine without
- * scripts), nothing already on screen is hidden, each item plays once, and it
- * is off for people who ask their device to reduce motion.
+ * Below the hero, blocks fade and rise a little the first time they scroll
+ * into view. Nothing is hidden until this runs, nothing already on screen is
+ * hidden, each plays once, and it is off for people who ask for reduced motion.
  */
 function useReveal(rootRef) {
 	useEffect(() => {
@@ -112,7 +79,6 @@ function useReveal(rootRef) {
 		if (!root || !('IntersectionObserver' in window)) return;
 		if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
 		const items = [...root.querySelectorAll('[data-reveal]')];
-		// What is on screen now stays visible: no flash on load.
 		for (const el of items) {
 			if (el.getBoundingClientRect().top < window.innerHeight) el.dataset.revealed = '';
 		}
@@ -132,56 +98,63 @@ function useReveal(rootRef) {
 	}, [rootRef]);
 }
 
-/*
- * What the product does, at a glance: a few lectures on a timetable grid with
- * one clash flagged, as an officer would see it. An illustration (the codes
- * and rooms are examples), so it is described for screen readers as one.
- */
-const PREVIEW_DAYS = ['Mon', 'Tue', 'Wed'];
-const PREVIEW_TIMES = ['8:00', '10:00', '12:00'];
-const PREVIEW_CELLS = {
-	'Mon-8:00': { code: 'CSC 201', room: 'LT 1' },
-	'Mon-12:00': { code: 'MTH 203', room: 'Main Aud.' },
-	'Tue-8:00': { code: 'PHY 211', room: 'LT 2' },
-	'Tue-10:00': { code: 'STA 201 · CSC 203', room: 'Both in LT 1', clash: true },
-	'Tue-12:00': { code: 'GST 201', room: 'Online' },
-	'Wed-10:00': { code: 'CSC 203', room: 'LT 2' },
-	'Wed-12:00': { code: 'CSC 205', room: 'Lab 3' },
-};
+const toneClass = (tone) => ({ blue: styles.toneBlue, yellow: styles.toneYellow, pale: styles.tonePale })[tone];
 
-function TimetablePreview() {
+/* ---------- Hero: a week grid with the headline booked into it ---------- */
+
+function HeroGrid() {
 	return (
-		<figure
-			className={styles.preview}
-			role="img"
-			aria-label="Example: a lecture timetable grid with one clash flagged: STA 201 and CSC 203 both in LT 1 on Tuesday at 10:00."
-		>
-			<div className={styles.previewHead} aria-hidden="true">
-				<span>Faculty of Science · Lectures</span>
-				<span className={styles.previewDraft}>Draft</span>
+		<div className={styles.week}>
+			{/* Day and time labels: the grid reads as a timetable. */}
+			<span className={styles.corner} aria-hidden="true" />
+			{DAYS.map((d, i) => (
+				<span key={d} className={styles.dayLabel} style={{ gridColumn: i + 2 }} aria-hidden="true">{d}</span>
+			))}
+			{TIMES.map((t, i) => (
+				<span key={t} className={styles.timeLabel} style={{ gridRow: i + 2 }} aria-hidden="true">{t}</span>
+			))}
+
+			{/* Every slot, so the grid lines show where nothing is booked. */}
+			{TIMES.map((t, r) => DAYS.map((d, c) => (
+				<span key={`${d}-${t}`} className={styles.slot} style={{ gridColumn: c + 2, gridRow: r + 2 }} aria-hidden="true" />
+			)))}
+
+			{/* The headline, booked across Mon-Thu, 8:00-2:00. */}
+			<div className={styles.headline}>
+				<p className={styles.headlineSlot}>Mon–Thu · 8:00–2:00 · All faculties</p>
+				<h1 className={styles.headlineTitle}>
+					Lecture and exam timetables for every UNILAG faculty, <mark>with the clashes caught.</mark>
+				</h1>
+				<p className={styles.headlineText}>
+					Timetable officers build each semester&apos;s timetables in UniSchedule, and every lecture
+					and exam is checked against rooms, courses and students as it is placed. When a timetable is
+					FINAL, anyone can download it.
+				</p>
+				<div className={styles.headlineActions}>
+					<Link href="/download" className={styles.primary}>Download a timetable</Link>
+					<Link href="/realms" className={styles.secondary}>Staff sign in</Link>
+				</div>
 			</div>
-			<div className={styles.previewGrid} aria-hidden="true">
-				<span />
-				{PREVIEW_DAYS.map((d) => <span key={d} className={styles.previewDay}>{d}</span>)}
-				{PREVIEW_TIMES.map((t) => (
-					<div key={t} className={styles.previewRow}>
-						<span className={styles.previewTime}>{t}</span>
-						{PREVIEW_DAYS.map((d) => {
-							const c = PREVIEW_CELLS[`${d}-${t}`];
-							return (
-								<span key={d} className={c ? (c.clash ? styles.previewClash : styles.previewCell) : styles.previewEmpty}>
-									{c && <><b>{c.code}</b><small>{c.room}</small></>}
-								</span>
-							);
-						})}
-					</div>
-				))}
+
+			{/* A clash, flagged: two courses in the same room at the same time. */}
+			<div className={styles.clash} role="note" aria-label="Example clash: STA 201 and CSC 203 both booked in LT 1, Friday 10:00.">
+				<span className={styles.clashTag} aria-hidden="true">Clash</span>
+				<span className={styles.clashCourse} aria-hidden="true"><b>STA 201</b> LT 1</span>
+				<span className={styles.clashCourse} aria-hidden="true"><b>CSC 203</b> LT 1</span>
 			</div>
-			<p className={styles.previewAlert} aria-hidden="true">
-				<span className={styles.previewAlertMark}>!</span>
-				STA 201 and CSC 203 are both in LT 1 on Tuesday at 10:00. Fix it before locking.
-			</p>
-		</figure>
+
+			{HERO_BLOCKS.map((b) => (
+				<span
+					key={b.code}
+					className={`${styles.block} ${toneClass(b.tone)}`}
+					style={{ gridColumn: b.col, gridRow: b.row }}
+					aria-hidden="true"
+				>
+					<b>{b.code}</b>
+					<small>{b.room}</small>
+				</span>
+			))}
+		</div>
 	);
 }
 
@@ -189,7 +162,7 @@ export default function Landing() {
 	const pageRef = useRef(null);
 	useReveal(pageRef);
 	return (
-		<div ref={pageRef} className={`${styles.page} ${display.variable} ${mono.variable}`}>
+		<div ref={pageRef} className={`${styles.page} ${display.variable}`}>
 			<script
 				type="application/ld+json"
 				dangerouslySetInnerHTML={{ __html: JSON.stringify(STRUCTURED_DATA).replace(/</g, '\\u003c') }}
@@ -199,122 +172,93 @@ export default function Landing() {
 			<header className={styles.nav}>
 				<div className={styles.navInner}>
 					<Link href="/" className={styles.wordmark}>
-						UniSchedule<span className={styles.wordmarkDot}>.</span>
+						<span className={styles.wordmarkMark} aria-hidden="true" />
+						UniSchedule
 					</Link>
-					<span className={styles.navFor}>For the University of Lagos</span>
+					<span className={styles.navFor}>for the University of Lagos</span>
 					<nav className={styles.navLinks} aria-label="Main">
 						<a href="#for">Who it&apos;s for</a>
 						<a href="#features">Features</a>
 						<a href="#how">How it works</a>
-						<Link href="/contributors">Contributors</Link>
+						<Link href="/download">Download</Link>
 					</nav>
 					<Link href="/realms" className={styles.navSignIn}>Staff sign in</Link>
 				</div>
 			</header>
 
 			<main>
-				{/* ---------- Hero ---------- */}
-				<section className={styles.heroBand}>
-					<div className={styles.hero}>
-						<div className={styles.heroMeta}>
-							<span>{'// Timetable manager for UNILAG'}</span>
-							<span>Lectures · Exams · CBT</span>
-						</div>
-						<h1 className={styles.heroTitle}>
-							<span className={styles.lineSolid}>Every timetable.</span>
-							<span className={styles.lineOutline}>Every faculty.</span>
-							<span className={styles.lineMark}>No clashes.</span>
-						</h1>
-						<div className={styles.heroFoot}>
-							<div className={styles.heroCopy}>
-								<p className={styles.heroText}>
-									Timetable officers build each semester&apos;s lecture and exam timetables in
-									UniSchedule, and every one is checked against rooms, courses and students as it
-									is placed. When a timetable is FINAL, anyone can download it.
-								</p>
-								<div className={styles.heroActions}>
-									<Link href="/download" className={styles.primary}>
-										Download a timetable <span className={styles.arrow} aria-hidden="true">→</span>
-									</Link>
-									<Link href="/realms" className={styles.textLink}>
-										Staff sign in <span className={styles.arrow} aria-hidden="true">→</span>
-									</Link>
-								</div>
-							</div>
-							<TimetablePreview />
-						</div>
-					</div>
-				</section>
-
-				{/* ---------- Facts ---------- */}
-				<section className={styles.facts} aria-label="What it covers">
-					<div className={styles.factsInner}>
-						{FACTS.map((f, i) => (
-							<div key={f.label} className={styles.fact} data-reveal style={{ '--delay': `${i * 90}ms` }}>
-								<span className={styles.factFigure}>{f.figure}</span>
-								<span className={styles.factLabel}>{f.label}</span>
-								<span className={styles.factDetail}>{f.detail}</span>
-							</div>
-						))}
-					</div>
+				<section className={styles.hero}>
+					<HeroGrid />
+					<ul className={styles.covers} aria-label="What it covers">
+						<li><b>Lectures, exams and CBT</b> in one place</li>
+						<li><b>Undergraduate and ICE</b>, each with its own calendar</li>
+						<li><b>A3 PDFs</b> anyone can check by QR code</li>
+					</ul>
 				</section>
 
 				{/* ---------- Who it's for ---------- */}
-				<section id="for" className={`${styles.section} ${styles.tinted}`}>
-					<p className={styles.sectionLabel} data-reveal><span>01</span> Who it&apos;s for</p>
+				<section id="for" className={styles.section}>
+					<h2 className={styles.sectionTitle} data-reveal>Who it&apos;s for</h2>
 					<div className={styles.audiences}>
-						<div className={styles.audience} data-reveal>
-							<h2 className={styles.audienceTitle}>Students &amp; visitors</h2>
+						<article className={`${styles.audience} ${styles.toneYellow}`} data-reveal>
+							<p className={styles.audienceSlot}>Open to everyone · no sign-in</p>
+							<h3>Students and visitors</h3>
 							<ul>
-								<li>Download any FINAL lecture, exam or CBT timetable as an A3 PDF. No account needed.</li>
+								<li>Download any FINAL lecture, exam or CBT timetable as an A3 PDF.</li>
 								<li>Narrow it to your faculty, department and level.</li>
 								<li>Scan the QR code on a printed copy to check it is genuine and current.</li>
 							</ul>
 							<div className={styles.audienceLinks}>
-								<Link href="/download">Download a timetable →</Link>
-								<Link href="/verify">Check a printed copy →</Link>
+								<Link href="/download">Download a timetable</Link>
+								<Link href="/verify">Check a printed copy</Link>
 							</div>
-						</div>
-						<div className={styles.audience} data-reveal style={{ '--delay': '90ms' }}>
-							<h2 className={styles.audienceTitle}>Timetable officers &amp; staff</h2>
+						</article>
+						<article className={`${styles.audience} ${styles.toneBlue}`} data-reveal style={{ '--delay': '90ms' }}>
+							<p className={styles.audienceSlot}>Timetable office · signed in</p>
+							<h3>Timetable officers and staff</h3>
 							<ul>
 								<li>Build lecture, exam and CBT timetables for your faculty or the whole university.</li>
 								<li>See every clash the moment it happens, and why.</li>
 								<li>Lock the FINAL version, and it is published at once with its sign-off.</li>
 							</ul>
 							<div className={styles.audienceLinks}>
-								<Link href={loginPath('UG')}>Undergraduate sign in →</Link>
-								<Link href={loginPath('ICE')}>ICE sign in →</Link>
+								<Link href={loginPath('UG')}>Undergraduate sign in</Link>
+								<Link href={loginPath('ICE')}>ICE sign in</Link>
 							</div>
-						</div>
+						</article>
 					</div>
 				</section>
 
-				{/* ---------- Features ---------- */}
+				{/* ---------- Features, as course blocks ---------- */}
 				<section id="features" className={styles.section}>
-					<p className={styles.sectionLabel} data-reveal><span>02</span> What it does</p>
-					<h2 className={styles.sectionTitle} data-reveal>Built for how UNILAG schedules.</h2>
-					<ol className={styles.rows}>
+					<h2 className={styles.sectionTitle} data-reveal>What it does</h2>
+					<p className={styles.sectionLead} data-reveal>Built around how the University of Lagos schedules its lectures and exams.</p>
+					<div className={styles.features}>
 						{FEATURES.map((f, i) => (
-							<li key={f.title} className={styles.row} data-reveal>
-								<span className={styles.rowNumber}>{pad(i + 1)}</span>
-								<h3 className={styles.rowTitle}>{f.title}</h3>
-								<p className={styles.rowText}>{f.description}</p>
-							</li>
+							<article
+								key={f.title}
+								className={`${styles.feature} ${toneClass(f.tone)}`}
+								data-reveal
+								style={{ '--delay': `${(i % 3) * 70}ms` }}
+							>
+								<p className={styles.featureSlot}>{f.slot}</p>
+								<h3>{f.title}</h3>
+								<p>{f.text}</p>
+							</article>
 						))}
-					</ol>
+					</div>
 				</section>
 
-				{/* ---------- How it works ---------- */}
+				{/* ---------- How it works, as a semester timeline ---------- */}
 				<section id="how" className={styles.section}>
-					<p className={styles.sectionLabel} data-reveal><span>03</span> How it works</p>
-					<h2 className={styles.sectionTitle} data-reveal>Three steps to a published timetable.</h2>
-					<ol className={styles.steps}>
-						{STEPS.map((s, i) => (
-							<li key={s.title} className={styles.step} data-reveal style={{ '--delay': `${i * 90}ms` }}>
-								<span className={styles.stepNumber} aria-hidden="true">{pad(i + 1)}</span>
-								<h3>{s.title}</h3>
-								<p>{s.description}</p>
+					<h2 className={styles.sectionTitle} data-reveal>How a semester comes together</h2>
+					<ol className={styles.timeline}>
+						{MILESTONES.map((m, i) => (
+							<li key={m.title} className={styles.milestone} data-reveal style={{ '--delay': `${i * 90}ms` }}>
+								<span className={styles.milestoneDot} aria-hidden="true" />
+								<p className={styles.milestoneWeek}>{m.week}</p>
+								<h3>{m.title}</h3>
+								<p>{m.text}</p>
 							</li>
 						))}
 					</ol>
@@ -324,37 +268,39 @@ export default function Landing() {
 			{/* ---------- Footer ---------- */}
 			<footer className={styles.footer}>
 				<div className={styles.footerInner}>
-					<p className={styles.footerLabel}>{'// Looking for your timetable?'}</p>
-					<Link href="/download" className={styles.footerCta} data-reveal>
-						Find your timetable <span aria-hidden="true">→</span>
-					</Link>
-
+					<div className={styles.footerCall}>
+						<h2>Looking for your timetable?</h2>
+						<Link href="/download" className={styles.footerButton}>Download a timetable</Link>
+					</div>
 					<div className={styles.footerGrid}>
-						<div>
-							<p className={styles.footerLabel}>{'// About'}</p>
-							<p className={styles.footerAbout}>
-								UniSchedule is a timetable manager built for the University of Lagos by{' '}
+						<div className={styles.footerAbout}>
+							<p className={styles.footerWordmark}>
+								<span className={styles.wordmarkMark} aria-hidden="true" />
+								UniSchedule
+							</p>
+							<p>
+								A timetable manager built for the University of Lagos by{' '}
 								<Link href="/contributors">its contributors</Link>.
 							</p>
 						</div>
 						<nav aria-label="Footer" className={styles.footerLinks}>
 							<div>
-								<p className={styles.footerLabel}>{'// Timetables'}</p>
+								<h3>Timetables</h3>
 								<Link href="/download">Download a timetable</Link>
 								<Link href="/verify">Check a printed copy</Link>
 							</div>
 							<div>
-								<p className={styles.footerLabel}>{'// Staff'}</p>
+								<h3>Staff</h3>
 								<Link href={loginPath('UG')}>Undergraduate sign in</Link>
 								<Link href={loginPath('ICE')}>ICE sign in</Link>
 							</div>
+							<div>
+								<h3>Project</h3>
+								<Link href="/contributors">Contributors</Link>
+							</div>
 						</nav>
 					</div>
-
-					<div className={styles.footerBottom}>
-						<span>© {new Date().getFullYear()} UniSchedule. All rights reserved.</span>
-						<a href="#top" onClick={(e) => { e.preventDefault(); window.scrollTo(0, 0); }}>Back to top ↑</a>
-					</div>
+					<p className={styles.copyright}>© {new Date().getFullYear()} UniSchedule. All rights reserved.</p>
 				</div>
 			</footer>
 		</div>
