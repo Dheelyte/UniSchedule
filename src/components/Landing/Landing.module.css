@@ -1,9 +1,10 @@
-/* Homepage. Bold and editorial: white and UNILAG blue, a touch of gold,
+/* Homepage. Bold and editorial: white, UNILAG blue and yellow,
    big grotesk headings and monospace labels, ruled rows instead of cards.
    No decoration without information, and no motion. Light theme only. */
 
 .page {
-	/* UNILAG blue and white, with gold only as a small touch. */
+	/* White, UNILAG blue and yellow: white is the page, blue carries the
+	   brand, yellow marks what matters most. */
 	--paper: #ffffff;
 	--paper-2: #f2f6fc;
 	--ink: #0a1b3d;
@@ -16,7 +17,8 @@
 	--on-blue: #ffffff;
 	--on-blue-2: #c7d5ee;
 	--on-blue-rule: #24508f;
-	--gold: #f2b705;
+	--yellow: #ffc20e;
+	--on-yellow: #0a1b3d;
 	--display: var(--font-display), 'Arial Black', Arial, sans-serif;
 	--label: var(--font-label), ui-monospace, Menlo, monospace;
 
@@ -60,7 +62,7 @@
 }
 
 .wordmarkDot {
-	color: var(--gold);
+	color: var(--yellow);
 }
 
 .navFor {
@@ -165,11 +167,16 @@
 .lineOutline,
 .stepNumber {
 	/* The font builds letters from overlapping shapes, and a plain outline
-	   traces every overlap. Drawing a double-width stroke behind a paper fill
+	   traces every overlap. Drawing a double-width stroke behind the fill
 	   shows only the outer edge. */
 	color: var(--paper);
-	-webkit-text-stroke: 4px var(--ink);
+	-webkit-text-stroke: 4px var(--blue);
 	paint-order: stroke fill;
+}
+
+/* Step numbers: yellow, outlined in blue. */
+.stepNumber {
+	color: var(--yellow);
 }
 
 /* The one highlighted phrase: what the product is for. */
@@ -177,7 +184,7 @@
 	margin-top: 10px;
 	padding: 0.02em 0.14em 0.08em;
 	background: var(--blue);
-	color: var(--on-blue);
+	color: var(--yellow);
 }
 
 .heroFoot {
@@ -272,7 +279,7 @@
 	font-weight: 800;
 	line-height: 1;
 	letter-spacing: -0.04em;
-	color: var(--on-blue);
+	color: var(--yellow);
 }
 
 .factLabel {
@@ -309,8 +316,8 @@
 
 .sectionLabel span {
 	padding: 2px 6px;
-	background: var(--blue);
-	color: var(--on-blue);
+	background: var(--yellow);
+	color: var(--on-yellow);
 }
 
 .sectionTitle {
@@ -383,7 +390,7 @@
 	letter-spacing: 0.1em;
 	text-transform: uppercase;
 	text-decoration: underline;
-	text-decoration-color: var(--blue);
+	text-decoration-color: var(--yellow);
 	text-decoration-thickness: 3px;
 	text-underline-offset: 5px;
 }
@@ -495,12 +502,12 @@
 	line-height: 1;
 	letter-spacing: -0.045em;
 	text-transform: uppercase;
-	color: var(--on-blue) !important;
+	color: var(--yellow) !important;
 	text-decoration: none;
 }
 
 .footerCta span {
-	color: var(--gold);
+	color: var(--on-blue);
 }
 
 .footerCta:hover {
@@ -526,7 +533,7 @@
 .footerAbout a {
 	color: #fff !important;
 	text-decoration: underline;
-	text-decoration-color: var(--gold);
+	text-decoration-color: var(--yellow);
 	text-underline-offset: 4px;
 }
 
@@ -596,7 +603,9 @@
 
 .previewDraft {
 	padding: 2px 8px;
-	border: 1px solid var(--on-blue-2);
+	background: var(--yellow);
+	color: var(--on-yellow);
+	border: 1px solid var(--yellow);
 	border-radius: 999px;
 	font-size: 0.64rem;
 }
@@ -709,7 +718,29 @@
 	padding-bottom: 72px;
 }
 
-/* ---------- Hover polish (mouse only, and not if motion is reduced) ---------- */
+/* ---------- Hover colours (mouse only; colour, not motion) ---------- */
+@media (hover: hover) {
+	.row:hover {
+		padding-left: 16px;
+		padding-right: 16px;
+		background: var(--yellow);
+		border-bottom-color: var(--yellow);
+	}
+
+	.row:hover .rowTitle,
+	.row:hover .rowText,
+	.row:hover .rowNumber {
+		color: var(--on-yellow);
+	}
+
+	/* The main button turns yellow under the pointer. */
+	.primary:hover {
+		background: var(--yellow);
+		color: var(--on-yellow) !important;
+	}
+}
+
+/* ---------- Hover movement (mouse only, and not if motion is reduced) ---------- */
 @media (hover: hover) and (prefers-reduced-motion: no-preference) {
 	.arrow,
 	.audienceLinks a,
@@ -728,18 +759,6 @@
 		transition: background-color 160ms ease, color 160ms ease, padding 160ms ease;
 	}
 
-	.row:hover {
-		padding-left: 16px;
-		padding-right: 16px;
-		background: var(--blue);
-		border-bottom-color: var(--blue);
-	}
-
-	.row:hover .rowTitle,
-	.row:hover .rowText,
-	.row:hover .rowNumber {
-		color: var(--on-blue);
-	}
 
 	.primary,
 	.navSignIn {
