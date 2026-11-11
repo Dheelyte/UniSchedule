@@ -17,18 +17,37 @@ function getApiBaseUrl() {
 	return "http://127.0.0.1:8000/api/v1";
 }
 
-// Reads are kept for a few minutes, so moving between sections doesn't load
-// the same data again. Any write (POST, PUT, PATCH, DELETE: saving, signing in
-// or out, switching realm) clears every kept read, so your own changes always
-// show at once; a browser refresh starts clean. Someone else's edits show
-// within READ_CACHE_MS, or on refresh. Sign-in checks and notifications
-// (which are polled) are never kept.
-const READ_CACHE_MS = 5 * 60 * 1000;
-const NEVER_KEPT = ["/auth", "/notifications"];
+// Reads are kept until the browser is refreshed, the way the courses page
+// works (courses are loaded once and edited in place), so moving between
+// sections doesn't load the same data again. Any write (POST, PUT, PATCH,
+// DELETE: saving, signing in or out, switching realm) clears every kept read,
+// so your own changes always show at once.
+//
+// What two officers can be changing at the same moment (the timetable grid,
+// locks, blocked slots, requests, activity) is kept for LIVE_MS only, so a
+// colleague's edit or a new clash shows within a couple of minutes without a
+// refresh. The signed-in check and notifications (polled) are never kept.
+const LIVE_MS = 2 * 60 * 1000;
+const LIVE = [
+	"/timetable/schedule-items",
+	"/timetable/locks",
+	"/timetable/blocked-slots",
+	"/timetable/change-requests",
+	"/timetable/conflict-dismissals",
+	"/timetable/external-bookings",
+	"/timetable/rooms/usage",
+	"/timetable-import/imports",
+	"/audit",
+];
+const NEVER_KEPT = ["/auth/me", "/notifications"];
 const readCache = new Map(); // endpoint -> { at, promise }
 
 export function clearReadCache() {
 	readCache.clear();
+}
+
+function stillGood(endpoint, kept) {
+	return !LIVE.some((p) => endpoint.startsWith(p)) || Date.now() - kept.at < LIVE_MS;
 }
 
 function keepable(endpoint) {
@@ -99,7 +118,7 @@ export const apiClient = {
 			return this.request(endpoint, { method: "GET", ...options });
 		}
 		const kept = readCache.get(endpoint);
-		if (!fresh && kept && Date.now() - kept.at < READ_CACHE_MS) {
+		if (!fresh && kept && stillGood(endpoint, kept)) {
 			return kept.promise.then(copy);
 		}
 		const entry = { at: Date.now(), promise: null };
