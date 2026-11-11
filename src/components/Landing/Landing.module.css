@@ -747,6 +747,30 @@
 	}
 }
 
+/* ---------- Scroll reveals (see useReveal in Landing.js) ---------- */
+/* Only hidden once the script has marked the page, so content is never lost. */
+.page[data-motion] [data-reveal]:not([data-revealed]) {
+	opacity: 0;
+	transform: translateY(18px);
+}
+
+.page[data-motion] [data-reveal] {
+	transition:
+		opacity 520ms ease var(--delay, 0ms),
+		transform 520ms cubic-bezier(0.22, 1, 0.36, 1) var(--delay, 0ms),
+		background-color 160ms ease,
+		color 160ms ease,
+		padding 160ms ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.page[data-motion] [data-reveal] {
+		opacity: 1 !important;
+		transform: none !important;
+		transition: none !important;
+	}
+}
+
 /* ---------- Narrower screens ---------- */
 @media (max-width: 1000px) {
 	.heroFoot {

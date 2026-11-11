@@ -7,6 +7,7 @@
 // Bold and editorial, but everything on the page tells a visitor something or
 // takes them somewhere: no particles, tickers, invented statistics or motion.
 import Link from 'next/link';
+import { useEffect, useRef } from 'react';
 import { Bricolage_Grotesque, JetBrains_Mono } from 'next/font/google';
 import styles from './Landing.module.css';
 import { loginPath } from '@/lib/realm';
@@ -100,6 +101,38 @@ const STRUCTURED_DATA = {
 const pad = (n) => String(n).padStart(2, '0');
 
 /*
+ * Below the hero, sections fade and rise a little the first time they scroll
+ * into view. Nothing is hidden until this runs (so the page reads fine without
+ * scripts), nothing already on screen is hidden, each item plays once, and it
+ * is off for people who ask their device to reduce motion.
+ */
+function useReveal(rootRef) {
+	useEffect(() => {
+		const root = rootRef.current;
+		if (!root || !('IntersectionObserver' in window)) return;
+		if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+		const items = [...root.querySelectorAll('[data-reveal]')];
+		// What is on screen now stays visible: no flash on load.
+		for (const el of items) {
+			if (el.getBoundingClientRect().top < window.innerHeight) el.dataset.revealed = '';
+		}
+		const observer = new IntersectionObserver(
+			(entries) => {
+				for (const entry of entries) {
+					if (!entry.isIntersecting) continue;
+					entry.target.dataset.revealed = '';
+					observer.unobserve(entry.target);
+				}
+			},
+			{ rootMargin: '0px 0px -8% 0px' },
+		);
+		for (const el of items) if (!('revealed' in el.dataset)) observer.observe(el);
+		root.dataset.motion = '';
+		return () => observer.disconnect();
+	}, [rootRef]);
+}
+
+/*
  * What the product does, at a glance: a few lectures on a timetable grid with
  * one clash flagged, as an officer would see it. An illustration (the codes
  * and rooms are examples), so it is described for screen readers as one.
@@ -153,8 +186,10 @@ function TimetablePreview() {
 }
 
 export default function Landing() {
+	const pageRef = useRef(null);
+	useReveal(pageRef);
 	return (
-		<div className={`${styles.page} ${display.variable} ${mono.variable}`}>
+		<div ref={pageRef} className={`${styles.page} ${display.variable} ${mono.variable}`}>
 			<script
 				type="application/ld+json"
 				dangerouslySetInnerHTML={{ __html: JSON.stringify(STRUCTURED_DATA).replace(/</g, '\\u003c') }}
@@ -214,8 +249,8 @@ export default function Landing() {
 				{/* ---------- Facts ---------- */}
 				<section className={styles.facts} aria-label="What it covers">
 					<div className={styles.factsInner}>
-						{FACTS.map((f) => (
-							<div key={f.label} className={styles.fact}>
+						{FACTS.map((f, i) => (
+							<div key={f.label} className={styles.fact} data-reveal style={{ '--delay': `${i * 90}ms` }}>
 								<span className={styles.factFigure}>{f.figure}</span>
 								<span className={styles.factLabel}>{f.label}</span>
 								<span className={styles.factDetail}>{f.detail}</span>
@@ -226,9 +261,9 @@ export default function Landing() {
 
 				{/* ---------- Who it's for ---------- */}
 				<section id="for" className={`${styles.section} ${styles.tinted}`}>
-					<p className={styles.sectionLabel}><span>01</span> Who it&apos;s for</p>
+					<p className={styles.sectionLabel} data-reveal><span>01</span> Who it&apos;s for</p>
 					<div className={styles.audiences}>
-						<div className={styles.audience}>
+						<div className={styles.audience} data-reveal>
 							<h2 className={styles.audienceTitle}>Students &amp; visitors</h2>
 							<ul>
 								<li>Download any FINAL lecture, exam or CBT timetable as an A3 PDF. No account needed.</li>
@@ -240,7 +275,7 @@ export default function Landing() {
 								<Link href="/verify">Check a printed copy →</Link>
 							</div>
 						</div>
-						<div className={styles.audience}>
+						<div className={styles.audience} data-reveal style={{ '--delay': '90ms' }}>
 							<h2 className={styles.audienceTitle}>Timetable officers &amp; staff</h2>
 							<ul>
 								<li>Build lecture, exam and CBT timetables for your faculty or the whole university.</li>
@@ -257,11 +292,11 @@ export default function Landing() {
 
 				{/* ---------- Features ---------- */}
 				<section id="features" className={styles.section}>
-					<p className={styles.sectionLabel}><span>02</span> What it does</p>
-					<h2 className={styles.sectionTitle}>Built for how UNILAG schedules.</h2>
+					<p className={styles.sectionLabel} data-reveal><span>02</span> What it does</p>
+					<h2 className={styles.sectionTitle} data-reveal>Built for how UNILAG schedules.</h2>
 					<ol className={styles.rows}>
 						{FEATURES.map((f, i) => (
-							<li key={f.title} className={styles.row}>
+							<li key={f.title} className={styles.row} data-reveal>
 								<span className={styles.rowNumber}>{pad(i + 1)}</span>
 								<h3 className={styles.rowTitle}>{f.title}</h3>
 								<p className={styles.rowText}>{f.description}</p>
@@ -272,11 +307,11 @@ export default function Landing() {
 
 				{/* ---------- How it works ---------- */}
 				<section id="how" className={styles.section}>
-					<p className={styles.sectionLabel}><span>03</span> How it works</p>
-					<h2 className={styles.sectionTitle}>Three steps to a published timetable.</h2>
+					<p className={styles.sectionLabel} data-reveal><span>03</span> How it works</p>
+					<h2 className={styles.sectionTitle} data-reveal>Three steps to a published timetable.</h2>
 					<ol className={styles.steps}>
 						{STEPS.map((s, i) => (
-							<li key={s.title} className={styles.step}>
+							<li key={s.title} className={styles.step} data-reveal style={{ '--delay': `${i * 90}ms` }}>
 								<span className={styles.stepNumber} aria-hidden="true">{pad(i + 1)}</span>
 								<h3>{s.title}</h3>
 								<p>{s.description}</p>
@@ -290,7 +325,7 @@ export default function Landing() {
 			<footer className={styles.footer}>
 				<div className={styles.footerInner}>
 					<p className={styles.footerLabel}>{'// Looking for your timetable?'}</p>
-					<Link href="/download" className={styles.footerCta}>
+					<Link href="/download" className={styles.footerCta} data-reveal>
 						Find your timetable <span aria-hidden="true">→</span>
 					</Link>
 
