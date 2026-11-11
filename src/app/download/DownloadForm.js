@@ -161,21 +161,21 @@ export default function DownloadForm({ initialPublished = null }) {
 					<div className={styles.row}>
 						<label className={styles.field}>
 							<span>Faculty</span>
-							<select value={faculty} onChange={(e) => setFaculty(e.target.value)} disabled={!options}>
+							<select value={faculty} onChange={(e) => setFaculty(e.target.value)}>
 								<option value="ALL">All faculties</option>
 								{(options?.faculties || []).map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
 							</select>
 						</label>
 						<label className={styles.field}>
 							<span>Department</span>
-							<select value={department} onChange={(e) => setDepartment(e.target.value)} disabled={!options}>
+							<select value={department} onChange={(e) => setDepartment(e.target.value)}>
 								<option value="ALL">All departments</option>
 								{departments.map((d) => <option key={d.id} value={String(d.id)}>{d.name}</option>)}
 							</select>
 						</label>
 						<label className={styles.field}>
 							<span>Level</span>
-							<select value={level} onChange={(e) => setLevel(e.target.value)} disabled={!options}>
+							<select value={level} onChange={(e) => setLevel(e.target.value)}>
 								<option value="ALL">All levels</option>
 								{(options?.levels || []).map((l) => <option key={l} value={String(l)}>{l} Level</option>)}
 							</select>
