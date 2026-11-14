@@ -3,9 +3,9 @@
 export const SITE_URL = (process.env.NEXT_PUBLIC_SITE_URL || 'https://www.unilagtimetable.com').replace(/\/$/, '');
 
 export const SITE_NAME = 'UniSchedule';
-export const SITE_TITLE = 'UniSchedule: University of Lagos Timetable Manager';
+export const SITE_TITLE = 'UniSchedule: UNILAG (University of Lagos) Timetable Manager';
 export const SITE_DESCRIPTION =
-	'Download official University of Lagos lecture, exam and CBT timetables, and build them clash-free. UniSchedule is the UNILAG timetable manager.';
+	'Download official UNILAG (University of Lagos) lecture, exam and CBT timetables, and build them clash-free. UniSchedule is the UNILAG timetable manager.';
 
 // Pages only signed-in staff can use. Kept out of search results.
 export const PRIVATE_PATHS = [
