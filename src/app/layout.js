@@ -11,12 +11,36 @@ export const metadata = {
   description: SITE_DESCRIPTION,
   applicationName: SITE_NAME,
   keywords: [
+    // The university
+    'UNILAG',
+    'University of Lagos',
+    'UNILAG Akoka',
+    // Timetables in general
     'UNILAG timetable',
     'University of Lagos timetable',
+    'UNILAG timetable PDF',
+    'download UNILAG timetable',
+    'UNILAG class timetable',
     'UNILAG lecture timetable',
+    'University of Lagos lecture timetable',
+    'UNILAG lecture schedule',
+    // Semesters
+    'UNILAG first semester timetable',
+    'UNILAG second semester timetable',
+    // Exams
     'UNILAG exam timetable',
+    'UNILAG examination timetable',
+    'University of Lagos exam timetable',
+    'UNILAG exam schedule',
     'UNILAG CBT timetable',
+    // Programmes, faculties and levels
     'ICE UNILAG timetable',
+    'UNILAG part-time timetable',
+    'UNILAG faculty timetable',
+    'UNILAG department timetable',
+    'UNILAG 100 level timetable',
+    // The product
+    'clash-free timetable',
     'timetable management',
     'UniSchedule',
   ],
