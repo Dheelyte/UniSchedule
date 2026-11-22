@@ -9,6 +9,11 @@ export const NO_EDITOR_ACCESS = { can_grant: false, granted: null, received: nul
 export const hasEditorAccessControls = (user) =>
 	!!user && !user.impersonating && (user.role === 'FACULTY_EDITOR' || user.role === 'FACULTY_VIEWER');
 
+// Only a plain Faculty Viewer may be given editor access (or have it redirected
+// to them). A Head of Department (HOD) views like a Faculty Viewer but never
+// receives it; the backend refuses them too.
+export const canReceiveEditorAccess = (role) => role === 'FACULTY_VIEWER';
+
 // Super admins and Faculty Editors manage staff. An editor who handed their
 // access over is a Faculty Viewer meanwhile, but still opens the page to
 // retract or redirect it (and sees nothing else there).

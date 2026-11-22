@@ -153,6 +153,9 @@ class EditorAccessService:
             or not is_in_realm(target.role, target.realm_key, realm_key)
         ):
             raise HTTPException(status_code=404, detail="Staff member not found in your faculty")
+        # Heads of Department view the timetable like a Faculty Viewer but never take editor access.
+        if target.role == RoleEnum.HOD:
+            raise HTTPException(status_code=400, detail="Editor access can't be given to a Faculty Viewer (HOD)")
         if target.role != RoleEnum.FACULTY_VIEWER:
             raise HTTPException(status_code=400, detail="Editor access can only be given to a Faculty Viewer")
         if not target.is_active:

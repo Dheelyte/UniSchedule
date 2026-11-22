@@ -63,6 +63,8 @@ class EditorAccessRepository:
     async def viewers_without_handover(self, faculty_id: str, *, realm_key: str, exclude_id: int) -> list[User]:
         """Active Faculty Viewers of a faculty who could receive editor access.
 
+        Only the FACULTY_VIEWER role: Heads of Department (HOD) never receive
+        editor access, so they are never offered to grant or redirect to.
         Leaves out viewers who have handed their own editor access over: they
         must take it back rather than be given someone else's.
         """

@@ -1,7 +1,7 @@
 """Add the HOD role (Heads of Department, shown as "Faculty Viewer (HOD)")
 
 Revision ID: hd01a7c4e9b2
-Revises: r8m9n0o1p2q3
+Revises: s9n0o1p2q3r4
 Create Date: 2026-11-22 00:00:00.000000
 
 Only adds a value to the role enum. No existing account is changed, and the
@@ -14,7 +14,7 @@ from alembic import op
 
 
 revision: str = 'hd01a7c4e9b2'
-down_revision: Union[str, Sequence[str], None] = 'r8m9n0o1p2q3'
+down_revision: Union[str, Sequence[str], None] = 's9n0o1p2q3r4'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

@@ -10,7 +10,7 @@ import { useConfirm } from '@/components/ConfirmModal/ConfirmContext';
 import styles from './staff.module.css';
 import { TablePageSkeleton } from '@/components/Skeleton/Skeleton';
 import { isCrossRealmRole, isFacultyScopedRole, ROLE_LABELS } from '@/lib/roles';
-import { canOpenStaffPage } from '@/lib/editorAccess';
+import { canOpenStaffPage, canReceiveEditorAccess } from '@/lib/editorAccess';
 import { useEditorAccessActions } from '@/components/EditorAccess/useEditorAccessActions';
 import RetractControls from '@/components/EditorAccess/RetractControls';
 
@@ -332,7 +332,7 @@ export default function StaffManagementPage() {
                                                     {user.role === 'SUPER_ADMIN' && (
                                                         <button className={styles.btnSecondaryOutlined} onClick={() => openEditRole(u)}>Edit Role</button>
                                                     )}
-                                                    {grantableIds.has(u.id) && (
+                                                    {grantableIds.has(u.id) && canReceiveEditorAccess(u.role) && (
                                                         <button className={styles.btnSecondaryOutlined} onClick={() => handleGrant(u)} disabled={editorAccessBusy}>Grant Editor Access</button>
                                                     )}
                                                     <button className={styles.btnDangerOutlined} onClick={() => handleDeleteUser(u.id, u.email)}>Remove Access</button>
