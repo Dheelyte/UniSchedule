@@ -152,7 +152,7 @@ async def test_other_cross_realm_roles_can_switch(signed_in, role):
     assert (await _me(client))["realm"] == "ICE"
 
 
-@pytest.mark.parametrize("role", [RoleEnum.FACULTY_EDITOR, RoleEnum.FACULTY_VIEWER, RoleEnum.GS_ADMIN])
+@pytest.mark.parametrize("role", [RoleEnum.FACULTY_EDITOR, RoleEnum.FACULTY_VIEWER, RoleEnum.HOD, RoleEnum.GS_ADMIN])
 async def test_realm_bound_roles_cannot_switch(signed_in, role):
     client, _ = await signed_in(role, faculty_id="ENG")
     assert (await client.post(f"{API}/auth/switch-realm", json={"realm": "ICE"})).status_code == 403

@@ -25,11 +25,12 @@ IMPERSONABLE_ROLES = {
     RoleEnum.SUPER_VIEWER,
     RoleEnum.CITS_ADMIN,
     RoleEnum.DEO,
+    RoleEnum.HOD,
 }
 # Roles scoped to a specific faculty: accounts with them must belong to one,
 # and a super admin assuming one must pick one. Mirrors FACULTY_SCOPED_ROLES
 # in src/lib/roles.js.
-FACULTY_SCOPED_ROLES = {RoleEnum.FACULTY_EDITOR, RoleEnum.FACULTY_VIEWER, RoleEnum.DEO}
+FACULTY_SCOPED_ROLES = {RoleEnum.FACULTY_EDITOR, RoleEnum.FACULTY_VIEWER, RoleEnum.DEO, RoleEnum.HOD}
 # How roles are named to staff. Mirrors ROLE_LABELS in src/lib/roles.js.
 ROLE_LABELS = {
     RoleEnum.SUPER_ADMIN: "Super Admin",
@@ -39,7 +40,17 @@ ROLE_LABELS = {
     RoleEnum.GS_ADMIN: "GS Admin",
     RoleEnum.CITS_ADMIN: "Super Administrator (CITS)",
     RoleEnum.DEO: "Departmental Examination Officer",
+    RoleEnum.HOD: "Faculty Viewer (HOD)",
 }
+
+
+def logged_role_name(role: RoleEnum) -> str:
+    """How a role is written in activity log descriptions and invitation emails.
+
+    Other roles keep their value (FACULTY_VIEWER, DEO, ...). HOD is spelled out
+    as "Faculty Viewer (HOD)", the name staff know it by.
+    """
+    return ROLE_LABELS[role] if role == RoleEnum.HOD else role.value
 
 
 class AuthService:
@@ -104,7 +115,7 @@ class AuthService:
             action="auth.impersonate.start",
             entity_type="user",
             entity_id=int(impersonator_id) if impersonator_id else None,
-            description=f"{impersonator_email} started acting as {target_role.value}"
+            description=f"{impersonator_email} started acting as {logged_role_name(target_role)}"
             + (f" (faculty {faculty_id})" if faculty_id else ""),
             extra={"act_as_role": target_role.value, "act_as_faculty_id": faculty_id},
         )
@@ -190,6 +201,8 @@ class AuthService:
             if not inv.is_used and inv.expires_at > datetime.now(timezone.utc):
                 raise HTTPException(status_code=400, detail="An active invitation already exists for this email")
 
+        if target_role == RoleEnum.HOD and not faculty_id:
+            raise HTTPException(status_code=400, detail="A faculty is required for this role")
         # A faculty belongs to one realm, so the account can only be bound to one of the inviter's.
         if faculty_id and not await self.repo.faculty_exists(faculty_id, realm_key=current_user["realm"]):
             raise HTTPException(status_code=404, detail="Faculty not found")
@@ -211,7 +224,7 @@ class AuthService:
             action="user.invite",
             entity_type="invitation",
             entity_id=created.id,
-            description=f"Invited {email} as {target_role.value}",
+            description=f"Invited {email} as {logged_role_name(target_role)}",
             extra={"email": email, "role": target_role.value, "faculty_id": faculty_id},
         )
         return created
@@ -241,7 +254,7 @@ class AuthService:
             action="user.register",
             entity_type="user",
             entity_id=created_user.id,
-            description=f"{created_user.email} registered as {created_user.role.value}",
+            description=f"{created_user.email} registered as {logged_role_name(created_user.role)}",
         )
         return created_user
 
@@ -266,7 +279,7 @@ class AuthService:
         if not user or not is_in_realm(user.role, user.realm_key, current_user["realm"]): return False
         await self._refuse_if_in_editor_handover(user)
         email = user.email
-        role = user.role.value
+        role = logged_role_name(user.role)
         await self.repo.delete_user(user)
         await self.audit_service.log(
             current_user=current_user,
@@ -319,7 +332,7 @@ class AuthService:
             action="user.role_change",
             entity_type="user",
             entity_id=user.id,
-            description=f"Changed {user.email} from {from_role.value} to {data.role.value}{scope}",
+            description=f"Changed {user.email} from {logged_role_name(from_role)} to {logged_role_name(data.role)}{scope}",
             extra={
                 "from_role": from_role.value,
                 "to_role": data.role.value,

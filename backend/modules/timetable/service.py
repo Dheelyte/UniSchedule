@@ -33,6 +33,7 @@ def _has_global_read_scope(user: dict) -> bool:
         RoleEnum.GS_ADMIN.value,
         RoleEnum.FACULTY_EDITOR.value,
         RoleEnum.FACULTY_VIEWER.value,
+        RoleEnum.HOD.value,
         RoleEnum.DEO.value,
         RoleEnum.CITS_ADMIN.value,
     )
@@ -1335,6 +1336,7 @@ class TimetableService:
     _CHANGE_REQUEST_ROLES = (
         RoleEnum.FACULTY_EDITOR.value,
         RoleEnum.FACULTY_VIEWER.value,
+        RoleEnum.HOD.value,
         RoleEnum.GS_ADMIN.value,
         RoleEnum.SUPER_VIEWER.value,
     )

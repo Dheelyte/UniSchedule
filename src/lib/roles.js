@@ -1,4 +1,4 @@
-export const VIEWER_ROLES = ['FACULTY_VIEWER', 'SUPER_VIEWER', 'DEO'];
+export const VIEWER_ROLES = ['FACULTY_VIEWER', 'HOD', 'SUPER_VIEWER', 'DEO'];
 
 export const isViewerRole = (role) => VIEWER_ROLES.includes(role);
 
@@ -17,7 +17,7 @@ export const isCrossRealmRole = (role) => CROSS_REALM_ROLES.includes(role);
 
 // Roles that may submit (but not directly apply) course-schedule change requests
 // while a timetable is unlocked.
-export const CHANGE_REQUEST_ROLES = ['FACULTY_EDITOR', 'FACULTY_VIEWER', 'GS_ADMIN', 'SUPER_VIEWER'];
+export const CHANGE_REQUEST_ROLES = ['FACULTY_EDITOR', 'FACULTY_VIEWER', 'HOD', 'GS_ADMIN', 'SUPER_VIEWER'];
 
 export const canRequestChange = (role) => CHANGE_REQUEST_ROLES.includes(role);
 
@@ -30,12 +30,13 @@ export const ROLE_LABELS = {
 	GS_ADMIN: 'GS Admin',
 	CITS_ADMIN: 'Super Administrator (CITS)',
 	DEO: 'Departmental Examination Officer',
+	HOD: 'Faculty Viewer (HOD)',
 };
 
 // Roles a super admin may assume (everything except SUPER_ADMIN itself).
-export const IMPERSONABLE_ROLES = ['FACULTY_EDITOR', 'FACULTY_VIEWER', 'GS_ADMIN', 'SUPER_VIEWER', 'CITS_ADMIN', 'DEO'];
+export const IMPERSONABLE_ROLES = ['FACULTY_EDITOR', 'FACULTY_VIEWER', 'HOD', 'GS_ADMIN', 'SUPER_VIEWER', 'CITS_ADMIN', 'DEO'];
 
 // Assumed roles that must be scoped to a specific faculty.
-export const FACULTY_SCOPED_ROLES = ['FACULTY_EDITOR', 'FACULTY_VIEWER', 'DEO'];
+export const FACULTY_SCOPED_ROLES = ['FACULTY_EDITOR', 'FACULTY_VIEWER', 'HOD', 'DEO'];
 
 export const isFacultyScopedRole = (role) => FACULTY_SCOPED_ROLES.includes(role);
