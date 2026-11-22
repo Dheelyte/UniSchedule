@@ -1,7 +1,8 @@
 "use client";
 
-import { createContext, useContext, useState, useEffect, useMemo } from "react";
+import { createContext, useContext, useState, useEffect, useMemo, useCallback } from "react";
 import { apiClient } from "@/lib/apiClient";
+import { NO_EDITOR_ACCESS, hasEditorAccessControls } from "@/lib/editorAccess";
 import { getRealmConfig, rememberRealm } from "@/lib/realm";
 import { SESSION_HINT_KEY } from "@/lib/site";
 import { useRouter } from "next/navigation";
@@ -23,8 +24,20 @@ function setSessionHint(signedIn) {
 	}
 }
 
+// Whether this person handed over, holds, or may hand over editor access.
+// Asked only of faculty editors and viewers; a failure just hides the controls.
+async function loadEditorAccess(user) {
+	if (!hasEditorAccessControls(user)) return NO_EDITOR_ACCESS;
+	try {
+		return (await apiClient.get("/editor-access")) || NO_EDITOR_ACCESS;
+	} catch {
+		return NO_EDITOR_ACCESS;
+	}
+}
+
 export function AuthProvider({ children }) {
 	const [user, setUser] = useState(null);
+	const [editorAccess, setEditorAccess] = useState(NO_EDITOR_ACCESS);
 	const [loading, setLoading] = useState(true);
 	const router = useRouter();
 
@@ -32,11 +45,13 @@ export function AuthProvider({ children }) {
 		let mounted = true;
 		apiClient
 			.get("/auth/me")
-			.then((res) => {
+			.then(async (res) => {
+				const access = await loadEditorAccess(res);
 				if (mounted) {
 					rememberRealm(res?.realm);
 					setSessionHint(true);
 					setUser(res);
+					setEditorAccess(access);
 					setLoading(false);
 				}
 			})
@@ -57,9 +72,19 @@ export function AuthProvider({ children }) {
 		const user = await apiClient.get("/auth/me");
 		rememberRealm(user?.realm);
 		setSessionHint(true);
+		setEditorAccess(await loadEditorAccess(user));
 		setUser(user);
 		router.push("/");
 	};
+
+	// Re-read the signed-in user after their own role changed (granting or
+	// retracting editor access), so every screen follows without signing out.
+	const refreshUser = useCallback(async () => {
+		const fresh = await apiClient.get("/auth/me");
+		setEditorAccess(await loadEditorAccess(fresh));
+		setUser(fresh);
+		return fresh;
+	}, []);
 
 	// Back to the public homepage. A full page load, so the layout can't first
 	// redirect a protected page to the login screen, and no cached data from
@@ -100,6 +125,8 @@ export function AuthProvider({ children }) {
 				realm: user?.realm ?? null,
 				realmName: user?.realm_name ?? null,
 				realmConfig,
+				editorAccess,
+				refreshUser,
 				login,
 				logout,
 				assumeRole,

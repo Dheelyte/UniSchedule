@@ -264,6 +264,7 @@ class AuthService:
         user = await self.repo.get_user_by_id(user_id)
         # An account in another realm behaves like a missing one.
         if not user or not is_in_realm(user.role, user.realm_key, current_user["realm"]): return False
+        await self._refuse_if_in_editor_handover(user)
         email = user.email
         role = user.role.value
         await self.repo.delete_user(user)
@@ -283,6 +284,7 @@ class AuthService:
             raise HTTPException(status_code=404, detail="User not found")
         if str(user.id) == str(current_user.get("sub", "")):
             raise HTTPException(status_code=400, detail="You cannot change your own role")
+        await self._refuse_if_in_editor_handover(user)
 
         if data.role in FACULTY_SCOPED_ROLES:
             if not data.faculty_id:
@@ -329,6 +331,15 @@ class AuthService:
         )
         await self._notify_role_change(user, from_role, faculty)
         return user
+
+    async def _refuse_if_in_editor_handover(self, user: User) -> None:
+        """A role change or deletion would leave a handover half-broken: the super
+        admin reverses it first (modules/editor_access)."""
+        if await self.repo.is_in_active_editor_handover(user.id):
+            raise HTTPException(
+                status_code=409,
+                detail=f"{user.email} is part of an active editor handover. Reverse the handover first.",
+            )
 
     async def _notify_role_change(self, user: User, from_role: RoleEnum, faculty) -> None:
         """Tell the account holder in-app and by email; a mail outage must not undo the change."""

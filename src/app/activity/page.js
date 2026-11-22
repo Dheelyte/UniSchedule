@@ -23,6 +23,7 @@ const ACTION_GROUPS = [
     { value: 'department.', label: 'Departments' },
     { value: 'room.', label: 'Rooms' },
     { value: 'user.', label: 'Users / invitations' },
+    { value: 'editor_access.', label: 'Editor access handovers' },
     { value: 'auth.', label: 'Auth' },
 ];
 
@@ -42,6 +43,7 @@ function actionBadgeColor(action) {
     if (action === 'change_request.reject') return { bg: 'rgba(220, 38, 38, 0.12)', fg: '#b91c1c' };
     if (action === 'change_request.create') return { bg: 'rgba(37, 99, 235, 0.12)', fg: '#1d4ed8' };
     if (action.startsWith('auth.')) return { bg: 'rgba(139, 92, 246, 0.12)', fg: '#7c3aed' };
+    if (action.startsWith('editor_access.')) return { bg: 'rgba(217, 119, 6, 0.15)', fg: '#b45309' };
     return { bg: 'var(--color-surface-2)', fg: 'var(--color-text-muted)' };
 }
 

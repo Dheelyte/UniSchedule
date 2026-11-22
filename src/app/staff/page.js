@@ -10,12 +10,16 @@ import { useConfirm } from '@/components/ConfirmModal/ConfirmContext';
 import styles from './staff.module.css';
 import { TablePageSkeleton } from '@/components/Skeleton/Skeleton';
 import { isCrossRealmRole, isFacultyScopedRole, ROLE_LABELS } from '@/lib/roles';
+import { canOpenStaffPage } from '@/lib/editorAccess';
+import { useEditorAccessActions } from '@/components/EditorAccess/useEditorAccessActions';
+import RetractControls from '@/components/EditorAccess/RetractControls';
 
 // Roles a super admin can give a registered account, in the invite list's order.
 const EDITABLE_ROLES = ['FACULTY_EDITOR', 'FACULTY_VIEWER', 'GS_ADMIN', 'SUPER_ADMIN', 'SUPER_VIEWER', 'CITS_ADMIN', 'DEO'];
 
 export default function StaffManagementPage() {
-    const { user, loading: authLoading, realmName } = useAuth();
+    const { user, loading: authLoading, realmName, editorAccess } = useAuth();
+    const { grant, reverse, busy: editorAccessBusy } = useEditorAccessActions();
     // The listing holds this realm's accounts plus the cross-realm ones (no realm).
     const programmeLabel = (realmKey) => (realmKey ? realmName || realmKey : 'All programmes');
     const router = useRouter();
@@ -26,6 +30,8 @@ export default function StaffManagementPage() {
     const [invitations, setInvitations] = useState([]);
     const [faculties, setFaculties] = useState([]);
     const [availableSemesters, setAvailableSemesters] = useState([]);
+    // Super admins: every editor access handed over in this realm right now.
+    const [handovers, setHandovers] = useState([]);
 
     const [loading, setLoading] = useState(true);
 
@@ -50,9 +56,14 @@ export default function StaffManagementPage() {
                 router.push('/login');
                 return;
             }
-            if (user.role !== 'SUPER_ADMIN' && user.role !== 'FACULTY_EDITOR') {
+            if (!canOpenStaffPage(user.role, editorAccess)) {
                 router.push('/');
                 addToast({ type: 'error', title: 'Unauthorized', message: 'You need Super Admin or Faculty Editor access to manage staff.' });
+                return;
+            }
+            // An editor who handed their access over only sees the controls to take it back.
+            if (user.role === 'FACULTY_VIEWER') {
+                setLoading(false);
                 return;
             }
             if (user.role === 'FACULTY_EDITOR') {
@@ -60,19 +71,21 @@ export default function StaffManagementPage() {
             }
             fetchData();
         }
-    }, [user, authLoading, router]);
+    }, [user, authLoading, router, editorAccess]);
 
     const fetchData = async () => {
         setLoading(true);
         try {
-            const [usersData, invitesData, facultiesData] = await Promise.all([
+            const [usersData, invitesData, facultiesData, handoversData] = await Promise.all([
                 apiClient.get('/auth/users'),
                 apiClient.get('/auth/invitations'),
-                apiClient.get('/timetable/faculties')
+                apiClient.get('/timetable/faculties'),
+                user?.role === 'SUPER_ADMIN' ? apiClient.get('/editor-access/handovers') : Promise.resolve([])
             ]);
             setUsers(usersData || []);
             setInvitations(invitesData || []);
             setFaculties(facultiesData || []);
+            setHandovers(handoversData || []);
 
             const { semesters: allSems } = await loadTerms();
             setAvailableSemesters(allSems);
@@ -184,7 +197,33 @@ export default function StaffManagementPage() {
         }
     };
 
+    // Viewers of the editor's faculty who may receive the access, if they may hand it over.
+    const grantableIds = new Set(editorAccess.can_grant ? editorAccess.candidates.map(c => c.id) : []);
+    const facultyName = (facultyId) => faculties.find(f => f.id === facultyId)?.name || facultyId;
+
+    // Granting turns this editor into a viewer; the page then shows the retract controls.
+    const handleGrant = (u) => grant(u, facultyName(user.faculty_id));
+
+    const handleReverse = async (handover) => {
+        if (await reverse(handover)) fetchData();
+    };
+
     if (authLoading || loading) return <TablePageSkeleton columns={4} rows={5} hasFilters={false} />;
+
+    if (user?.role === 'FACULTY_VIEWER') {
+        return (
+            <div className={styles.page}>
+                {editorAccess.granted && (
+                    <div className={styles.section}>
+                        <h3 className={styles.sectionTitle}>Your Editor Access</h3>
+                        <div className={styles.handoverPanel}>
+                            <RetractControls handover={editorAccess.granted} candidates={editorAccess.candidates} />
+                        </div>
+                    </div>
+                )}
+            </div>
+        );
+    }
 
     return (
         <div className={styles.page}>
@@ -202,6 +241,13 @@ export default function StaffManagementPage() {
                     </button>
                 </div>
             </div>
+
+            {editorAccess.received && (
+                <div className={styles.handoverNote}>
+                    {editorAccess.received.granted_by.email} gave you their Faculty Editor access. You can do everything a
+                    Faculty Editor can, but only they can take it back or pass it on.
+                </div>
+            )}
 
             {/* Pending Invitations */}
             <div className={styles.section}>
@@ -286,6 +332,9 @@ export default function StaffManagementPage() {
                                                     {user.role === 'SUPER_ADMIN' && (
                                                         <button className={styles.btnSecondaryOutlined} onClick={() => openEditRole(u)}>Edit Role</button>
                                                     )}
+                                                    {grantableIds.has(u.id) && (
+                                                        <button className={styles.btnSecondaryOutlined} onClick={() => handleGrant(u)} disabled={editorAccessBusy}>Grant Editor Access</button>
+                                                    )}
                                                     <button className={styles.btnDangerOutlined} onClick={() => handleDeleteUser(u.id, u.email)}>Remove Access</button>
                                                 </div>
                                             ) : (
@@ -299,6 +348,47 @@ export default function StaffManagementPage() {
                     </div>
                 )}
             </div>
+
+            {/* Editor access handed from a Faculty Editor to a Faculty Viewer */}
+            {user.role === 'SUPER_ADMIN' && (
+                <div className={styles.section}>
+                    <h3 className={styles.sectionTitle}>
+                        Active Editor Handovers
+                        <span style={{ fontSize: '0.8rem', background: '#f1f5f9', padding: '4px 8px', borderRadius: '12px' }}>{handovers.length}</span>
+                    </h3>
+
+                    {handovers.length === 0 ? (
+                        <div className={styles.emptyState}>No Faculty Editor has handed over their access.</div>
+                    ) : (
+                        <div className={styles.tableWrapper}>
+                            <table className={styles.table}>
+                                <thead>
+                                    <tr>
+                                        <th>Faculty</th>
+                                        <th>Original Editor</th>
+                                        <th>Current Holder</th>
+                                        <th>Since</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {handovers.map(h => (
+                                        <tr key={h.id}>
+                                            <td>{h.faculty_name}</td>
+                                            <td style={{ fontWeight: 600 }}>{h.granted_by.email}</td>
+                                            <td style={{ fontWeight: 600 }}>{h.holder.email}</td>
+                                            <td style={{ color: '#64748b' }}>{new Date(h.started_at).toLocaleDateString()}</td>
+                                            <td>
+                                                <button className={styles.btnDangerOutlined} onClick={() => handleReverse(h)} disabled={editorAccessBusy}>Reverse</button>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    )}
+                </div>
+            )}
 
             {isInviteModalOpen && (
                 <div className="modal-overlay" onClick={() => setIsInviteModalOpen(false)}>

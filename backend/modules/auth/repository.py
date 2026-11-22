@@ -4,6 +4,7 @@ from sqlalchemy import func, or_, select, update
 from sqlalchemy.orm import joinedload
 from core.database import get_db
 from modules.auth.models import PasswordResetToken, User, Invitation, RoleEnum, CROSS_REALM_ROLES
+from modules.editor_access.models import EditorHandover
 from modules.realms.defaults import DEFAULT_REALM_KEY
 from modules.timetable.models import Faculty
 
@@ -92,6 +93,16 @@ class AuthRepository:
     async def get_user_by_id(self, id: int) -> User | None:
         result = await self.db.execute(select(User).where(User.id == id))
         return result.scalars().first()
+
+    async def is_in_active_editor_handover(self, user_id: int) -> bool:
+        """Whether this account handed over, or holds, editor access right now."""
+        result = await self.db.execute(
+            select(EditorHandover.id).where(
+                EditorHandover.ended_at.is_(None),
+                or_(EditorHandover.granted_by_id == user_id, EditorHandover.holder_id == user_id),
+            )
+        )
+        return result.scalars().first() is not None
 
     async def faculty_exists(self, faculty_id: str, *, realm_key: str) -> bool:
         result = await self.db.execute(

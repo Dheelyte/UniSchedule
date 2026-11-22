@@ -129,6 +129,22 @@
     gap: 10px;
 }
 
+/* Editor access handover */
+.handoverPanel {
+    max-width: 520px;
+}
+
+.handoverNote {
+    margin-bottom: 24px;
+    padding: 12px 16px;
+    border-radius: 12px;
+    border: 1px solid #fcd34d;
+    background: #fffbeb;
+    color: #92400e;
+    font-size: 0.88rem;
+    line-height: 1.5;
+}
+
 /* Grids / Tables */
 .tableWrapper {
     overflow-x: auto;
