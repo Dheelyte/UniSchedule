@@ -13,6 +13,8 @@ class RoleEnum(str, enum.Enum):
     GS_ADMIN = "GS_ADMIN"
     CITS_ADMIN = "CITS_ADMIN"
     DEO = "DEO"
+    # Heads of Department: a Faculty Viewer in every respect, named "Faculty Viewer (HOD)".
+    HOD = "HOD"
 
 
 # These roles choose a realm at login and can switch; every other role belongs

@@ -10,12 +10,12 @@ import { useConfirm } from '@/components/ConfirmModal/ConfirmContext';
 import styles from './staff.module.css';
 import { TablePageSkeleton } from '@/components/Skeleton/Skeleton';
 import { isCrossRealmRole, isFacultyScopedRole, ROLE_LABELS } from '@/lib/roles';
-import { canOpenStaffPage } from '@/lib/editorAccess';
+import { canOpenStaffPage, canReceiveEditorAccess } from '@/lib/editorAccess';
 import { useEditorAccessActions } from '@/components/EditorAccess/useEditorAccessActions';
 import RetractControls from '@/components/EditorAccess/RetractControls';
 
 // Roles a super admin can give a registered account, in the invite list's order.
-const EDITABLE_ROLES = ['FACULTY_EDITOR', 'FACULTY_VIEWER', 'GS_ADMIN', 'SUPER_ADMIN', 'SUPER_VIEWER', 'CITS_ADMIN', 'DEO'];
+const EDITABLE_ROLES = ['FACULTY_EDITOR', 'FACULTY_VIEWER', 'HOD', 'GS_ADMIN', 'SUPER_ADMIN', 'SUPER_VIEWER', 'CITS_ADMIN', 'DEO'];
 
 export default function StaffManagementPage() {
     const { user, loading: authLoading, realmName, editorAccess } = useAuth();
@@ -112,7 +112,7 @@ export default function StaffManagementPage() {
         }
         setIsInviting(true);
         try {
-            const facultyScoped = inviteForm.role === 'FACULTY_EDITOR' || inviteForm.role === 'FACULTY_VIEWER' || inviteForm.role === 'DEO';
+            const facultyScoped = isFacultyScopedRole(inviteForm.role);
             const payload = {
                 email: inviteForm.email,
                 target_role: inviteForm.role,
@@ -276,7 +276,7 @@ export default function StaffManagementPage() {
                                         <td style={{ fontWeight: 600 }}>{inv.email}</td>
                                         <td>
                                             <span className={`${styles.roleBadge} ${inv.target_role === 'SUPER_ADMIN' || inv.target_role === 'CITS_ADMIN' ? styles.roleBadgeAdmin : ''}`}>
-                                                {inv.target_role === 'CITS_ADMIN' ? 'SUPER ADMINISTRATOR (CITS)' : inv.target_role.replace('_', ' ')}
+                                                {inv.target_role === 'CITS_ADMIN' ? 'SUPER ADMINISTRATOR (CITS)' : inv.target_role === 'HOD' ? 'FACULTY VIEWER (HOD)' : inv.target_role.replace('_', ' ')}
                                             </span>
                                         </td>
                                         <td>{programmeLabel(inv.realm_key)}</td>
@@ -320,7 +320,7 @@ export default function StaffManagementPage() {
                                         <td style={{ fontWeight: 600 }}>{u.email}</td>
                                         <td>
                                             <span className={`${styles.roleBadge} ${u.role === 'SUPER_ADMIN' || u.role === 'CITS_ADMIN' ? styles.roleBadgeAdmin : ''}`}>
-                                                {u.role === 'GS_ADMIN' ? 'GENERAL STUDIES' : u.role === 'CITS_ADMIN' ? 'SUPER ADMINISTRATOR (CITS)' : u.role.replace('_', ' ')}
+                                                {u.role === 'GS_ADMIN' ? 'GENERAL STUDIES' : u.role === 'CITS_ADMIN' ? 'SUPER ADMINISTRATOR (CITS)' : u.role === 'HOD' ? 'FACULTY VIEWER (HOD)' : u.role.replace('_', ' ')}
                                             </span>
                                         </td>
                                         <td>{programmeLabel(u.realm_key)}</td>
@@ -332,7 +332,7 @@ export default function StaffManagementPage() {
                                                     {user.role === 'SUPER_ADMIN' && (
                                                         <button className={styles.btnSecondaryOutlined} onClick={() => openEditRole(u)}>Edit Role</button>
                                                     )}
-                                                    {grantableIds.has(u.id) && (
+                                                    {grantableIds.has(u.id) && canReceiveEditorAccess(u.role) && (
                                                         <button className={styles.btnSecondaryOutlined} onClick={() => handleGrant(u)} disabled={editorAccessBusy}>Grant Editor Access</button>
                                                     )}
                                                     <button className={styles.btnDangerOutlined} onClick={() => handleDeleteUser(u.id, u.email)}>Remove Access</button>
@@ -423,6 +423,7 @@ export default function StaffManagementPage() {
                                         <>
                                             <option value="FACULTY_EDITOR">Faculty Editor</option>
                                             <option value="FACULTY_VIEWER">Faculty Viewer</option>
+                                            <option value="HOD">Faculty Viewer (HOD)</option>
                                             <option value="GS_ADMIN">General Studies Admin</option>
                                             <option value="SUPER_ADMIN">Super Administrator</option>
                                             <option value="SUPER_VIEWER">Super Administrator (View only)</option>
@@ -433,7 +434,7 @@ export default function StaffManagementPage() {
                                 </select>
                             </div>
 
-                            {(inviteForm.role === 'FACULTY_EDITOR' || inviteForm.role === 'FACULTY_VIEWER' || inviteForm.role === 'DEO') && user?.role !== 'FACULTY_EDITOR' && (
+                            {isFacultyScopedRole(inviteForm.role) && user?.role !== 'FACULTY_EDITOR' && (
                                 <div className={styles.modalFormGroup}>
                                     <label className={styles.modalFormLabel}>Assign Faculty Constraint</label>
                                     <select
@@ -468,7 +469,7 @@ export default function StaffManagementPage() {
                         </div>
                         <div className="modal-footer">
                             <button className="btn btn-secondary" onClick={() => setIsInviteModalOpen(false)} disabled={isInviting}>Cancel</button>
-                            <button className="btn btn-primary" onClick={handleInvite} disabled={!inviteForm.email || ((inviteForm.role === 'FACULTY_EDITOR' || inviteForm.role === 'FACULTY_VIEWER' || inviteForm.role === 'DEO') && user?.role !== 'FACULTY_EDITOR' && !inviteForm.facultyId) || isInviting}>
+                            <button className="btn btn-primary" onClick={handleInvite} disabled={!inviteForm.email || (isFacultyScopedRole(inviteForm.role) && user?.role !== 'FACULTY_EDITOR' && !inviteForm.facultyId) || isInviting}>
                                 {isInviting ? 'Sending...' : 'Send Invitation Email'}
                             </button>
                         </div>

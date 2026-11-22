@@ -414,6 +414,58 @@ async def test_retract_with_nothing_handed_over_is_404(signed_in):
     assert (await _retract(client)).status_code == 404
 
 
+# --- Heads of Department (HOD) never receive editor access -------------------
+
+@pytest.fixture
+async def hod(make_user):
+    return await make_user(RoleEnum.HOD, faculty_id="ENG", email="hod@unilag.edu.ng")
+
+
+async def test_an_hod_is_never_offered_to_grant_to(editor, viewer, hod):
+    client, _ = editor
+    status = await _status(client)
+    assert status["can_grant"] is True
+    assert status["candidates"] == [{"id": viewer["id"], "email": "b@unilag.edu.ng"}]
+
+
+async def test_cannot_grant_to_an_hod(editor, hod):
+    client, me = editor
+    response = await _grant(client, hod["id"])
+    assert response.status_code == 400, response.text
+    assert response.json()["detail"] == "Editor access can't be given to a Faculty Viewer (HOD)"
+    await _assert_nothing_changed(me["id"], hod["id"], RoleEnum.HOD)
+
+
+async def test_an_hod_is_never_offered_to_redirect_to(editor, viewer, hod):
+    client, _ = editor
+    await _ok(await _grant(client, viewer["id"]))
+    assert (await _status(client))["candidates"] == []
+
+
+async def test_cannot_redirect_to_an_hod(editor, viewer, hod):
+    client, me = editor
+    await _ok(await _grant(client, viewer["id"]))
+
+    response = await _retract(client, hod["id"])
+    assert response.status_code == 400, response.text
+    assert response.json()["detail"] == "Editor access can't be given to a Faculty Viewer (HOD)"
+    assert await _role(viewer["id"]) == RoleEnum.FACULTY_EDITOR
+    assert await _role(me["id"]) == RoleEnum.FACULTY_VIEWER
+    assert await _role(hod["id"]) == RoleEnum.HOD
+    [handover] = await _handovers()
+    assert (handover.holder_id, handover.ended_at) == (viewer["id"], None)
+    assert await _logs("editor_access.retract") == []
+
+
+async def test_an_hod_has_no_handover_controls(hod, viewer, make_client, login):
+    client = make_client()
+    await login(client, hod["email"])
+    assert await _status(client) == {"can_grant": False, "granted": None, "received": None, "candidates": []}
+    assert (await _grant(client, viewer["id"])).status_code == 403
+    assert (await _retract(client, viewer["id"])).status_code == 403
+    assert await _role(viewer["id"]) == RoleEnum.FACULTY_VIEWER
+
+
 async def test_a_plain_viewer_sees_no_handover_controls(signed_in, viewer):
     client, _ = await signed_in(RoleEnum.FACULTY_VIEWER, faculty_id="ENG")
     assert await _status(client) == {"can_grant": False, "granted": None, "received": None, "candidates": []}

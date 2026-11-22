@@ -673,7 +673,7 @@ async def test_adding_follows_the_rules_for_creating_a_room(campus, make_client,
     await login(gs, (await make_user(RoleEnum.GS_ADMIN, realm="ICE"))["email"])
     assert (await _add(gs, (room_id, ice["faculty"]))).status_code == 403
     assert len((await _ok(await _add(gs, (room_id, None))))["added"]) == 1
-    for role in (RoleEnum.FACULTY_VIEWER, RoleEnum.DEO, RoleEnum.SUPER_VIEWER):
+    for role in (RoleEnum.FACULTY_VIEWER, RoleEnum.HOD, RoleEnum.DEO, RoleEnum.SUPER_VIEWER):
         viewer = make_client()
         await login(viewer, (await make_user(role, faculty_id=ice["faculty"], realm="ICE"))["email"], realm="ICE")
         assert (await viewer.get(f"{API}/timetable/rooms/catalogue")).status_code == 403

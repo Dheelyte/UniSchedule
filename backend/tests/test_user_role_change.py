@@ -122,7 +122,7 @@ async def test_cross_realm_user_moved_to_a_realm_bound_role_joins_the_active_rea
 
 # --- Validation ------------------------------------------------------------
 
-@pytest.mark.parametrize("role", ["FACULTY_EDITOR", "FACULTY_VIEWER", "DEO"])
+@pytest.mark.parametrize("role", ["FACULTY_EDITOR", "FACULTY_VIEWER", "HOD", "DEO"])
 async def test_faculty_role_requires_a_faculty(admin, make_user, role):
     user = await make_user(RoleEnum.GS_ADMIN)
     response = await _patch(admin, user["id"], role)

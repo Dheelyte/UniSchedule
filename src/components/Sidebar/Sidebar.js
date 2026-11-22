@@ -20,7 +20,7 @@ const navItems = [
   {
     label: 'Faculties & Departments',
     href: '/faculties',
-    roles: ['SUPER_ADMIN', 'SUPER_VIEWER', 'FACULTY_EDITOR', 'FACULTY_VIEWER', 'GS_ADMIN', 'CITS_ADMIN', 'DEO'],
+    roles: ['SUPER_ADMIN', 'SUPER_VIEWER', 'FACULTY_EDITOR', 'FACULTY_VIEWER', 'HOD', 'GS_ADMIN', 'CITS_ADMIN', 'DEO'],
     icon: (
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <path d="M2 20V8l10-5 10 5v12" />
@@ -34,7 +34,7 @@ const navItems = [
   {
     label: 'Courses',
     href: '/courses',
-    roles: ['SUPER_ADMIN', 'SUPER_VIEWER', 'FACULTY_EDITOR', 'FACULTY_VIEWER', 'GS_ADMIN', 'CITS_ADMIN', 'DEO'],
+    roles: ['SUPER_ADMIN', 'SUPER_VIEWER', 'FACULTY_EDITOR', 'FACULTY_VIEWER', 'HOD', 'GS_ADMIN', 'CITS_ADMIN', 'DEO'],
     icon: (
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
@@ -47,7 +47,7 @@ const navItems = [
   {
     label: 'Rooms',
     href: '/rooms',
-    roles: ['SUPER_ADMIN', 'SUPER_VIEWER', 'FACULTY_EDITOR', 'FACULTY_VIEWER', 'GS_ADMIN', 'CITS_ADMIN', 'DEO'],
+    roles: ['SUPER_ADMIN', 'SUPER_VIEWER', 'FACULTY_EDITOR', 'FACULTY_VIEWER', 'HOD', 'GS_ADMIN', 'CITS_ADMIN', 'DEO'],
     icon: (
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />

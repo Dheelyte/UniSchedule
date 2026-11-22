@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
 	NO_EDITOR_ACCESS,
 	canOpenStaffPage,
+	canReceiveEditorAccess,
 	grantConfirmation,
 	hasEditorAccessControls,
 	retractConfirmation,
@@ -13,6 +14,18 @@ const handedOver = {
 	...NO_EDITOR_ACCESS,
 	granted: { id: 1, faculty_name: "Faculty of Engineering", granted_by: { email: "a@x" }, holder: { email: "b@x" } },
 };
+
+test("only a plain Faculty Viewer can receive editor access, never an HOD", () => {
+	assert.equal(canReceiveEditorAccess("FACULTY_VIEWER"), true);
+	assert.equal(canReceiveEditorAccess("HOD"), false);
+	assert.equal(canReceiveEditorAccess("FACULTY_EDITOR"), false);
+	assert.equal(canReceiveEditorAccess("DEO"), false);
+});
+
+test("an HOD has no editor access controls and can't open the staff page", () => {
+	assert.equal(hasEditorAccessControls({ role: "HOD" }), false);
+	assert.equal(canOpenStaffPage("HOD", handedOver), false);
+});
 
 test("faculty editors and viewers are asked about editor access, others are not", () => {
 	assert.equal(hasEditorAccessControls({ role: "FACULTY_EDITOR" }), true);

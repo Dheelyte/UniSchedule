@@ -6,6 +6,7 @@ import { useAuth } from '@/context/AuthContext';
 import { apiClient } from '@/lib/apiClient';
 import { useToast } from '@/components/Toast/Toast';
 import { TablePageSkeleton } from '@/components/Skeleton/Skeleton';
+import { ROLE_LABELS } from '@/lib/roles';
 
 const PAGE_SIZE = 50;
 
@@ -145,7 +146,7 @@ export default function ActivityLogsPage() {
                                             <div style={{ fontSize: '0.85rem', fontWeight: 500 }}>{row.user_email || <span style={{ color: 'var(--color-text-muted)' }}>—</span>}</div>
                                             {row.user_role && (
                                                 <div style={{ fontSize: '0.72rem', color: 'var(--color-text-muted)' }}>
-                                                    {row.user_role}{row.user_faculty_id ? ` · ${row.user_faculty_id}` : ''}
+                                                    {row.user_role === 'HOD' ? ROLE_LABELS.HOD : row.user_role}{row.user_faculty_id ? ` · ${row.user_faculty_id}` : ''}
                                                 </div>
                                             )}
                                         </td>

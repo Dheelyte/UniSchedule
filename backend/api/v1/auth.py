@@ -2,7 +2,7 @@ import logging
 
 from fastapi import APIRouter, Depends, Response, HTTPException, status
 from core.security import verify_password
-from modules.auth.service import AuthService, PasswordResetService
+from modules.auth.service import AuthService, PasswordResetService, logged_role_name
 from modules.auth.schemas import LoginRequest, InviteRequest, MsgResponse, PasswordReset, PasswordResetCodeCheck, PasswordResetRequest, PasswordResetVerify, RegisterRequest, UserResponse, InvitationResponse, ImpersonateRequest, SwitchRealmRequest, UpdateUserRoleRequest
 from core.config import settings
 from api.dependencies.auth import RequireRole, get_current_user, require_real_super_admin
@@ -107,7 +107,7 @@ async def invite_staff(
     await EmailService.send_invitation_email(
         recipient_email=data.email, 
         token=invite.token, 
-        role=data.target_role.value,
+        role=logged_role_name(data.target_role),
         # The portal the inviter is working in; a cross-realm invitee can switch later.
         realm_key=current_user["realm"],
         realm_name=current_user["realm_name"],
