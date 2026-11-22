@@ -24,6 +24,7 @@ from modules.audit.models import ActivityLog
 from modules.realms.models import Realm
 from modules.timetable_import.models import TimetableImport
 from modules.signoff.models import TimetableSignoff, TimetableVerification
+from modules.editor_access.models import EditorHandover
 
 DATABASE_URL = settings.DATABASE_URL
 

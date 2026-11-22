@@ -3,6 +3,7 @@
 import { usePathname } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@/context/AuthContext';
+import { canOpenStaffPage } from '@/lib/editorAccess';
 import styles from './Sidebar.module.css';
 
 const navItems = [
@@ -110,7 +111,8 @@ const navItems = [
   {
     label: 'Staff',
     href: '/staff',
-    roles: ['SUPER_ADMIN', 'FACULTY_EDITOR'],
+    // Also an editor who handed their access over, to take it back.
+    allow: canOpenStaffPage,
     icon: (
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
@@ -159,10 +161,11 @@ const navItems = [
 
 export default function Sidebar({ isCollapsed, isMobileOpen = false, onMobileClose }) {
   const pathname = usePathname();
-  const { user, realmName } = useAuth();
+  const { user, realmName, editorAccess } = useAuth();
   const role = user?.role;
 
   const isAllowed = (item) => {
+    if (item.allow) return !!role && item.allow(role, editorAccess);
     if (!item.roles) return true; // no restriction = visible to all
     if (!role) return false;
     return item.roles.includes(role);

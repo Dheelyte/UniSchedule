@@ -6,6 +6,7 @@ import { useConfirm } from "@/components/ConfirmModal/ConfirmContext";
 import NotificationsDropdown from "@/components/NotificationsDropdown/NotificationsDropdown";
 import RoleSwitcher from "@/components/RoleSwitcher/RoleSwitcher";
 import RealmSwitcher from "@/components/RealmSwitcher/RealmSwitcher";
+import ProfileMenu from "@/components/ProfileMenu/ProfileMenu";
 import styles from "./TopBar.module.css";
 
 const MOBILE_QUERY = "(max-width: 768px)";
@@ -103,6 +104,7 @@ export default function TopBar({
 				<RealmSwitcher />
 				<RoleSwitcher />
 				<NotificationsDropdown />
+				<ProfileMenu />
 				{/* Logout Button */}
 				<button
 					className={styles.logoutBtn}

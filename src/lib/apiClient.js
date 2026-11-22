@@ -39,7 +39,7 @@ const LIVE = [
 	"/timetable-import/imports",
 	"/audit",
 ];
-const NEVER_KEPT = ["/auth/me", "/notifications"];
+const NEVER_KEPT = ["/auth/me", "/editor-access", "/notifications"];
 const readCache = new Map(); // endpoint -> { at, promise }
 
 export function clearReadCache() {
