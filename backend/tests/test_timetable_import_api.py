@@ -74,7 +74,7 @@ async def faculty(make_client, make_user, login) -> dict:
         code: await _ok(await admin.post(f"{API}/timetable/courses", json={
             "code": code, "title": code, "department_id": department["id"], "level": 200,
         }))
-        for code in ("CVE201", "CVE202", "CVE203", "PHY101", "GST111")
+        for code in ("CVE201", "CVE202", "CVE203", "PHY101", "GST111", "ENT211")
     }
     session = await _ok(await admin.post(f"{API}/calendar/sessions", json={"name": "2026/2027"}))
     await _ok(await admin.put(f"{API}/calendar/sessions/{session['id']}/current"))
@@ -247,6 +247,53 @@ async def test_imports_are_listed_with_what_they_did(faculty):
     assert await _ok(await faculty["admin"].get(f"{API}/timetable-import/imports?item_type=exam")) == []
 
 
+async def _approve(client, import_id):
+    return await client.post(f"{API}/timetable-import/imports/{import_id}/approve")
+
+
+async def test_an_approved_import_can_no_longer_be_reverted(faculty):
+    admin = faculty["admin"]
+    result = await _imported(faculty)
+
+    approved = await _ok(await _approve(admin, result["import_id"]))
+    assert approved["approved_at"] and approved["approved_by_email"]
+    assert (await _approve(admin, result["import_id"])).status_code == 409
+
+    imports = await _ok(await admin.get(f"{API}/timetable-import/imports"))
+    assert (imports[0]["approved_at"] is not None, imports[0]["can_revert"], imports[0]["can_approve"]) == (True, False, False)
+
+    response = await _revert(admin, result["import_id"])
+    assert response.status_code == 409
+    assert "approved" in response.json()["detail"]
+    assert sorted(i["day_of_week"] for i in await _items(faculty)) == ["Monday"] * 3  # nothing removed
+
+
+async def test_an_approved_import_can_still_be_replaced(faculty):
+    admin = faculty["admin"]
+    result = await _imported(faculty)
+    await _ok(await _approve(admin, result["import_id"]))
+
+    replaced = await _ok(await _send(admin, "apply", WEDNESDAY_LECTURES, faculty_id="ENG", item_type="lecture", mode="replace"))
+    assert [i["day_of_week"] for i in await _items(faculty)] == ["Wednesday"]  # CVE203 8-10am
+    # The new import is unapproved, so it can be reverted, which puts the approved sessions back.
+    await _ok(await _revert(admin, replaced["import_id"]))
+    assert sorted(i["day_of_week"] for i in await _items(faculty)) == ["Monday"] * 3
+
+
+async def test_a_reverted_import_cannot_be_approved(faculty):
+    admin = faculty["admin"]
+    result = await _imported(faculty)
+    await _ok(await _revert(admin, result["import_id"]))
+    assert (await _approve(admin, result["import_id"])).status_code == 409
+
+
+async def test_only_super_admins_can_approve(faculty, make_client, make_user, login):
+    result = await _imported(faculty)
+    other = make_client()
+    await login(other, (await make_user(RoleEnum.FACULTY_EDITOR))["email"])
+    assert (await _approve(other, result["import_id"])).status_code == 403
+
+
 async def test_reverting_an_older_import_leaves_a_newer_one_alone(faculty):
     answers = {"courses": {"XYZ999": None}, "venues": {"Hall Z": []}}
     first = await _imported(faculty)
@@ -357,6 +404,55 @@ async def test_a_faculty_import_leaves_general_studies_copies_alone(faculty):
 
     await _ok(await _send(admin, "apply", eng_file, faculty_id="ENG", item_type="lecture"))
     assert ("ENG", "Friday", "15:00:00") in await _faculty_sessions(faculty, "GST111")
+
+
+async def test_a_faculty_import_skips_gst_courses_even_before_general_studies_is_imported(faculty):
+    admin = faculty["admin"]
+    eng_file = _workbook([
+        ["MONDAY"],
+        ["Venue", "8-9am", "9-10am"],
+        ["RM 101", "CVE 201", "GST 111"],
+    ])
+
+    preview = await _ok(await _send(admin, "preview", eng_file, faculty_id="ENG", item_type="lecture"))
+    assert [i["code"] for i in preview["items"]] == ["CVE201"]
+    assert preview["shared_courses"] == [{"code": "GST111", "count": 1}]
+
+    await _ok(await _send(admin, "apply", eng_file, faculty_id="ENG", item_type="lecture"))
+    assert await _faculty_sessions(faculty, "GST111") == []
+
+
+async def test_a_faculty_import_skips_ent_courses_like_gst(faculty):
+    admin = faculty["admin"]
+    eng_file = _workbook([
+        ["MONDAY"],
+        ["Venue", "8-9am", "9-10am", "10-11am"],
+        ["RM 101", "CVE 201", "GST 111", "ENT 211"],
+    ])
+
+    preview = await _ok(await _send(admin, "preview", eng_file, faculty_id="ENG", item_type="lecture"))
+    assert [i["code"] for i in preview["items"]] == ["CVE201"]
+    assert sorted(c["code"] for c in preview["shared_courses"]) == ["ENT211", "GST111"]
+
+    await _ok(await _send(admin, "apply", eng_file, faculty_id="ENG", item_type="lecture"))
+    assert await _faculty_sessions(faculty, "ENT211") == []
+
+
+async def test_a_pdf_is_accepted_and_one_without_text_is_refused(faculty):
+    from tests.test_timetable_import_pdf import EXAM_PAGE, _pdf
+
+    admin = faculty["admin"]
+    async def send(content):
+        return await admin.post(
+            f"{API}/timetable-import/preview",
+            files={"file": ("timetable.pdf", content, "application/pdf")},
+            data={"options": json.dumps({"faculty_id": "ENG", "item_type": "exam"})},
+        )
+
+    preview = await _ok(await send(EXAM_PAGE))
+    assert preview["sheets"] == [{"name": "PDF", "shape": "list", "entries": 6, "courses": 6}]
+    assert preview["questions"]["exam_year"] is True  # "MONDAY 25 JAN" carries no year
+    assert (await send(_pdf([]))).status_code == 400
 
 
 async def test_reverting_a_general_studies_import_puts_each_faculty_copy_back(faculty):
@@ -548,3 +644,10 @@ async def test_only_super_admins_can_copy(last_year, make_client, make_user, log
     await login(editor, (await make_user(RoleEnum.FACULTY_EDITOR, faculty_id="ENG"))["email"])
     assert (await editor.get(f"{API}/timetable-import/copy/sources")).status_code == 403
     assert (await _copy(editor, "preview", item_type="lecture", source_semester_id=last_year["old"]["id"])).status_code == 403
+
+
+def test_ent_courses_count_as_general_studies_like_gst():
+    from modules.timetable_import.service import _is_gst
+
+    assert all(_is_gst(c) for c in ("GST111", "LAG-GST112", "ENT211", "ent301"))
+    assert not any(_is_gst(c) for c in ("ENS207", "PRM411", "ECN335", "CVE201"))

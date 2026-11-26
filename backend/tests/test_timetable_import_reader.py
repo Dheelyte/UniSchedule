@@ -1,5 +1,5 @@
 """The reader over small in-memory workbooks shaped like real faculty sheets."""
-from datetime import date, time
+from datetime import date, datetime, time
 
 import openpyxl
 
@@ -95,6 +95,38 @@ def test_list_sheet():
         ("Tuesday", time(14), time(16), ["SOC201"], ["Hall 1A"], "200"),
     ]
     assert result.warnings == ["1 row(s) were missing a day, time or course"]
+
+
+def test_list_sheet_takes_exam_dates_from_a_date_column():
+    ws = _sheet([
+        ["EXAMINATION TIMETABLE"],
+        ["DAY", "DATE", "TIME", "COURSE(S)", "VENUE"],
+        ["MONDAY", datetime(2026, 3, 9), "9:00am - 12:00pm", "PRM207 (46) / ENS412 (21)", "ROOM 2"],
+        [None, None, "12:00pm - 3:00pm", "CIL212", "ROOM 2"],
+        ["TUESDAY", "10/03/2026", "9:00am - 12:00pm", "PRM109", "APC 2"],
+    ], merges=["A3:A4", "B3:B4"])
+    result = read_sheet(ws)
+    assert result.shape == "list"
+    assert [(e.weekday, e.date, e.codes) for e in result.entries] == [
+        ("Monday", date(2026, 3, 9), ["PRM207", "ENS412"]),
+        ("Monday", date(2026, 3, 9), ["CIL212"]),
+        ("Tuesday", date(2026, 3, 10), ["PRM109"]),
+    ]
+    assert len({e.day_seq for e in result.entries[:2]}) == 1
+
+
+def test_exam_grid_day_headers_with_numeric_dates():
+    ws = _sheet([
+        ["WEEK 1", "DAY 1: MONDAY, 25/01/2027", None, "DAY 2: TUESDAY, 26/01/2027"],
+        ["VENUE", "9:00am - 12:00pm", "12:00pm - 3:00pm", "9:00am - 12:00pm"],
+        ["Hall 1", "PCT411", "PCT401", "PCT414"],
+    ])
+    entries = read_sheet(ws).entries
+    assert [(e.weekday, e.date, e.week, e.codes) for e in entries] == [
+        ("Monday", date(2027, 1, 25), 1, ["PCT411"]),
+        ("Monday", date(2027, 1, 25), 1, ["PCT401"]),
+        ("Tuesday", date(2027, 1, 26), 1, ["PCT414"]),
+    ]
 
 
 def test_sheet_without_a_timetable():

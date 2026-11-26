@@ -28,6 +28,7 @@ from defusedxml import ElementTree
 from modules.timetable_import.text import (
     DayLabel,
     extract_codes,
+    parse_date_cell,
     parse_day_label,
     parse_time_range,
     parse_week_label,
@@ -88,8 +89,26 @@ def _check_unpacked_size(source) -> None:
         source.seek(0)
 
 
+def _is_pdf(source) -> bool:
+    if hasattr(source, "read"):
+        head = source.read(5)
+        source.seek(0)
+    else:
+        with open(source, "rb") as f:
+            head = f.read(5)
+    return head == b"%PDF-"
+
+
 def read_workbook(source: str | BinaryIO) -> list[SheetResult]:
-    """The timetables in an Excel workbook (.xlsx) or a Word document (.docx)."""
+    """The timetables in an Excel workbook (.xlsx), a Word document (.docx) or a PDF with text in it."""
+    if _is_pdf(source):
+        from modules.timetable_import.pdf_reader import read_pdf_cells
+        cells, merge_of = read_pdf_cells(source)
+        result = _read_table("PDF", cells, merge_of)
+        # A PDF's week labels are the exporting app's own numbering; weeks are counted from the first exam instead.
+        for entry in result.entries:
+            entry.week = None
+        return [result]
     _check_unpacked_size(source)
     with zipfile.ZipFile(source) as archive:
         is_word = "word/document.xml" in archive.namelist()
@@ -353,6 +372,7 @@ def _spans(row: dict[int, str], time_by_col) -> list[tuple[int, int, str]]:
 
 _HEADERS = {
     "day": re.compile(r"^day$"),
+    "date": re.compile(r"^(exam )?date$"),
     "time": re.compile(r"^(time|period)$"),
     "start": re.compile(r"^(start|from)( time)?$"),
     "end": re.compile(r"^(end|to)( time)?$"),
@@ -403,6 +423,8 @@ def _read_list(name, cells, header_row, cols) -> SheetResult:
             continue
         codes = extract_codes(text)
         venue = (row.get(cols["venue"]) or "").strip(" ,;") if "venue" in cols else None
+        if "date" in cols and not day.date and (own := parse_date_cell(row.get(cols["date"], ""))):
+            day.date, day.date_text, day.year_missing = own, row[cols["date"]], False
         seq = day_seq.setdefault((day.weekday, day.date, day.date_text), len(day_seq))
         result.entries.append(RawEntry(
             sheet=name, row=r, first_col=cols["course"], last_col=cols["course"],

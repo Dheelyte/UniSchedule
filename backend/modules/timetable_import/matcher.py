@@ -111,9 +111,18 @@ def room_key(name: str) -> str:
     return re.sub(r"^R(?=\d)", "RM", key)  # "R255" is RM255
 
 
+# Faculties that sit their sessions in the same venues (kept in step with
+# SHARED_VENUE_GROUPS in src/lib/venueGroups.js). Working on one, the rooms of all are its own.
+SHARED_VENUE_GROUPS = [
+    {"FLS-290", "FPAES-7903", "FCAI-243"},  # Life Sciences, Physical and Earth Sciences, Computing and Informatics
+]
+
+
 class RoomIndex:
     def __init__(self, rooms: list[RoomRef], faculty_id: str | None):
         self.faculty_id = faculty_id
+        group = next((g for g in SHARED_VENUE_GROUPS if faculty_id in g), set())
+        self.group_ids = group - {faculty_id}
         self.by_key: dict[str, list[RoomRef]] = {}
         for r in rooms:
             self.by_key.setdefault(room_key(r.name), []).append(r)
@@ -124,7 +133,7 @@ class RoomIndex:
         # Then the faculty's own room, then a shared one, before another faculty's.
         return min(rooms, key=lambda r: (
             r.is_active is False, r.capacity <= 0,
-            r.faculty_id != self.faculty_id, r.faculty_id is not None, r.id,
+            r.faculty_id != self.faculty_id, r.faculty_id not in self.group_ids, r.faculty_id is not None, r.id,
         ))
 
     def _live(self, rooms: list[RoomRef]) -> list[RoomRef]:
@@ -142,8 +151,13 @@ class RoomIndex:
             return None
         live = self._live(rooms)
         own = [r for r in live if r.faculty_id == self.faculty_id]
-        if not own and len(live) > 1:
-            return None
+        if not own:
+            # A faculty that shares venues with others owns their rooms too, if only one fits.
+            group = [r for r in live if r.faculty_id in self.group_ids]
+            if len(group) == 1:
+                return group[0]
+            if len(live) > 1:
+                return None
         return self._best(rooms)
 
     def same_name(self, text: str) -> list[RoomRef]:
@@ -188,7 +202,8 @@ class RoomIndex:
                 rank = 2
             else:
                 continue
-            scored.append(((rank, -shared, abs(len(k) - len(key)), best.capacity <= 0, best.id), best))
+            mine = best.faculty_id == self.faculty_id or best.faculty_id in self.group_ids
+            scored.append(((rank, not mine, -shared, abs(len(k) - len(key)), best.capacity <= 0, best.id), best))
         return [r for _, r in sorted(scored, key=lambda s: s[0])[:limit]]
 
 

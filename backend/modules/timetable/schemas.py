@@ -420,3 +420,69 @@ class ConflictDismissalResponse(BaseModel):
     created_by: int | None
     created_at: datetime
     model_config = ConfigDict(from_attributes=True)
+
+
+# ---------- Exam shift ----------
+
+class ExamShiftRequest(BaseModel):
+    """Move many exams at once, e.g. when exams are postponed.
+
+    mode "days": `amount` exam days (Sundays and blocked days aren't counted).
+    mode "weeks": `amount` weeks, keeping each exam's weekday.
+    mode "start_date": the first chosen exam moves to `new_start_date`; the rest keep their spacing.
+    A negative `amount` brings exams forward. The optional filters narrow which exams move.
+    """
+    semester_id: int
+    mode: Literal["days", "weeks", "start_date"]
+    amount: int | None = Field(default=None, ge=-60, le=60)
+    new_start_date: date_type | None = None
+    faculty_ids: list[str] | None = None
+    from_date: date_type | None = None
+    to_date: date_type | None = None
+
+    @model_validator(mode="after")
+    def _needs_a_distance(self):
+        if self.mode == "start_date" and self.new_start_date is None:
+            raise ValueError("Choose the new date for the first exam")
+        if self.mode != "start_date" and not self.amount:
+            raise ValueError("Enter how many days or weeks to move the exams (not 0)")
+        return self
+
+
+class ExamShiftDateChange(BaseModel):
+    from_date: date_type
+    to_date: date_type
+    exams: int
+
+
+class ExamShiftPushed(BaseModel):
+    course_code: str
+    from_date: date_type
+    to_date: date_type
+    start_time: time
+    end_time: time
+    reason: str
+
+
+class ExamShiftClash(BaseModel):
+    course_code: str
+    date: date_type
+    start_time: time
+    end_time: time
+    room: str
+    other_realm: str
+    other_course: str
+
+
+class ExamShiftResult(BaseModel):
+    applied: bool
+    selected: int          # exams the filters chose
+    moving: int            # of those, how many change date
+    undated: int           # old exams with no date, left alone
+    first_date_before: date_type | None = None
+    first_date_after: date_type | None = None
+    last_date_before: date_type | None = None
+    last_date_after: date_type | None = None
+    date_changes: list[ExamShiftDateChange] = []
+    pushed: list[ExamShiftPushed] = []
+    clashes: list[ExamShiftClash] = []

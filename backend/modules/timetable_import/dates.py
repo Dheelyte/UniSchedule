@@ -5,6 +5,11 @@ Exam sheets often date only some of their day headers (`DAY 5: FRIDAY (AUGUST
 appear in calendar order, so each undated one is the next day after the one
 before it that falls on its weekday. Walking on from any dated header dates the
 rest; when none is dated the admin gives the first exam date.
+
+The admin can also give a first exam date for a sheet that is dated. The dates
+are then remapped: every day moves by the same whole number of weeks, so the first
+exam lands in the week of the chosen date, on its own weekday, and the gaps
+between days stay as the sheet has them.
 """
 from __future__ import annotations
 
@@ -29,6 +34,8 @@ class Dating:
     problems: list[str]
     needs_start_date: bool = False
     needs_year: bool = False
+    dated_in_sheet: bool = False    # the sheet itself dates at least one day
+    remapped: bool = False          # moved to start from the date the admin chose
 
 
 def _next_on(weekday: str, after: date) -> date:
@@ -41,10 +48,57 @@ def _previous_on(weekday: str, before: date) -> date:
     return before - timedelta(days=gap)
 
 
+def _years_in_order(headers: list[DayHeader], first_year: int) -> dict[int, int]:
+    """A year for each yearless dated header, starting at first_year and moving on a
+    year whenever the month goes backwards (December, then January)."""
+    years, year, last = {}, first_year, None
+    for h in headers:
+        if h.date and h.year_missing:
+            if last and (h.date.month, h.date.day) < last:
+                year += 1
+            last = (h.date.month, h.date.day)
+            years[h.seq] = year
+    return years
+
+
 def date_exam_days(headers: list[DayHeader], *, start_date: date | None = None, year: int | None = None) -> Dating:
     headers = sorted(headers, key=lambda h: h.seq)
     result = Dating(dates={}, problems=[])
     if not headers:
+        return result
+    result.dated_in_sheet = any(h.date for h in headers)
+
+    if start_date is not None and result.dated_in_sheet:
+        # Remap: date the sheet as written (any year will do), then move it to the chosen start.
+        if year is None and any(h.year_missing for h in headers if h.date):
+            # The sheet's own year is unknown: take the nearby one whose dates fall on the weekdays it names.
+            def with_years(first_year):
+                years = _years_in_order(headers, first_year)
+                out = []
+                for h in headers:
+                    if h.seq not in years:
+                        out.append(h)
+                        continue
+                    try:
+                        out.append(DayHeader(h.seq, h.weekday, h.date.replace(year=years[h.seq]), False, h.date_text))
+                    except ValueError:  # 29 February
+                        return None
+                return out
+
+            candidates = [c for c in (with_years(y) for y in range(start_date.year - 3, start_date.year + 2)) if c]
+            if candidates:
+                headers = min(candidates, key=lambda hs: sum(
+                    1 for h in hs if h.date and WEEKDAYS[h.date.weekday()] != h.weekday
+                ))
+        written = date_exam_days(headers, year=year)
+        if not written.dates:
+            return written
+        first = min(written.dates.values())
+        target = start_date if start_date.weekday() == first.weekday() else _next_on(WEEKDAYS[first.weekday()], start_date)
+        shift = target - first
+        result.dates = {seq: d + shift for seq, d in written.dates.items()}
+        result.problems = written.problems
+        result.remapped = True
         return result
 
     stated: dict[int, date] = {}

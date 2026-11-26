@@ -13,6 +13,7 @@ from modules.timetable.schemas import (
     CourseEnrollmentCreate, CourseEnrollmentResponse,
     ChangeRequestCreate, ChangeRequestResponse, ChangeRequestReview,
     ConflictDismissalCreate, ConflictDismissalBulkCreate, ConflictDismissalResponse,
+    ExamShiftRequest, ExamShiftResult,
 )
 from api.dependencies.auth import RequireRole, get_current_user
 from modules.auth.models import RoleEnum
@@ -331,6 +332,27 @@ async def delete_blocked_slot(
 ):
     await service.delete_blocked_slot(id, user)
     return {"message": "Deleted"}
+
+# ---------- Exam shift (beta) ----------
+
+@router.post("/exams/shift/preview", response_model=ExamShiftResult)
+async def preview_exam_shift(
+    data: ExamShiftRequest,
+    service: TimetableService = Depends(),
+    user: dict = Depends(RequireRole([RoleEnum.SUPER_ADMIN.value])),
+):
+    """What a shift would do. Changes nothing."""
+    return await service.shift_exams(data, user, apply=False)
+
+
+@router.post("/exams/shift", response_model=ExamShiftResult)
+async def apply_exam_shift(
+    data: ExamShiftRequest,
+    service: TimetableService = Depends(),
+    user: dict = Depends(RequireRole([RoleEnum.SUPER_ADMIN.value])),
+):
+    """Move the chosen exams. All or nothing."""
+    return await service.shift_exams(data, user, apply=True)
 
 # ---------- Locks ----------
 
