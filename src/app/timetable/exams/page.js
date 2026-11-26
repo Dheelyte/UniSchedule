@@ -14,6 +14,8 @@ import ExportModal from "@/components/ExportModal/ExportModal";
 import TimetableStatusBadge from "@/components/TimetableStatusBadge/TimetableStatusBadge";
 import RequestEditModal from "@/components/RequestEditModal/RequestEditModal";
 import RequestChangeModal from "@/components/RequestChangeModal/RequestChangeModal";
+import ExamShiftModal from "@/components/ExamShiftModal/ExamShiftModal";
+import { EXAM_SHIFT_REALMS } from "@/lib/examShift";
 import { isViewerRole, canRequestChange } from "@/lib/roles";
 import { useConfirm } from "@/components/ConfirmModal/ConfirmContext";
 import { TimetableSkeleton } from "@/components/Skeleton/Skeleton";
@@ -27,7 +29,7 @@ const NO_EXTERNAL_BOOKINGS = [];
 
 export default function ExamTimetablePage() {
 	const { getSchedulesWithDetails, state, dispatch, isInitialized } = useApp();
-	const { user, realmConfig } = useAuth();
+	const { user, realm, realmConfig } = useAuth();
 	const { addToast } = useToast();
 	const confirm = useConfirm();
 
@@ -42,6 +44,7 @@ export default function ExamTimetablePage() {
 	const [requestBusy, setRequestBusy] = useState(false);
 	const [isChangeModalOpen, setIsChangeModalOpen] = useState(false);
 	const [changeBusy, setChangeBusy] = useState(false);
+	const [isShiftOpen, setIsShiftOpen] = useState(false);
 	const [enrollmentsByCourse, setEnrollmentsByCourse] = useState(new Map());
 	// Sessions other realms hold in the shared rooms (their current semesters).
 	const [externalBookings, setExternalBookings] = useState(NO_EXTERNAL_BOOKINGS);
@@ -420,6 +423,11 @@ export default function ExamTimetablePage() {
 							<Link className="btn btn-secondary" href="/timetable/import?type=exam&source=semester">
 								Copy semester <span className="badge badge-primary" style={{ marginLeft: 6, fontSize: "0.65rem" }}>Beta</span>
 							</Link>
+							{EXAM_SHIFT_REALMS.includes(realm) && (
+								<button className="btn btn-secondary" onClick={() => setIsShiftOpen(true)}>
+									Shift exams <span className="badge badge-primary" style={{ marginLeft: 6, fontSize: "0.65rem" }}>Beta</span>
+								</button>
+							)}
 						</>
 					)}
 					{showRequestChange && (
@@ -476,6 +484,22 @@ export default function ExamTimetablePage() {
 					onSubmit={handleRequestEditSubmit}
 					mode="exam"
 					busy={requestBusy}
+				/>
+			)}
+			{isShiftOpen && (
+				<ExamShiftModal
+					semesterId={selectedSemesterId}
+					faculties={state.faculties}
+					onClose={() => setIsShiftOpen(false)}
+					onApplied={(result) => {
+						setIsShiftOpen(false);
+						addToast({
+							type: "success",
+							title: "Exams shifted",
+							message: `${result.moving} exam${result.moving === 1 ? "" : "s"} moved. Check the timetable and export it again.`,
+						});
+						if (selectedSemesterId !== null) loadSchedules(selectedSemesterId);
+					}}
 				/>
 			)}
 			{isChangeModalOpen && (

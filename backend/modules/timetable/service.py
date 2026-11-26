@@ -8,14 +8,19 @@ from modules.timetable.schemas import (
     FacultyCreate, RoomCreate, CourseCreate, ScheduleItemCreate, DepartmentCreate, ScheduleItemUpdate,
     FacultyUpdate, DepartmentUpdate, RoomUpdate, CourseUpdate, BlockedSlotCreate, BlockedSlotUpdate, RoomReorderRequest,
     ChangeRequestCreate, ConflictDismissalCreate, ConflictDismissalBulkCreate, RoomCatalogueAddRequest,
+    ExamShiftRequest,
 )
 from modules.auth.models import RoleEnum, CROSS_REALM_ROLES
 from modules.auth.repository import AuthRepository
 from modules.realms.defaults import DEFAULT_REALM_KEY
 from modules.realms.schemas import WEEKDAYS
 from modules.notifications.service import NotificationService
+from modules.timetable.exam_shift import ExamCalendar, ShiftError, plan_shift, select_exams
 from modules.audit.service import AuditService
 from sqlalchemy.exc import IntegrityError
+
+# Programmes the exam shift is offered for. ICE (exams Friday-Sunday) isn't supported yet.
+EXAM_SHIFT_REALMS = {"UG"}
 
 
 # The realm whose rooms the other realms pick their halls from ("Add from Undergraduate").
@@ -1131,6 +1136,140 @@ class TimetableService:
             entity_id=item.id,
             description=f"Removed {item.type} for {course.code if course else f'course #{item.course_id}'} from {item.exam_date or item.day_of_week} {item.start_time}-{item.end_time}",
         )
+
+    # ---------- Exam shift ----------
+
+    async def shift_exams(self, data: ExamShiftRequest, current_user: dict, *, apply: bool) -> dict:
+        """Preview (apply=False) or apply moving many exams at once. Only dates and
+        week numbers change; times and rooms stay. The whole shift is one transaction."""
+        realm_key = current_user["realm"]
+        if realm_key not in EXAM_SHIFT_REALMS:
+            raise HTTPException(status_code=400, detail=f"Shifting exams isn't available for {current_user['realm_name']} yet")
+        semester = await self.cal_repo.get_semester(data.semester_id, realm_key=realm_key)
+        if not semester:
+            raise HTTPException(status_code=404, detail="Semester not found")
+        await self._assert_not_locked(semester.id, "exam", realm_key)
+
+        exams = await self.repo.get_schedule_items(realm_key=realm_key, semester_id=semester.id, item_type="exam")
+        blocked = await self.repo.get_blocked_slots(realm_key=realm_key, semester_id=semester.id)
+        filters = dict(faculty_ids=data.faculty_ids, from_date=data.from_date, to_date=data.to_date)
+        try:
+            calendar = ExamCalendar(current_user["realm_config"]["exam_days"], blocked)
+            chosen, _ = select_exams(exams, **filters)
+            plan = plan_shift(
+                exams, calendar, mode=data.mode, amount=data.amount, new_start_date=data.new_start_date, **filters,
+            )
+        except ShiftError as error:
+            raise HTTPException(status_code=400, detail=str(error))
+
+        by_id = {e.id: e for e in exams}
+        code_of = {c.id: c.code for c in await self.repo.get_courses(realm_key=realm_key)}
+        new_date_of = {m.item_id: m.new_date for m in plan.moves}
+        before = [e.exam_date for e in chosen]
+        after = [new_date_of.get(e.id, e.exam_date) for e in chosen]
+        clashes = await self._exam_shift_clashes(plan, by_id, code_of, realm_key, semester.id)
+        result = {
+            "applied": False,
+            "selected": plan.selected,
+            "moving": len(plan.moves),
+            "undated": plan.undated,
+            "first_date_before": min(before, default=None),
+            "first_date_after": min(after, default=None),
+            "last_date_before": max(before, default=None),
+            "last_date_after": max(after, default=None),
+            "date_changes": [
+                {"from_date": old, "to_date": new, "exams": n} for old, new, n in plan.date_changes()
+            ],
+            "pushed": [
+                {
+                    "course_code": code_of.get(by_id[m.item_id].course_id, f"#{by_id[m.item_id].course_id}"),
+                    "from_date": m.old_date,
+                    "to_date": m.new_date,
+                    "start_time": by_id[m.item_id].start_time,
+                    "end_time": by_id[m.item_id].end_time,
+                    "reason": m.pushed_past,
+                }
+                for m in plan.pushed
+            ],
+            "clashes": clashes,
+        }
+        if not apply:
+            return result
+
+        if not plan.moves:
+            raise HTTPException(status_code=400, detail="No exams would move, so there is nothing to apply")
+        if clashes:
+            raise HTTPException(
+                status_code=409,
+                detail=f"{len(clashes)} moved exam(s) would clash with another programme in a shared hall. Adjust the shift and preview again.",
+            )
+        for move in plan.moves:
+            item = by_id[move.item_id]
+            item.exam_date = move.new_date
+            item.week = move.new_week
+        await self.repo.update_schedule_item(by_id[plan.moves[0].item_id])  # flushes every change
+
+        if data.mode == "start_date":
+            how = f"to start on {data.new_start_date:%d %b %Y}"
+        else:
+            unit = "exam day(s)" if data.mode == "days" else "week(s)"
+            how = f"by {data.amount:+d} {unit}"
+        await self.audit_service.log(
+            current_user=current_user,
+            action="timetable.exam.shift",
+            entity_type="semester",
+            entity_id=semester.id,
+            description=f"Shifted {len(plan.moves)} exam(s) {how}",
+            extra={
+                "request": data.model_dump(mode="json"),
+                "moves": [
+                    {"id": m.item_id, "from": m.old_date.isoformat(), "to": m.new_date.isoformat()} for m in plan.moves
+                ],
+            },
+        )
+        result["applied"] = True
+        return result
+
+    async def _exam_shift_clashes(self, plan, by_id: dict, code_of: dict, realm_key: str, semester_id: int) -> list[dict]:
+        """Moved exams that would share a hall-group hall with another programme's exam
+        at the same time (the 409 rule for single edits). Only the current semester holds rooms."""
+        current = await self.cal_repo.get_current_semester(realm_key=realm_key)
+        if not plan.moves or not current or current.id != semester_id:
+            return []
+        special = {f.id for f in await self.repo.get_faculties(realm_key=realm_key) if f.is_special}
+        moves_by_date: dict = {}
+        for move in plan.moves:
+            item = by_id[move.item_id]
+            if item.is_online or not item.room_ids or item.faculty_id in special:
+                continue
+            moves_by_date.setdefault(move.new_date, []).append(item)
+
+        found = []
+        for day, items in sorted(moves_by_date.items()):
+            others = await self.repo.get_other_realms_current_items(realm_key=realm_key, item_type="exam", exam_date=day)
+            for other in others:
+                if other["is_special_faculty"]:
+                    continue
+                for item in items:
+                    shared = sorted(set(item.room_ids) & set(other["room_ids"]))
+                    if shared and _times_overlap(item.start_time, item.end_time, other["start_time"], other["end_time"]):
+                        found.append((day, item, shared[0], other))
+        if not found:
+            return []
+        rooms = await self.repo.get_rooms_by_ids(sorted({room for _, _, room, _ in found}), realm_key=realm_key)
+        room_name = {r.id: r.name for r in rooms}
+        return [
+            {
+                "course_code": code_of.get(item.course_id, f"#{item.course_id}"),
+                "date": day,
+                "start_time": item.start_time,
+                "end_time": item.end_time,
+                "room": room_name.get(room, f"#{room}"),
+                "other_realm": other["realm_name"],
+                "other_course": other["course_code"],
+            }
+            for day, item, room, other in found
+        ]
 
     # ---------- Blocked Slots ----------
 
