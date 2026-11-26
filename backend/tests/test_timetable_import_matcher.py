@@ -80,3 +80,28 @@ def test_a_name_several_buildings_use_is_asked_about_unless_the_faculty_has_one(
     architecture = RoomIndex(rooms, faculty_id="ARC")
     assert architecture.match_one("Room 1") is None
     assert [r.id for r in architecture.suggest("Room 1")] == [1, 2]
+
+
+def test_faculties_sharing_venues_see_each_others_rooms_as_their_own():
+    rooms = [
+        RoomRef(1, "Hall A", 100, "FLS-290", True),
+        RoomRef(2, "Hall A", 80, "FL-1852", True),   # Law's own Hall A
+        RoomRef(3, "Lab 3", 40, "FCAI-243", True),
+        RoomRef(4, "Lab 3", 40, "FL-1852", True),
+    ]
+    physical = RoomIndex(rooms, faculty_id="FPAES-7903")
+    assert physical.match_one("Lab 3").id == 3      # one fits among the three faculties: no question
+    assert physical.match_one("Hall A").id == 1
+    assert RoomIndex(rooms, faculty_id="FL-1852").match_one("Hall A").id == 2  # other faculties unchanged
+    assert RoomIndex(rooms, faculty_id="ARC").match_one("Hall A") is None
+
+
+def test_two_sister_rooms_with_one_name_are_asked_about():
+    rooms = [RoomRef(1, "Hall A", 100, "FLS-290", True), RoomRef(2, "Hall A", 80, "FCAI-243", True)]
+    assert RoomIndex(rooms, faculty_id="FPAES-7903").match_one("Hall A") is None
+    assert RoomIndex(rooms, faculty_id="FLS-290").match_one("Hall A").id == 1  # its own wins
+
+
+def test_suggestions_put_the_faculty_and_its_sisters_rooms_first():
+    rooms = [RoomRef(1, "Auditorium", 500, "FL-1852", True), RoomRef(2, "Auditorium 2", 90, "FLS-290", True)]
+    assert [r.id for r in RoomIndex(rooms, faculty_id="FCAI-243").suggest("Auditorium")] == [2, 1]

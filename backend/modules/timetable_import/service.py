@@ -16,6 +16,7 @@ semester, or adds to it, in one transaction.
 from __future__ import annotations
 
 import collections
+import re
 from datetime import date, datetime, time, timedelta, timezone
 from typing import BinaryIO
 
@@ -33,6 +34,7 @@ from modules.timetable_import.models import TimetableImport
 from modules.timetable_import.matcher import (
     CourseIndex, CourseRef, FacultyIndex, FacultyRef, RoomIndex, RoomRef, faculty_key,
 )
+from modules.timetable_import.pdf_reader import PdfWithoutText
 from modules.timetable_import.reader import RawEntry, SheetResult, WorkbookTooLarge, read_workbook
 from modules.timetable_import.schemas import ImportOptions
 
@@ -206,7 +208,10 @@ class TimetableImportService:
                 "reverted_by_email": r.reverted_by_email,
                 "restored_count": len(r.restored_ids or []),
                 "current_semester": bool(current and r.semester_id == current.id),
-                "can_revert": r.reverted_at is None and bool(current and r.semester_id == current.id),
+                "approved_at": r.approved_at.isoformat() if r.approved_at else None,
+                "approved_by_email": r.approved_by_email,
+                "can_revert": r.reverted_at is None and r.approved_at is None and bool(current and r.semester_id == current.id),
+                "can_approve": r.reverted_at is None and r.approved_at is None,
                 "would_restore": bool(r.replaced) and r.reverted_at is None and not await self._replaced_later(r),
             }
             for r in records
@@ -227,6 +232,11 @@ class TimetableImportService:
             raise HTTPException(status_code=404, detail="Import not found")
         if record.reverted_at:
             raise HTTPException(status_code=409, detail="This import has already been reverted")
+        if record.approved_at:
+            raise HTTPException(
+                status_code=409,
+                detail="This import has been approved and can no longer be reverted. Import a new file with Replace to change it.",
+            )
         current = await self.cal_repo.get_current_semester(realm_key=realm_key)
         if not current or record.semester_id != current.id:
             raise HTTPException(status_code=400, detail="Only imports into the current semester can be reverted")
@@ -285,6 +295,36 @@ class TimetableImportService:
         )
         return {"removed": removed, "restored": len(restored)}
 
+    async def approve(self, import_id: int, current_user: dict) -> dict:
+        """Accept an import as final. It can no longer be reverted; a later import can still replace it."""
+        realm_key = current_user["realm"]
+        record = (await self.repo.db.execute(
+            select(TimetableImport)
+            .where(TimetableImport.id == import_id, TimetableImport.realm_key == realm_key)
+            .with_for_update()
+        )).scalar_one_or_none()
+        if not record:
+            raise HTTPException(status_code=404, detail="Import not found")
+        if record.reverted_at:
+            raise HTTPException(status_code=409, detail="A reverted import can't be approved")
+        if record.approved_at:
+            raise HTTPException(status_code=409, detail="This import has already been approved")
+
+        record.approved_at = datetime.now(timezone.utc)
+        record.approved_by = _user_id(current_user)
+        record.approved_by_email = await self._email(current_user)
+        await self.repo.db.flush()
+
+        await self.audit_service.log(
+            current_user=current_user,
+            action=f"schedule_item.{record.item_type}.import_approve",
+            entity_type="timetable_import",
+            entity_id=record.id,
+            description=f"Approved the import of {record.file_name or 'a file'}; it can no longer be reverted",
+            extra={"faculty_id": record.faculty_id},
+        )
+        return {"approved_at": record.approved_at.isoformat(), "approved_by_email": record.approved_by_email}
+
     async def _replaced_later(self, record: TimetableImport) -> bool:
         """Whether a later import, still in place, replaced the same timetable again."""
         # A replace of all faculties replaces each of them, and any replace touches an all-faculty one.
@@ -331,8 +371,10 @@ class TimetableImportService:
             sheets = read_workbook(file)
         except WorkbookTooLarge:
             raise HTTPException(status_code=413, detail="This workbook is too large to import. Remove unused sheets and rows and try again.")
+        except PdfWithoutText:
+            raise HTTPException(status_code=400, detail="This PDF has no text to read, so it is probably a scan. Upload the Excel or Word file, or a PDF saved from one.")
         except Exception:
-            raise HTTPException(status_code=400, detail="That file couldn't be read. Upload an Excel (.xlsx) or Word (.docx) file.")
+            raise HTTPException(status_code=400, detail="That file couldn't be read. Upload an Excel (.xlsx), Word (.docx) or PDF file.")
         sheet = _choose_sheet(sheets, options.sheet)
 
         courses = await self.repo.get_courses(realm_key=realm_key)
@@ -422,7 +464,17 @@ class TimetableImportService:
         # Exam dates
         dating = None
         if options.item_type == "exam" and entries:
-            headers = {e.day_seq: DayHeader(e.day_seq, e.weekday, e.date, e.year_missing, e.date_text) for e in entries}
+            # Only days with sessions this import keeps: a General Studies page in a
+            # faculty's file mustn't decide where the faculty's dates start.
+            def kept(e: RawEntry) -> bool:
+                for code in e.codes:
+                    course_id = course_of.get(code)
+                    if course_id is not None and (options.place_in_faculties or not _is_gst(course_index.by_id[course_id].code)):
+                        return True
+                return False
+
+            dated_entries = [e for e in entries if kept(e)] or entries
+            headers = {e.day_seq: DayHeader(e.day_seq, e.weekday, e.date, e.year_missing, e.date_text) for e in dated_entries}
             dating = date_exam_days(list(headers.values()), start_date=answers.exam_start_date, year=answers.exam_year)
 
         # Which faculties each row goes to. General Studies' lectures go to every
@@ -475,8 +527,9 @@ class TimetableImportService:
                 course_id = course_of.get(code)
                 if course_id is None:
                     continue
-                if course_id in shared_ids and not options.place_in_faculties:
-                    # Placed in every faculty by General Studies; a faculty's file doesn't move it.
+                if (course_id in shared_ids or _is_gst(course_index.by_id[course_id].code)) and not options.place_in_faculties:
+                    # General Studies places its courses in every faculty; a faculty's file doesn't
+                    # move them, even before General Studies has been imported.
                     shared_skipped[course_index.by_id[course_id].code] += 1
                     continue
                 day = None if exam_date else e.weekday
@@ -549,6 +602,8 @@ class TimetableImportService:
             "faculties": list(faculty_questions.values()),
             "exam_start_date": bool(dating and dating.needs_start_date),
             "exam_year": bool(dating and dating.needs_year),
+            # The sheet dates its days, so a first exam date is optional and remaps them.
+            "exam_dates_in_sheet": bool(dating and dating.dated_in_sheet),
         }
         open_questions = (
             len(questions["courses"]) + len(questions["venues"]) + len(questions["faculties"])
@@ -658,7 +713,7 @@ class TimetableImportService:
             if not course:
                 gone_courses[s.course_id] += 1
                 continue
-            if s.course_id in source_shared:
+            if s.course_id in source_shared or _is_gst(course.code):
                 shared_skipped[course.code] += 1
                 continue
             room_ids = [r for r in (s.room_ids or []) if r in room_index.by_id]
@@ -735,7 +790,7 @@ class TimetableImportService:
             "venue_columns": [],
             "questions": {
                 "courses": [], "venues": [], "faculties": [],
-                "exam_start_date": needs_start_date, "exam_year": False,
+                "exam_start_date": needs_start_date, "exam_year": False, "exam_dates_in_sheet": False,
             },
             "open_questions": open_questions,
             "ready": open_questions == 0 and bool(items),
@@ -880,6 +935,11 @@ def _check_faculty_groups(items: list[dict], faculty_ids: list[str], faculty_nam
                     item["warnings"].append(f"{faculty_name.get(f, f)} sits {item['code']} more than once ({when})")
     for item in items:
         item["warnings"] = list(dict.fromkeys(item["warnings"]))
+
+
+def _is_gst(code: str) -> bool:
+    """A General Studies course: GST or ENT codes (GST101, LAG-GST112, ENT211), as the exports count them."""
+    return re.match(r"^(?:[A-Z]+-)?(?:GST|ENT)", code.strip().upper()) is not None
 
 
 def _shared_course_ids(existing: list[ScheduleItem], faculty_count: int) -> set[int]:

@@ -12,7 +12,7 @@ from modules.timetable_import.service import TimetableImportService
 
 router = APIRouter(prefix="/timetable-import", tags=["Timetable import"])
 
-MAX_UPLOAD_BYTES = 5 * 1024 * 1024
+MAX_UPLOAD_BYTES = 13 * 1024 * 1024
 super_admin = RequireRole([RoleEnum.SUPER_ADMIN.value])
 
 
@@ -21,11 +21,11 @@ async def _read(file: UploadFile, options: str) -> tuple:
         parsed = ImportOptions.model_validate_json(options)
     except ValidationError as exc:
         raise HTTPException(status_code=422, detail=exc.errors(include_url=False, include_context=False))
-    if not (file.filename or "").lower().endswith((".xlsx", ".docx")):
-        raise HTTPException(status_code=400, detail="Upload an Excel (.xlsx) or Word (.docx) file")
+    if not (file.filename or "").lower().endswith((".xlsx", ".docx", ".pdf")):
+        raise HTTPException(status_code=400, detail="Upload an Excel (.xlsx), Word (.docx) or PDF file")
     data = await file.read(MAX_UPLOAD_BYTES + 1)
     if len(data) > MAX_UPLOAD_BYTES:
-        raise HTTPException(status_code=413, detail="The file is larger than 5 MB")
+        raise HTTPException(status_code=413, detail="The file is larger than 13 MB")
     parsed.file_name = file.filename
     return io.BytesIO(data), parsed
 
@@ -84,3 +84,12 @@ async def revert_import(
     user: dict = Depends(super_admin),
 ):
     return await service.revert(import_id, user)
+
+
+@router.post("/imports/{import_id}/approve")
+async def approve_import(
+    import_id: int,
+    service: TimetableImportService = Depends(),
+    user: dict = Depends(super_admin),
+):
+    return await service.approve(import_id, user)

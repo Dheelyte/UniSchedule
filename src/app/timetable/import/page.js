@@ -9,10 +9,11 @@ import { slimWorkbook } from '@/lib/slimWorkbook';
 import { useToast } from '@/components/Toast/Toast';
 import { useConfirm } from '@/components/ConfirmModal/ConfirmContext';
 import { TablePageSkeleton } from '@/components/Skeleton/Skeleton';
+import { roomChoices } from '@/lib/venueGroups';
 import styles from './import.module.css';
 
 // The largest file the page accepts, before its empty cells are dropped.
-const MAX_FILE_MB = 10;
+const MAX_FILE_MB = 13;
 // The faculty choice that copies every faculty's timetable at once.
 const ALL_FACULTIES = '*';
 const EMPTY_ANSWERS = { courses: {}, venues: {}, faculties: {}, venue_column: null, exam_start_date: null, exam_year: null };
@@ -55,6 +56,7 @@ function TimetableImport() {
     const [imported, setImported] = useState(null); // the last apply's result
     const [history, setHistory] = useState(null);
     const [reverting, setReverting] = useState(null);
+    const [approving, setApproving] = useState(null);
 
     const [faculties, setFaculties] = useState([]);
     const [rooms, setRooms] = useState([]);
@@ -98,6 +100,7 @@ function TimetableImport() {
     // General Studies places each lecture in every faculty, and each exam in the faculties its row names.
     const placeInFaculties = isGeneralStudies && placeAll;
 
+    const roomSections = useMemo(() => roomChoices(rooms, facultyId === ALL_FACULTIES ? null : facultyId), [rooms, facultyId]);
     const roomName = useMemo(() => Object.fromEntries(rooms.map((r) => [r.id, r.name])), [rooms]);
 
     const options = useCallback((extra = {}) => ({
@@ -164,11 +167,13 @@ function TimetableImport() {
         }
         try {
             // Some workbooks carry thousands of formatted empty cells; drop them before uploading.
-            const bytes = slimWorkbook(new Uint8Array(await chosen.arrayBuffer()));
-            setFile({ name: chosen.name, blob: new Blob([bytes]) });
+            // A PDF is sent as it is; only workbooks are slimmed.
+            const isPdf = chosen.name.toLowerCase().endsWith('.pdf');
+            const blob = isPdf ? chosen : new Blob([slimWorkbook(new Uint8Array(await chosen.arrayBuffer()))]);
+            setFile({ name: chosen.name, blob });
         } catch {
             setFile(null);
-            addToast({ type: 'error', title: "Can't read this file", message: 'Choose an Excel (.xlsx) or Word (.docx) file.' });
+            addToast({ type: 'error', title: "Can't read this file", message: 'Choose an Excel (.xlsx), Word (.docx) or PDF file.' });
         }
     };
 
@@ -272,6 +277,31 @@ function TimetableImport() {
         }
     };
 
+    const approve = async (row) => {
+        const proceed = await confirm({
+            title: `Approve the import of ${row.file_name || 'this file'}?`,
+            message: (
+                `Once approved, this import can no longer be reverted. ${row.faculty_name}'s ${row.item_type === 'exam' ? 'exam' : 'lecture'} sessions from it stay as they are`
+                + (row.replaced_count ? `, and the ${row.replaced_count} session(s) it replaced can't be put back` : '')
+                + '. To change them later, import a new file with Replace.'
+            ),
+            confirmLabel: 'Approve',
+            cancelLabel: 'Cancel',
+            tone: 'danger',
+        });
+        if (!proceed) return;
+        setApproving(row.id);
+        try {
+            await apiClient.post(`/timetable-import/imports/${row.id}/approve`);
+            addToast({ type: 'success', title: 'Import approved', message: 'It can no longer be reverted.' });
+            await loadHistory();
+        } catch (e) {
+            addToast({ type: 'error', title: "Couldn't approve", message: e?.message || 'Nothing was changed.' });
+        } finally {
+            setApproving(null);
+        }
+    };
+
     if (authLoading) return <TablePageSkeleton columns={5} rows={8} />;
     if (!allowed) return null;
 
@@ -292,7 +322,7 @@ function TimetableImport() {
                     <p className={styles.sub}>
                         {copying
                             ? `Schedule ${sources?.current ? `${sources.current.session_name} ${sources.current.name}` : 'the current semester'} from an earlier one: the same courses, days, times and rooms, checked against this semester before anything is saved.`
-                            : 'Upload a faculty\'s Excel or Word timetable. Codes and venues are matched to this realm\'s courses and rooms; anything that doesn\'t match is asked about below before anything is saved.'}
+                            : 'Upload a faculty\'s Excel, Word or PDF timetable (PDFs need selectable text, not a scan). Codes and venues are matched to this realm\'s courses and rooms; anything that doesn\'t match is asked about below before anything is saved.'}
                     </p>
                     <div className={styles.sourceTabs}>
                         {[['file', 'From a file'], ['semester', 'From an earlier semester']].map(([value, label]) => (
@@ -346,8 +376,8 @@ function TimetableImport() {
                         </label>
                     ) : (
                         <label className={styles.field}>
-                            <span className="form-label">Excel (.xlsx) or Word (.docx) file, up to {MAX_FILE_MB} MB</span>
-                            <input className="form-input" type="file" accept=".xlsx,.docx" disabled={!!preview} onChange={pickFile} />
+                            <span className="form-label">Excel (.xlsx), Word (.docx) or PDF file, up to {MAX_FILE_MB} MB</span>
+                            <input className="form-input" type="file" accept=".xlsx,.docx,.pdf" disabled={!!preview} onChange={pickFile} />
                         </label>
                     )}
                     {isGeneralStudies && (
@@ -430,6 +460,15 @@ function TimetableImport() {
                         </div>
                     )}
 
+                    {itemType === 'exam' && !copying && (q.exam_dates_in_sheet || answers.exam_start_date) && (
+                        <FirstExamDate
+                            chosen={answers.exam_start_date}
+                            fromSheet={q.exam_dates_in_sheet}
+                            firstDate={preview.items.reduce((min, i) => (i.exam_date && (!min || i.exam_date < min) ? i.exam_date : min), null)}
+                            onChange={(value) => setAnswers((a) => ({ ...a, exam_start_date: value }))}
+                        />
+                    )}
+
                     {preview.open_questions > 0 && (
                         <section className={styles.card}>
                             <h3 className={styles.sectionTitle}>Before importing</h3>
@@ -488,6 +527,8 @@ function TimetableImport() {
                                             </span>
                                         </button>
                                     ))}
+                                    <RoomSelect sections={roomSections} faculties={faculties} placeholder="Pick from this faculty's rooms…"
+                                        onPick={(x) => setVenueAnswer(v.text, [x.id])} />
                                     <Picker placeholder="Search all rooms…" items={rooms} label={(x) => x.name}
                                         onPick={(x) => setVenueAnswer(v.text, [x.id])} />
                                     <button className="btn btn-secondary" onClick={() => setVenueAnswer(v.text, [])}>No room</button>
@@ -505,7 +546,9 @@ function TimetableImport() {
                             {preview.venue_matches.map((v) => (
                                 <div key={v.text} className={styles.matchRow}>
                                     <span><code>{v.text}</code> → {v.rooms.map((r) => r.name).join(', ')}</span>
-                                    <Picker placeholder="Change to…" items={rooms} label={(x) => x.name}
+                                    <RoomSelect sections={roomSections} faculties={faculties} placeholder="Change to…"
+                                        onPick={(x) => setVenueAnswer(v.text, [x.id])} />
+                                    <Picker placeholder="Or search all rooms…" items={rooms} label={(x) => x.name}
                                         onPick={(x) => setVenueAnswer(v.text, [x.id])} />
                                 </div>
                             ))}
@@ -611,7 +654,8 @@ function TimetableImport() {
                 </>
             )}
 
-            <ImportHistory rows={history} itemType={itemType} reverting={reverting} onRevert={revert} />
+            <ImportHistory rows={history} itemType={itemType} reverting={reverting} onRevert={revert}
+                approving={approving} onApprove={approve} />
         </div>
     );
 }
@@ -626,7 +670,7 @@ function ImportDone({ imported, itemType, onDismiss }) {
                     {imported.created} {what}(s) added to {imported.facultyName}
                     {imported.removed ? `, ${imported.removed} replaced` : ''}
                     {imported.left_out ? `, ${imported.left_out} left out` : ''}.
-                    {' '}You can revert it at any time from Past imports below.
+                    {' '}You can revert it from Past imports below until you approve it.
                 </p>
             </div>
             <div className={styles.doneActions}>
@@ -639,7 +683,8 @@ function ImportDone({ imported, itemType, onDismiss }) {
     );
 }
 
-function ImportHistory({ rows, itemType, reverting, onRevert }) {
+function ImportHistory({ rows, itemType, reverting, onRevert, approving, onApprove }) {
+    const busy = reverting !== null || approving !== null;
     return (
         <section className={styles.card}>
             <h3 className={styles.sectionTitle}>Past {itemType} imports</h3>
@@ -687,12 +732,27 @@ function ImportHistory({ rows, itemType, reverting, onRevert }) {
                                             Reverted {formatWhen(row.reverted_at)}
                                             {row.reverted_by_email ? ` by ${row.reverted_by_email}` : ''}
                                         </span>
-                                    ) : row.can_revert ? (
-                                        <button className="btn btn-secondary" disabled={reverting !== null} onClick={() => onRevert(row)}>
-                                            {reverting === row.id ? 'Reverting…' : 'Revert'}
-                                        </button>
+                                    ) : row.approved_at ? (
+                                        <span className={styles.muted}>
+                                            <span className="badge badge-success">Approved</span>{' '}
+                                            {formatWhen(row.approved_at)}
+                                            {row.approved_by_email ? ` by ${row.approved_by_email}` : ''}
+                                        </span>
                                     ) : (
-                                        <span className={styles.muted}>Earlier semester</span>
+                                        <div className={styles.rowActions}>
+                                            {row.can_revert ? (
+                                                <button className="btn btn-secondary" disabled={busy} onClick={() => onRevert(row)}>
+                                                    {reverting === row.id ? 'Reverting…' : 'Revert'}
+                                                </button>
+                                            ) : (
+                                                <span className={styles.muted}>Earlier semester</span>
+                                            )}
+                                            {row.can_approve && (
+                                                <button className="btn btn-primary" disabled={busy} onClick={() => onApprove(row)}>
+                                                    {approving === row.id ? 'Approving…' : 'Approve'}
+                                                </button>
+                                            )}
+                                        </div>
                                     )}
                                 </td>
                             </tr>
@@ -734,6 +794,51 @@ function YearAnswer({ onAnswer }) {
             <input className="form-input" type="number" style={{ maxWidth: 140 }} value={year} onChange={(e) => setYear(e.target.value)} />
             <button className="btn btn-primary" disabled={!Number(year)} onClick={() => onAnswer(Number(year))}>Use this year</button>
         </>
+    );
+}
+
+// The first exam date: the sheet's own, or one the admin picks to remap every date from.
+function FirstExamDate({ chosen, fromSheet, firstDate, onChange }) {
+    const shown = firstDate ? new Date(`${firstDate}T00:00:00`).toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }) : null;
+    return (
+        <section className={styles.card}>
+            <h3 className={styles.sectionTitle}>First exam date</h3>
+            <p className={styles.muted}>
+                {chosen
+                    ? `Remapped: the first exam is on ${shown || chosen}. Every other day moves by the same number of weeks, keeping its weekday and the gaps between days.`
+                    : fromSheet
+                        ? `From the file: the first exam is on ${shown || 'the first dated day'}. Pick another date to move the whole timetable; each day keeps its weekday and the gaps between days stay as the file has them.`
+                        : 'Pick the date of the first exam.'}
+            </p>
+            <div className={styles.inlineRow}>
+                <input className="form-input" type="date" style={{ maxWidth: 200 }} value={chosen || ''}
+                    onChange={(e) => onChange(e.target.value || null)} />
+                {chosen && fromSheet && (
+                    <button className="btn btn-secondary" onClick={() => onChange(null)}>Use the file&apos;s dates</button>
+                )}
+            </div>
+        </section>
+    );
+}
+
+// A dropdown of the rooms of the faculty being imported (and its shared-venue faculties), to pick without searching.
+function RoomSelect({ sections, faculties, onPick, placeholder }) {
+    if (!sections.length) return null;
+    const facultyName = (id) => faculties.find((f) => f.id === id)?.name || id;
+    const options = (list) => list.map((r) => (
+        <option key={r.id} value={r.id}>{r.name}{r.capacity || r.active_seats ? ` (${r.capacity || r.active_seats})` : ''}</option>
+    ));
+    return (
+        <select className="form-select" style={{ maxWidth: 280 }} value=""
+            onChange={(e) => {
+                const room = sections.flatMap((s) => s.rooms).find((r) => String(r.id) === e.target.value);
+                if (room) onPick(room);
+            }}>
+            <option value="">{placeholder}</option>
+            {sections.length === 1
+                ? options(sections[0].rooms)
+                : sections.map((s) => <optgroup key={s.facultyId} label={facultyName(s.facultyId)}>{options(s.rooms)}</optgroup>)}
+        </select>
     );
 }
 

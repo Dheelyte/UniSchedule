@@ -39,3 +39,8 @@ class TimetableImport(Base):
     reverted_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     reverted_by_email: Mapped[str | None] = mapped_column(String, nullable=True)
     restored_ids: Mapped[list[int]] = mapped_column(ARRAY(Integer), server_default="{}")
+    # Approved: the import is accepted as final and can no longer be reverted.
+    # A later import can still replace its sessions.
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    approved_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    approved_by_email: Mapped[str | None] = mapped_column(String, nullable=True)

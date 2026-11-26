@@ -75,6 +75,8 @@ def parse_time_range(text) -> tuple[time, time] | None:
 _DAY_WORD = re.compile(r"\b(MON|TUE|WED|THU|FRI|SAT|SUN)[A-Z]*\b")
 _SPACED_DAY = re.compile(r"^\s*([A-Z])(\s+[A-Z]){4,8}\s*$")
 _WEEK = re.compile(r"\bWEEK\s*(\d{1,2})\b", re.I)
+_DATE_ISO = re.compile(r"\b(\d{4})-(\d{1,2})-(\d{1,2})\b")
+_DATE_NUM = re.compile(r"\b(\d{1,2})[/.-](\d{1,2})[/.-](\d{4}|\d{2})\b")  # day first: 25/01/2027
 _DATE_DM = re.compile(r"\b(\d{1,2})(?:ST|ND|RD|TH)?\s*(?:OF\s+)?([A-Z]{3,9})\b,?\s*(\d{4})?")
 _DATE_MD = re.compile(r"\b([A-Z]{3,9})\s+(\d{1,2})(?:ST|ND|RD|TH)?\b,?\s*(\d{4})?")
 
@@ -93,6 +95,14 @@ def _month(word: str) -> int | None:
 
 def _find_date(upper: str) -> tuple[int, int, int | None, str] | None:
     """(day, month, year or None, matched text) from the first date in the text."""
+    if m := _DATE_ISO.search(upper):
+        year, month, day = int(m.group(1)), int(m.group(2)), int(m.group(3))
+        if 1 <= month <= 12 and 1 <= day <= 31:
+            return day, month, year, m.group(0)
+    if m := _DATE_NUM.search(upper):
+        day, month, year = int(m.group(1)), int(m.group(2)), int(m.group(3))
+        if 1 <= month <= 12 and 1 <= day <= 31:
+            return day, month, year + 2000 if year < 100 else year, m.group(0)
     for pattern, order in ((_DATE_DM, "dm"), (_DATE_MD, "md")):
         for m in pattern.finditer(upper):
             if order == "dm":
@@ -102,6 +112,19 @@ def _find_date(upper: str) -> tuple[int, int, int | None, str] | None:
             if month and 1 <= day <= 31:
                 return day, month, int(year) if year else None, m.group(0).strip(" ,")
     return None
+
+
+def parse_date_cell(text) -> date | None:
+    """A cell holding a date (`2026-03-09`, `09/03/2026`, `9 March 2026`); None if there is none or no year."""
+    if not isinstance(text, str):
+        return None
+    found = _find_date(" ".join(text.upper().split()))
+    if not found or found[2] is None:
+        return None
+    try:
+        return date(found[2], found[1], found[0])
+    except ValueError:
+        return None
 
 
 def parse_day_label(text) -> DayLabel | None:
