@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Response
 from typing import Optional, Literal
 from modules.timetable.service import TimetableService
 from modules.timetable.schemas import (
@@ -184,7 +184,9 @@ async def get_courses(
     service: TimetableService = Depends(),
     user: dict = Depends(get_current_user)
 ):
-    return await service.get_courses(user)
+    # Already JSON in CourseResponse's shape: returning a Response skips building
+    # a model per course (thousands in UG), which the Lambda couldn't afford.
+    return Response(await service.courses_json(user), media_type="application/json")
 
 @router.put("/courses/{id}", response_model=CourseResponse)
 async def update_course(
@@ -225,7 +227,8 @@ async def get_schedule_items(
     service: TimetableService = Depends(),
     user: dict = Depends(get_current_user)
 ):
-    return await service.get_schedule_items(user, semester_id=semester_id, item_type=type)
+    # Already JSON in ScheduleItemResponse's shape (see get_courses).
+    return Response(await service.schedule_items_json(user, semester_id=semester_id, item_type=type), media_type="application/json")
 
 
 @router.get("/rooms/usage", response_model=dict[int, int])

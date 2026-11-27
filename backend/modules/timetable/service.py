@@ -1,3 +1,4 @@
+import pydantic_core
 from fastapi import Depends, HTTPException
 from datetime import date, datetime, timezone
 from modules.signoff.repository import SignoffRepository
@@ -709,6 +710,15 @@ class TimetableService:
         prioritize_faculty_id = current_user.get('faculty_id')
         return await self.repo.get_courses(realm_key=current_user["realm"], faculty_id=faculty_id, prioritize_faculty_id=prioritize_faculty_id)
 
+    async def courses_json(self, current_user: dict) -> bytes:
+        """GET /courses as JSON, built from plain rows: the same list as get_courses,
+        without an ORM object and a response model for every course."""
+        faculty_id = None if _has_global_read_scope(current_user) else current_user.get('faculty_id')
+        rows = await self.repo.course_rows(
+            realm_key=current_user["realm"], faculty_id=faculty_id, prioritize_faculty_id=current_user.get('faculty_id'),
+        )
+        return pydantic_core.to_json(rows)
+
     async def update_course(self, id: int, data: CourseUpdate, current_user: dict) -> Course:
         course = await self.repo.get_course(id, realm_key=current_user["realm"])
         if not course: raise HTTPException(status_code=404, detail="Not found")
@@ -1080,6 +1090,16 @@ class TimetableService:
         return await self.repo.get_schedule_items(
             realm_key=current_user["realm"], semester_id=semester_id, faculty_id=faculty_id, item_type=item_type,
         )
+
+    async def schedule_items_json(
+        self, current_user: dict, semester_id: int | None = None, item_type: str | None = None,
+    ) -> bytes:
+        """GET /schedule-items as JSON, built from plain rows (see courses_json)."""
+        faculty_id = None if _has_global_read_scope(current_user) else current_user.get('faculty_id')
+        rows = await self.repo.schedule_item_rows(
+            realm_key=current_user["realm"], semester_id=semester_id, faculty_id=faculty_id, item_type=item_type,
+        )
+        return pydantic_core.to_json(rows)
 
     async def get_room_usage(self, current_user: dict) -> dict[int, int]:
         """Schedule items per room, counted over the items get_schedule_items would return."""
