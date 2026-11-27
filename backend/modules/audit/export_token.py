@@ -32,6 +32,8 @@ class ExportGrant:
     max_id: int
     sections: tuple[str, ...]
     format: str
+    # No one the report covers can impersonate: impersonated entries are left out.
+    exclude_impersonated: bool = False
 
 
 def issue_export_token(user: dict, grant: ExportGrant) -> str:
@@ -47,6 +49,7 @@ def issue_export_token(user: dict, grant: ExportGrant) -> str:
             "max_id": grant.max_id,
             "sections": list(grant.sections),
             "format": grant.format,
+            "exclude_impersonated": grant.exclude_impersonated,
         },
         expires_delta=TOKEN_LIFETIME,
     )
@@ -71,6 +74,7 @@ def read_export_token(token: str | None, user: dict) -> ExportGrant:
             max_id=int(payload["max_id"]),
             sections=tuple(payload["sections"]),
             format=payload["format"],
+            exclude_impersonated=bool(payload.get("exclude_impersonated", False)),
         )
     except (KeyError, TypeError, ValueError):
         raise HTTPException(status_code=401, detail=EXPIRED)

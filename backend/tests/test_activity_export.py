@@ -33,8 +33,9 @@ from modules.audit.members import (
     build_members,
 )
 from modules.auth.models import Invitation, RoleEnum
-from modules.calendar.models import AcademicSession
-from modules.timetable.models import Faculty
+from modules.calendar.models import AcademicSession, Semester
+from modules.editor_access.models import EditorHandover
+from modules.timetable.models import BlockedSlot, Faculty
 from tests.test_activity_filters import API, add, add_logs, custom, lagos
 
 PREVIEW = f"{API}/audit/export/preview"
@@ -43,7 +44,8 @@ ANALYSIS = f"{API}/audit/export/analysis"
 ROWS = f"{API}/audit/export/rows"
 ALL_SECTIONS = [
     "summary", "categories", "users", "roles_portals", "over_time",
-    "impersonation", "sensitive", "change_requests", "members", "raw",
+    "out_of_hours", "unusual", "impersonation", "sensitive", "handovers", "locks", "courses",
+    "change_requests", "exports", "members", "raw",
 ]
 MARCH = {"range": "custom", "from": "2026-03-01", "to": "2026-03-31"}
 
@@ -409,9 +411,188 @@ async def test_impersonated_rows_show_the_real_user_and_the_role_acted_as(admin)
     row = next(r for r in (await all_rows(admin, started["token"]))[0] if r["action"] == "schedule_item.lecture.update")
     assert (row["user_email"], row["user_role"], row["real_role"], row["impersonating"]) == ("boss@x.com", "HOD", "SUPER_ADMIN", True)
 
-    # The roles filter decides whose sessions show (here: who was acted as).
+    # The roles filter decides whose sessions show (here: who was acted as). A DEO-only
+    # report leaves impersonation out (a DEO can't impersonate); adding Super Admin
+    # brings it back with just the sessions acted as a DEO.
     only_deo = await start(admin, {**MARCH, "role": "DEO"}, sections=["impersonation", "members"])
-    assert [s["acting_role"] for s in (await analysis(admin, only_deo["token"]))["impersonation"]["sessions"]] == ["DEO"]
+    assert "impersonation" not in (await analysis(admin, only_deo["token"]))
+    deo_and_admins = await start(admin, {**MARCH, "role": ["DEO", "SUPER_ADMIN"]}, sections=["impersonation", "members"])
+    assert [s["acting_role"] for s in (await analysis(admin, deo_and_admins["token"]))["impersonation"]["sessions"]] == ["DEO"]
+
+
+async def test_reports_on_people_who_cant_impersonate_leave_impersonated_entries_out(admin):
+    acting = {"impersonation": {"real_role": "SUPER_ADMIN", "acting_as_role": "FACULTY_EDITOR"}}
+    await add_logs(
+        {"action": "course.update", "user_email": "editor@x.com", "user_role": "FACULTY_EDITOR", "created_at": lagos(2026, 3, 2, 9)},
+        {"action": "course.create", "user_email": "editor@x.com", "user_role": "FACULTY_EDITOR", "extra": None, "created_at": lagos(2026, 3, 2, 9, 5)},
+        {"action": "auth.impersonate.start", "user_email": "boss@x.com", "user_role": "SUPER_ADMIN",
+         "extra": {"act_as_role": "FACULTY_EDITOR"}, "created_at": lagos(2026, 3, 2, 10)},
+        {"action": "course.delete", "user_email": "boss@x.com", "user_role": "FACULTY_EDITOR", "extra": acting,
+         "created_at": lagos(2026, 3, 2, 10, 30)},
+        {"action": "auth.impersonate.stop", "user_email": "boss@x.com", "user_role": "FACULTY_EDITOR", "extra": acting,
+         "created_at": lagos(2026, 3, 2, 11)},
+    )
+    editors = {**MARCH, "role": "FACULTY_EDITOR"}
+    preview = (await admin.get(PREVIEW, params=editors)).json()
+    assert (preview["events"], preview["impersonation_applies"]) == (2, False)
+    started = await start(admin, editors)
+    assert started["events"] == 2
+    result = await analysis(admin, started["token"])
+    assert result["summary"]["total_events"] == 2
+    assert sorted(r["action"] for r in (await all_rows(admin, started["token"]))[0]) == ["course.create", "course.update"]
+
+    # With Super Admin in the report, the acted-as entries are back.
+    with_admins = await start(admin, {**MARCH, "role": ["FACULTY_EDITOR", "SUPER_ADMIN"]})
+    assert "course.delete" in [r["action"] for r in (await all_rows(admin, with_admins["token"]))[0]]
+
+
+async def test_locked_timetables_lists_each_reopening_and_the_edits_made_while_open(admin):
+    (session,) = await add(AcademicSession(name="2025/2026", realm_key="UG"))
+    (semester,) = await add(Semester(name="Second Semester", session_id=session.id))
+    exam, lecture = f"{semester.id}:exam", f"{semester.id}:lecture"
+    sid = semester.id
+    await add_logs(
+        {"action": "timetable.lock", "entity_type": "timetable_lock", "entity_id": exam, "user_email": "boss@x.com", "created_at": lagos(2026, 3, 1, 9)},
+        {"action": "timetable.edit_request", "entity_type": "timetable_lock", "entity_id": exam, "user_email": "editor@x.com",
+         "extra": {"reason": "Clash in LT1"}, "created_at": lagos(2026, 3, 3, 9)},
+        {"action": "timetable.unlock", "entity_type": "timetable_lock", "entity_id": exam, "user_email": "boss@x.com", "created_at": lagos(2026, 3, 3, 10)},
+        {"action": "schedule_item.exam.update", "entity_type": "schedule_item", "entity_id": "77", "user_email": "editor@x.com",
+         "extra": {"semester_id": sid, "before": {"day_of_week": "Monday"}}, "created_at": lagos(2026, 3, 3, 11)},
+        {"action": "timetable.exam.shift", "entity_type": "semester", "entity_id": str(sid), "user_email": "boss@x.com", "created_at": lagos(2026, 3, 3, 12)},
+        # Another semester's edit, and a lecture edit, aren't this reopening's.
+        {"action": "schedule_item.exam.update", "entity_type": "schedule_item", "entity_id": "78", "extra": {"semester_id": sid + 1000}, "created_at": lagos(2026, 3, 3, 11)},
+        {"action": "schedule_item.lecture.update", "entity_type": "schedule_item", "entity_id": "79", "extra": {"semester_id": sid}, "created_at": lagos(2026, 3, 3, 11)},
+        {"action": "timetable.lock", "entity_type": "timetable_lock", "entity_id": exam, "user_email": "boss@x.com", "created_at": lagos(2026, 3, 3, 14)},
+        # Reopened without a request and never locked again.
+        {"action": "timetable.lock", "entity_type": "timetable_lock", "entity_id": lecture, "user_email": "boss@x.com", "created_at": lagos(2026, 3, 10, 9)},
+        {"action": "timetable.unlock", "entity_type": "timetable_lock", "entity_id": lecture, "user_email": "boss@x.com", "created_at": lagos(2026, 3, 20, 9)},
+        # Another portal's reopening never shows.
+        {"action": "timetable.unlock", "realm_key": "ICE", "entity_type": "timetable_lock", "entity_id": "5:exam", "created_at": lagos(2026, 3, 5)},
+    )
+    locks = (await analysis(admin, (await start(admin, sections=["locks"]))["token"]))["locks"]
+    assert (locks["total"], locks["still_open"], locks["without_request"]) == (2, 1, 1)
+    first, second = locks["reopenings"]
+    assert (first["timetable_type"], first["session_name"], first["semester_name"]) == ("exam", "2025/2026", "Second Semester")
+    assert (first["unlocked_by"], first["relocked_by"], first["open_hours"]) == ("boss@x.com", "boss@x.com", 4.0)
+    assert [r["reason"] for r in first["requests"]] == ["Clash in LT1"]
+    assert first["edit_count"] == 2
+    assert [e["action"] for e in first["edits"]] == ["schedule_item.exam.update", "timetable.exam.shift"]
+    assert first["editors"] == [{"email": "boss@x.com", "count": 1}, {"email": "editor@x.com", "count": 1}]
+    assert (second["timetable_type"], second["relocked_at"], second["open_hours"], second["edit_count"]) == ("lecture", None, None, 0)
+
+    # The edits counted follow the filters; the reopenings don't.
+    only_editor = await start(admin, {**MARCH, "user": "editor@x.com"}, sections=["locks"])
+    first = (await analysis(admin, only_editor["token"]))["locks"]["reopenings"][0]
+    assert (first["unlocked_by"], first["edit_count"]) == ("boss@x.com", 1)
+    # An exam export only lists exam reopenings.
+    exams = await start(admin, {**MARCH, "type": "exam"}, sections=["locks"])
+    assert [r["timetable_type"] for r in (await analysis(admin, exams["token"]))["locks"]["reopenings"]] == ["exam"]
+
+
+async def test_summary_and_categories_compare_with_the_period_before(admin):
+    await add_logs(
+        {"action": "course.create", "user_email": "a@x.com", "created_at": lagos(2026, 3, 2)},
+        {"action": "course.update", "user_email": "a@x.com", "created_at": lagos(2026, 3, 3)},
+        # February (28 days) and the last 3 days of January: the 31 days before March.
+        {"action": "course.create", "user_email": "b@x.com", "created_at": lagos(2026, 2, 10)},
+        {"action": "room.create", "user_email": "b@x.com", "created_at": lagos(2026, 1, 29)},
+        {"action": "room.create", "created_at": lagos(2026, 1, 28)},
+    )
+    result = await analysis(admin, (await start(admin, sections=["summary", "categories"]))["token"])
+    previous = result["summary"]["previous"]
+    assert (previous["first"], previous["last"], previous["total_events"], previous["unique_users"]) == ("2026-01-29", "2026-02-28", 2, 1)
+    by_key = {c["key"]: c for c in result["categories"]["categories"]}
+    assert (by_key["course"]["count"], by_key["course"]["previous"]) == (2, 1)
+    assert (by_key["room"]["count"], by_key["room"]["previous"]) == (0, 1)
+
+
+async def test_out_of_hours_uses_the_portals_calendar_and_holidays(admin):
+    (session,) = await add(AcademicSession(name="2025/2026", realm_key="UG"))
+    (semester,) = await add(Semester(name="Second Semester", session_id=session.id))
+    await add(BlockedSlot(name="Eid holiday", date=date(2026, 3, 20), applies_to="EXAM_ONLY", semester_id=semester.id))
+    await add_logs(
+        {"action": "course.create", "user_email": "a@x.com", "created_at": lagos(2026, 3, 2, 10)},   # Monday, in hours
+        {"action": "course.update", "user_email": "a@x.com", "created_at": lagos(2026, 3, 2, 22)},   # Monday night
+        {"action": "course.delete", "user_email": "b@x.com", "created_at": lagos(2026, 3, 8, 11)},   # Sunday
+        {"action": "course.update", "user_email": "b@x.com", "created_at": lagos(2026, 3, 20, 11)},  # the holiday (a Friday)
+    )
+    o = (await analysis(admin, (await start(admin, sections=["out_of_hours"]))["token"]))["out_of_hours"]
+    assert o["working_hours"]["days"] == ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
+    assert (o["working_hours"]["start"], o["working_hours"]["end"]) == ("08:00", "18:00")
+    assert o["working_hours"]["holidays"] == [{"date": "2026-03-20", "name": "Eid holiday"}]
+    assert (o["total"], o["pct"]) == (3, 75.0)
+    assert {r["reason"]: r["count"] for r in o["by_reason"]} == {"Outside working hours": 1, "Non-working day": 1, "Holiday": 1}
+    assert [e["reason"] for e in o["entries"]] == ["Holiday (Eid holiday)", "Non-working day", "Outside working hours"]
+
+
+async def test_unusual_activity_finds_mass_deletions_bursts_and_other_faculties(admin):
+    base = lagos(2026, 3, 4, 9)
+    await add_logs(
+        *[{"action": "course.delete", "user_email": "a@x.com", "created_at": base + timedelta(minutes=3 * i)} for i in range(12)],
+        # Nine deletions in an hour isn't enough.
+        *[{"action": "room.delete", "user_email": "b@x.com", "created_at": base + timedelta(minutes=5 * i)} for i in range(9)],
+        *[{"action": "course.update", "user_email": "c@x.com", "created_at": lagos(2026, 3, 5, 9) + timedelta(seconds=5 * i)} for i in range(61)],
+        {"action": "schedule_item.lecture.update", "entity_type": "schedule_item", "entity_id": "1", "user_email": "d@x.com",
+         "user_faculty_id": "ENG", "extra": {"faculty_id": "SCI"}, "created_at": lagos(2026, 3, 6)},
+        {"action": "schedule_item.lecture.update", "entity_type": "schedule_item", "entity_id": "2", "user_email": "d@x.com",
+         "user_faculty_id": "ENG", "extra": {"faculty_id": "ENG"}, "created_at": lagos(2026, 3, 6)},
+    )
+    u = (await analysis(admin, (await start(admin, sections=["unusual"]))["token"]))["unusual"]
+    assert [(d["email"], d["count"]) for d in u["mass_deletions"]] == [("a@x.com", 12)]
+    assert u["mass_deletions"][0]["from"] == "2026-03-04T09:00:00+01:00"
+    assert [(b["email"], b["count"]) for b in u["bursts"]] == [("c@x.com", 61)]
+    assert [(r["user_email"], r["item_faculty_id"]) for r in u["other_faculty"]] == [("d@x.com", "SCI")]
+
+
+async def test_handovers_course_history_and_exports(admin):
+    (faculty,) = await add(Faculty(id="SCI", name="Faculty of Science", realm_key="UG"))
+    await add(
+        EditorHandover(realm_key="UG", faculty_id="SCI", granted_by_email="ed@x.com", holder_email="vi@x.com",
+                       started_at=lagos(2026, 3, 2), ended_at=lagos(2026, 3, 12), end_reason="returned"),
+        EditorHandover(realm_key="UG", faculty_id="SCI", granted_by_email="ed2@x.com", holder_email="vi2@x.com", started_at=lagos(2026, 3, 20)),
+        # Ended before March.
+        EditorHandover(realm_key="UG", faculty_id="SCI", granted_by_email="old@x.com", holder_email="o@x.com",
+                       started_at=lagos(2026, 1, 2), ended_at=lagos(2026, 1, 5), end_reason="returned"),
+    )
+    await add_logs(
+        {"action": "schedule_item.exam.create", "entity_type": "schedule_item", "entity_id": "1", "extra": {"course_code": "PHY101"}, "created_at": lagos(2026, 3, 2)},
+        {"action": "schedule_item.exam.update", "entity_type": "schedule_item", "entity_id": "1", "extra": {"course_code": "PHY101"}, "created_at": lagos(2026, 3, 3)},
+        # An older entry with no code recorded: read from its description.
+        {"action": "schedule_item.exam.delete", "entity_type": "schedule_item", "entity_id": "2", "description": "Removed exam for CHM101 from Monday", "created_at": lagos(2026, 3, 4)},
+        {"action": "activity_log.export", "user_email": "boss@x.com", "extra": {"format": "pdf", "from": "2026-02-01", "to": "2026-02-28", "mask_emails": False, "row_count": 9}, "created_at": lagos(2026, 3, 5)},
+    )
+    result = await analysis(admin, (await start(admin, sections=["handovers", "courses", "exports"]))["token"])
+    h = result["handovers"]
+    assert (h["total"], h["active"], h["started_in_period"]) == (2, 1, 2)
+    assert (h["handovers"][0]["faculty_name"], h["handovers"][0]["days_held"], h["handovers"][0]["end_reason"]) == ("Faculty of Science", 10.0, "returned")
+    c = result["courses"]
+    assert [(x["code"], x["changes"]) for x in c["courses"]] == [("PHY101", 2), ("CHM101", 1)]
+    assert [e["action"] for e in c["courses"][0]["entries"]] == ["schedule_item.exam.create", "schedule_item.exam.update"]
+    e = result["exports"]
+    assert (e["total"], e["unmasked"], e["exports"][0]["row_count"]) == (1, 1, 9)
+
+    # Exports, like impersonation, only appear in reports that can cover a super admin.
+    editors = await start(admin, {**MARCH, "role": "FACULTY_EDITOR"}, sections=["exports", "courses", "members"])
+    assert editors["sections"] == ["courses", "members", "raw"]
+
+
+async def test_a_reports_verification_code_confirms_it_without_saying_whom_it_covers(admin, client):
+    await add_logs({"action": "course.create", "user_email": "editor@x.com", "created_at": lagos(2026, 3, 2)})
+    started = await start(admin, {**MARCH, "user": "editor@x.com"}, fmt="pdf", sections=["summary"])
+    code = started["verification_code"]
+    assert code.startswith("LOG-") and len(code) == 13
+
+    # Public: no sign-in needed, any case and spacing.
+    response = await client.get(f"{API}/verify/{code.lower()}")
+    assert response.status_code == 200, response.text
+    found = response.json()
+    assert found["document"] == "activity_report"
+    assert found["reference"] == f"AL-UG-{started['reference']:06d}"
+    assert (found["first"], found["last"], found["events"], found["format"]) == ("2026-03-01", "2026-03-31", 1, "pdf")
+    assert "editor@x.com" not in response.text and "filters" not in found
+
+    missing = await client.get(f"{API}/verify/LOG-AAAA-BBBB")
+    assert missing.status_code == 404
 
 
 async def test_exam_exports_hold_no_lecture_rows(admin):
@@ -568,3 +749,44 @@ async def test_detail_keys_for_the_raw_data_columns(admin):
     assert result["detail_keys"] == ["after.title", "after.units", "before", "course_id", "from_role", "ids"]
     pdf = await start(admin, fmt="pdf", sections=["summary"])
     assert "detail_keys" not in await analysis(admin, pdf["token"])
+
+
+async def test_impersonation_section_only_for_people_who_can_impersonate(signed_in, make_user):
+    # Only super admins can impersonate. A report about people who can't leaves
+    # the section out entirely, rather than showing an empty one.
+    admin, me = await signed_in(RoleEnum.SUPER_ADMIN)
+    await make_user(RoleEnum.FACULTY_EDITOR, email="editor@x.com")
+    await make_user(RoleEnum.SUPER_ADMIN, email="quiet-admin@x.com")
+    await make_user(RoleEnum.FACULTY_VIEWER, email="former-admin@x.com")
+    now = datetime.now(timezone.utc)
+    await add_logs(
+        {"action": "course.create", "user_email": "editor@x.com", "user_role": "FACULTY_EDITOR", "created_at": now - timedelta(days=1)},
+        {"action": "auth.login", "user_email": "quiet-admin@x.com", "user_role": "SUPER_ADMIN", "created_at": now - timedelta(days=1)},
+        # Was a super admin once and impersonated; now a viewer.
+        {"action": "auth.impersonate.start", "user_email": "former-admin@x.com", "extra": {"act_as_role": "FACULTY_EDITOR"}, "created_at": now - timedelta(days=200)},
+        {"action": "auth.login", "user_email": "former-admin@x.com", "created_at": now - timedelta(days=1)},
+    )
+    week = {"range": "last_7_days"}
+
+    async def check(filters, applies):
+        preview = (await admin.get(PREVIEW, params=filters_to_query(parse_filters(filters)))).json()
+        assert preview["impersonation_applies"] is applies, (filters, preview)
+        started = await start(admin, filters, fmt="pdf", sections=["summary", "impersonation"])
+        assert ("impersonation" in started["sections"]) is applies, filters
+        assert started["impersonation_applies"] is applies
+        result = await analysis(admin, started["token"])
+        assert ("impersonation" in result) is applies, filters
+
+    # Someone who can't impersonate: left out.
+    await check({**week, "user": ["editor@x.com"]}, False)
+    # A role that can't impersonate: left out.
+    await check({**week, "role": ["FACULTY_EDITOR"]}, False)
+    # A super admin with no sessions: shown, "0 sessions" is itself a finding.
+    await check({**week, "user": ["quiet-admin@x.com"]}, True)
+    # A former super admin who impersonated: shown.
+    await check({**week, "user": ["former-admin@x.com"]}, True)
+    # One of several can: shown.
+    await check({**week, "user": ["editor@x.com", "quiet-admin@x.com"]}, True)
+    # The Super Admin role, or the whole portal: shown.
+    await check({**week, "role": ["SUPER_ADMIN"]}, True)
+    await check(week, True)

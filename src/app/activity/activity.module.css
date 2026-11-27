@@ -60,6 +60,105 @@
     grid-column: span 2;
 }
 
+/* ---------- Main filters + "More filters" ---------- */
+
+/* Search takes the spare width; timeframe, users and the toggle keep theirs. */
+.primaryRow {
+    display: grid;
+    /* Minimums small enough to fit the export modal, which reuses these fields. */
+    grid-template-columns: minmax(180px, 2fr) minmax(150px, 1fr) minmax(160px, 1fr) auto;
+    gap: 10px 12px;
+    align-items: end;
+}
+
+.searchField .input {
+    padding-left: 12px;
+}
+
+.moreToggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    height: 37px;
+    padding: 0 12px;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--color-border);
+    background: var(--color-bg-card);
+    color: var(--color-text);
+    font: inherit;
+    font-size: 0.85rem;
+    font-weight: 600;
+    white-space: nowrap;
+    cursor: pointer;
+}
+
+.moreToggle:hover,
+.moreToggleOpen {
+    border-color: var(--color-primary);
+    color: var(--color-primary);
+}
+
+.moreCount {
+    min-width: 20px;
+    height: 20px;
+    padding: 0 6px;
+    border-radius: 999px;
+    background: var(--color-primary);
+    color: #fff;
+    font-size: 0.72rem;
+    line-height: 20px;
+    text-align: center;
+}
+
+.moreChevron {
+    font-size: 0.7rem;
+    transition: transform 0.15s ease;
+}
+
+.moreToggleOpen .moreChevron {
+    transform: rotate(180deg);
+}
+
+.moreFilters {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding-top: 12px;
+    border-top: 1px dashed var(--color-border);
+}
+
+.filterGroup {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.groupTitle {
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--color-text);
+}
+
+@media (max-width: 900px) {
+    .primaryRow {
+        grid-template-columns: 1fr 1fr;
+    }
+
+    .searchField {
+        grid-column: 1 / -1;
+    }
+
+    .moreToggle {
+        justify-content: center;
+    }
+}
+
+@media (max-width: 520px) {
+    .primaryRow {
+        grid-template-columns: 1fr;
+    }
+}
+
 .fieldLabel {
     font-size: 0.72rem;
     font-weight: 600;

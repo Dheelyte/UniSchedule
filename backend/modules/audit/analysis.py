@@ -9,25 +9,31 @@ Aggregates group on the columns of the `events` subquery: grouping on an
 expression with bound parameters (the time zone name, category prefixes) would
 fail on Postgres, which sees each parameter as a different value.
 """
-from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from dataclasses import dataclass, replace
+from datetime import date, datetime, time, timedelta
 
 from fastapi import Depends
-from sqlalchemy import Date, and_, case, cast, desc, distinct, extract, func, literal, or_, select, true, tuple_
+from sqlalchemy import Date, String, Time, and_, case, cast, desc, distinct, extract, func, literal, literal_column, or_, select, true, tuple_
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
 from core.database import get_db
 from modules.audit import categories
-from modules.audit.filters import LAGOS, LAGOS_TZ_NAME, AuditFilters, Bounds, conditions, portal_condition
+from modules.audit.filters import LAGOS, LAGOS_TZ_NAME, AuditFilters, Bounds, conditions, day_bounds, portal_condition
 from modules.audit.impersonation import EVENTS as IMPERSONATION_EVENTS
 from modules.audit.impersonation import START, STOP, SWITCH, Event
 from modules.audit.members import Activity, InviteEntry, Logins
 from modules.audit.models import ActivityLog
 from modules.audit.timetable_type import timetable_type_expr
-from modules.auth.models import Invitation, User
+from modules.auth.models import Invitation, RoleEnum, User
 from modules.auth.repository import _in_realm
+from modules.calendar.models import AcademicSession, Semester
+from modules.realms.models import Realm
+from modules.editor_access.models import EditorHandover
+from modules.realms.defaults import DEFAULT_REALM_KEY
+from modules.realms.schemas import WEEKDAYS
+from modules.timetable.models import BlockedSlot, Course, ScheduleItem
 from modules.timetable.models import Faculty
 
 A = ActivityLog
@@ -56,6 +62,42 @@ def sensitive_condition():
     )
 
 
+OUT_OF_HOURS_LIMIT = 500
+UNUSUAL_LIST_LIMIT = 500
+# Unusual activity: this many deletions by one person within this many minutes,
+MASS_DELETE_COUNT, MASS_DELETE_MINUTES = 10, 60
+# or this many changes (anything but sign-ins and exports) within this many minutes.
+BURST_COUNT, BURST_MINUTES = 60, 10
+# Course history: the busiest courses, and the changes listed for each.
+COURSES_LIMIT, COURSE_ENTRIES_LIMIT = 100, 50
+
+LOCK, UNLOCK, EDIT_REQUEST = "timetable.lock", "timetable.unlock", "timetable.edit_request"
+# Edits listed per reopening (every one is counted, and every one is in Raw data).
+LOCKED_EDITS_LIMIT = 200
+
+
+def _timetable_edit(kind: str):
+    """A change to a lecture or exam timetable's schedule (items, imports, exam shifts)."""
+    return or_(A.action.startswith(f"schedule_item.{kind}.", autoescape=True), A.action == f"timetable.{kind}.shift")
+
+
+def _in_semester(semester_id: int | None):
+    """An entry about this semester: the semester it records, or for older
+    schedule item entries that don't record one, the item's own semester."""
+    if semester_id is None:
+        return literal(False)
+    sid = str(semester_id)
+    return or_(
+        A.extra["semester_id"].astext == sid,
+        and_(A.entity_type == "semester", A.entity_id == sid),
+        and_(
+            A.entity_type == "schedule_item",
+            A.extra["semester_id"].astext.is_(None),
+            A.entity_id.in_(select(cast(ScheduleItem.id, String)).where(ScheduleItem.semester_id == semester_id)),
+        ),
+    )
+
+
 def granularity(first: date, last: date) -> str:
     return "day" if (last - first).days + 1 <= WEEKLY_AFTER_DAYS else "week"
 
@@ -80,6 +122,10 @@ class ExportScope:
     filters: AuditFilters
     bounds: Bounds
     max_id: int
+    # Set when no one the report covers can impersonate: entries a super admin made
+    # while acting as someone else, and the impersonation events themselves, are
+    # left out, so the report doesn't reveal that impersonation exists.
+    exclude_impersonated: bool = False
 
 
 class AnalysisRepository:
@@ -90,7 +136,14 @@ class AnalysisRepository:
 
     @staticmethod
     def where(scope: ExportScope) -> list:
-        return [*conditions(scope.filters, realm_key=scope.realm_key, bounds=scope.bounds), A.id <= scope.max_id]
+        found = [*conditions(scope.filters, realm_key=scope.realm_key, bounds=scope.bounds), A.id <= scope.max_id]
+        if scope.exclude_impersonated:
+            found += [
+                # `extra ? 'impersonation'` is NULL when extra is NULL, hence the coalesce.
+                ~func.coalesce(A.extra.has_key("impersonation"), False),
+                A.action.notin_(IMPERSONATION_EVENTS),
+            ]
+        return found
 
     def events(self, scope: ExportScope, *more):
         """The matching entries with the columns the aggregates group on."""
@@ -163,7 +216,21 @@ class AnalysisRepository:
             "most_common_action": {"action": common[0], "count": common[1]} if common else None,
             "impersonated_events": impersonated,
             "cross_portal_events": cross,
+            "previous": await self._previous_totals(scope),
         }
+
+    @staticmethod
+    def previous_scope(scope: ExportScope) -> ExportScope:
+        """The same filters over the same number of days, just before the period."""
+        days = (scope.bounds.last - scope.bounds.first).days + 1
+        last = scope.bounds.first - timedelta(days=1)
+        return replace(scope, bounds=Bounds(last - timedelta(days=days - 1), last))
+
+    async def _previous_totals(self, scope: ExportScope) -> dict:
+        previous = self.previous_scope(scope)
+        E = self.events(previous)
+        total, users = (await self.db.execute(select(func.count(), func.count(distinct(E.c.email))).select_from(E))).one()
+        return {"first": previous.bounds.first, "last": previous.bounds.last, "total_events": total, "unique_users": users}
 
     async def by_category(self, scope: ExportScope) -> dict:
         E = self.events(scope)
@@ -177,10 +244,17 @@ class AnalysisRepository:
             entry["count"] += n
             entry["actions"].append({"action": action, "count": n, "pct": _pct(n, total)})
         result = sorted(by_key.values(), key=lambda c: (-c["count"], c["label"]))
+        P = self.events(self.previous_scope(scope))
+        previous = dict((await self.db.execute(select(P.c.category, func.count()).select_from(P).group_by(P.c.category))).all())
         for entry in result:
             entry["pct"] = _pct(entry["count"], total)
+            entry["previous"] = previous.get(entry["key"], 0)
             entry["actions"].sort(key=lambda a: (-a["count"], a["action"]))
-        return {"total": total, "categories": result}
+        # Categories that only had events in the previous period.
+        for key, n in sorted(previous.items(), key=lambda x: -x[1]):
+            if key not in by_key:
+                result.append({"key": key, "label": categories.label_of(key), "count": 0, "pct": 0.0, "previous": n, "actions": []})
+        return {"total": total, "previous_total": sum(previous.values()), "categories": result}
 
     async def by_user(self, scope: ExportScope) -> dict:
         E = self.events(scope)
@@ -371,6 +445,370 @@ class AnalysisRepository:
             ],
         }
 
+    # ---------- Out of hours ----------
+
+    async def working_hours(self, realm_key: str) -> dict:
+        """The portal's working days and hours, from its calendar config (its
+        lecture and exam days, and its day start and end), and its holidays:
+        dates blocked for the whole day."""
+        realm = await self.db.get(Realm, realm_key) or await self.db.get(Realm, DEFAULT_REALM_KEY)
+        config = (realm.config if realm else None) or {}
+        days = set(config.get("lecture_days") or []) | set(config.get("exam_days") or [])
+        holidays = (await self.db.execute(
+            select(BlockedSlot.date, func.min(BlockedSlot.name))
+            .join(Semester, Semester.id == BlockedSlot.semester_id)
+            .join(AcademicSession, AcademicSession.id == Semester.session_id)
+            .where(AcademicSession.realm_key == realm_key, BlockedSlot.date.is_not(None), BlockedSlot.start_time.is_(None))
+            .group_by(BlockedSlot.date)
+            .order_by(BlockedSlot.date)
+        )).all()
+        return {
+            "days": [d for d in WEEKDAYS if d in days] or WEEKDAYS[:5],
+            "start": config.get("day_start") or "08:00",
+            "end": config.get("day_end") or "18:00",
+            "holidays": [{"date": d, "name": name} for d, name in holidays],
+        }
+
+    async def out_of_hours(self, scope: ExportScope) -> dict:
+        """Entries made outside the portal's working hours, on a non-working day, or on a holiday."""
+        hours = await self.working_hours(scope.realm_key)
+        E = self.events(scope)
+        weekday = func.trim(func.to_char(E.c.local, "FMDay"))
+        clock = cast(E.c.local, Time)
+        start, end = time.fromisoformat(hours["start"]), time.fromisoformat(hours["end"])
+        holiday_dates = [h["date"] for h in hours["holidays"]]
+        reason = case(
+            (cast(E.c.local, Date).in_(holiday_dates) if holiday_dates else literal(False), literal("Holiday")),
+            (weekday.notin_(hours["days"]), literal("Non-working day")),
+            (or_(clock < start, clock >= end), literal("Outside working hours")),
+            else_=None,
+        ).label("reason")
+        flagged = select(E.c.id, E.c.email, E.c.local, reason).select_from(E).subquery("flagged")
+        kept = flagged.c.reason.is_not(None)
+        by_reason = (await self.db.execute(
+            select(flagged.c.reason, func.count()).where(kept).group_by(flagged.c.reason).order_by(desc(func.count()))
+        )).all()
+        by_user = (await self.db.execute(
+            select(flagged.c.email, func.count()).where(kept).group_by(flagged.c.email).order_by(desc(func.count()), flagged.c.email).limit(50)
+        )).all()
+        listed = (await self.db.execute(
+            select(A, flagged.c.reason).join(flagged, flagged.c.id == A.id).where(kept)
+            .order_by(desc(A.created_at), desc(A.id)).limit(OUT_OF_HOURS_LIMIT)
+        )).all()
+        total = sum(n for _, n in by_reason)
+        all_events = await self.count(scope)
+        names = {h["date"]: h["name"] for h in hours["holidays"]}
+        entries = []
+        for entry, why in listed:
+            row = row_dict(entry)
+            day = entry.created_at.astimezone(LAGOS).date()
+            row["reason"] = f"Holiday ({names[day]})" if why == "Holiday" and day in names else why
+            entries.append(row)
+        return {
+            "working_hours": {**hours, "holidays": [h for h in hours["holidays"] if scope.bounds.first <= h["date"] <= scope.bounds.last]},
+            "total": total,
+            "pct": _pct(total, all_events),
+            "by_reason": [{"reason": r, "count": n} for r, n in by_reason],
+            "by_user": [{"email": e, "count": n} for e, n in by_user],
+            "entries": entries,
+            "shown": len(entries),
+        }
+
+    # ---------- Unusual activity ----------
+
+    async def _bursts(self, scope: ExportScope, condition, minutes: int, threshold: int) -> list[dict]:
+        """Times one person made `threshold` or more matching entries within `minutes`."""
+        E = self.events(scope, condition)
+        in_window = literal_column(
+            f"count(*) OVER (PARTITION BY email ORDER BY created_at "
+            f"RANGE BETWEEN interval '{int(minutes)} minutes' PRECEDING AND CURRENT ROW)"
+        ).label("n")
+        counted = select(E.c.email, E.c.created_at, in_window).select_from(E).subquery("counted")
+        peaks = (await self.db.execute(
+            select(counted.c.email, counted.c.created_at, counted.c.n)
+            .where(counted.c.n >= threshold)
+            .order_by(counted.c.email, counted.c.created_at)
+        )).all()
+        bursts: list[dict] = []
+        window = timedelta(minutes=minutes)
+        for email, at, n in peaks:
+            last = bursts[-1] if bursts else None
+            if last and last["email"] == email and at - last["until"] <= window:
+                last["until"] = at
+                last["peak"] = max(last["peak"], n)
+            else:
+                bursts.append({"email": email, "from": at - window, "until": at, "peak": n})
+        for b in bursts:
+            b["count"] = (await self.db.execute(
+                select(func.count()).select_from(E).where(E.c.email == b["email"], E.c.created_at > b["from"], E.c.created_at <= b["until"])
+            )).scalar()
+            # Start at the first entry, not at the edge of the window.
+            b["from"] = (await self.db.execute(
+                select(func.min(E.c.created_at)).where(E.c.email == b["email"], E.c.created_at > b["from"], E.c.created_at <= b["until"])
+            )).scalar()
+        return sorted(bursts, key=lambda b: b["from"])
+
+    async def unusual(self, scope: ExportScope) -> dict:
+        """Patterns worth a second look: many deletions in a short time, a burst
+        of changes, and schedule changes outside the person's own faculty."""
+        changes = and_(~A.action.startswith("auth.", autoescape=True), A.action != EXPORT_ACTION)
+        deletions = await self._bursts(scope, A.action.endswith(".delete", autoescape=True), MASS_DELETE_MINUTES, MASS_DELETE_COUNT)
+        bursts = await self._bursts(scope, changes, BURST_MINUTES, BURST_COUNT)
+
+        item_faculty = func.coalesce(A.extra["faculty_id"].astext, ScheduleItem.faculty_id)
+        outside = (await self.db.execute(
+            select(A, item_faculty)
+            .outerjoin(ScheduleItem, cast(ScheduleItem.id, String) == A.entity_id)
+            .where(
+                *self.where(scope),
+                A.entity_type == "schedule_item",
+                A.user_faculty_id.is_not(None),
+                item_faculty.is_not(None),
+                item_faculty != A.user_faculty_id,
+            )
+            .order_by(desc(A.created_at), desc(A.id))
+            .limit(UNUSUAL_LIST_LIMIT)
+        )).all()
+        other_faculty = []
+        for entry, faculty in outside:
+            row = row_dict(entry)
+            row["item_faculty_id"] = faculty
+            other_faculty.append(row)
+        return {
+            "rules": {
+                "mass_delete": {"count": MASS_DELETE_COUNT, "minutes": MASS_DELETE_MINUTES},
+                "burst": {"count": BURST_COUNT, "minutes": BURST_MINUTES},
+            },
+            "mass_deletions": deletions,
+            "bursts": bursts,
+            "other_faculty": other_faculty,
+            "total": len(deletions) + len(bursts) + len(other_faculty),
+        }
+
+    # ---------- Editor access handovers ----------
+
+    async def handovers(self, scope: ExportScope) -> dict:
+        """Every handover held at some point in the period, from the handover records."""
+        start, end = day_bounds(scope.bounds.first, scope.bounds.last)
+        ended_by = aliased(User)
+        H = EditorHandover
+        cond = [H.realm_key == scope.realm_key, H.started_at < end, or_(H.ended_at.is_(None), H.ended_at >= start)]
+        if scope.filters.faculty:
+            cond.append(H.faculty_id == scope.filters.faculty)
+        if scope.filters.users:
+            cond.append(or_(func.lower(H.granted_by_email).in_(scope.filters.users), func.lower(H.holder_email).in_(scope.filters.users)))
+        rows = (await self.db.execute(
+            select(H, Faculty.name, ended_by.email)
+            .outerjoin(Faculty, Faculty.id == H.faculty_id)
+            .outerjoin(ended_by, ended_by.id == H.ended_by_id)
+            .where(*cond)
+            .order_by(H.started_at, H.id)
+        )).all()
+        now = datetime.now(LAGOS)
+        result = []
+        for h, faculty_name, ended_by_email in rows:
+            until = h.ended_at or min(end, now)
+            result.append({
+                "faculty_id": h.faculty_id,
+                "faculty_name": faculty_name,
+                "granted_by": h.granted_by_email,
+                "holder": h.holder_email,
+                "started_at": h.started_at,
+                "ended_at": h.ended_at,
+                "end_reason": h.end_reason,
+                "ended_by": ended_by_email,
+                "days_held": round((until - h.started_at).total_seconds() / 86400, 1),
+                "active": h.ended_at is None,
+            })
+        return {
+            "total": len(result),
+            "active": sum(1 for r in result if r["active"]),
+            "started_in_period": sum(1 for r in result if r["started_at"] >= start),
+            "handovers": result,
+        }
+
+    # ---------- Course history ----------
+
+    async def course_history(self, scope: ExportScope) -> dict:
+        """Every change to each course's lecture and exam slots, busiest courses first."""
+        code = func.coalesce(
+            A.extra["course_code"].astext,
+            Course.code,
+            func.substring(A.description, r" for ([^ ]+)"),
+        ).label("code")
+        base = (
+            select(A.id.label("id"), code)
+            .outerjoin(ScheduleItem, cast(ScheduleItem.id, String) == A.entity_id)
+            .outerjoin(Course, Course.id == ScheduleItem.course_id)
+            .where(*self.where(scope), A.entity_type == "schedule_item", A.action.startswith("schedule_item.", autoescape=True))
+            .subquery("course_entries")
+        )
+        counts = (await self.db.execute(
+            select(base.c.code, func.count()).where(base.c.code.is_not(None))
+            .group_by(base.c.code).order_by(desc(func.count()), base.c.code)
+        )).all()
+        shown = [c for c, _ in counts[:COURSES_LIMIT]]
+        entries: dict[str, list] = {c: [] for c in shown}
+        if shown:
+            ranked = (
+                select(base.c.id, base.c.code, func.row_number().over(partition_by=base.c.code, order_by=base.c.id).label("n"))
+                .where(base.c.code.in_(shown))
+                .subquery("ranked")
+            )
+            rows = (await self.db.execute(
+                select(A, ranked.c.code).join(ranked, ranked.c.id == A.id)
+                .where(ranked.c.n <= COURSE_ENTRIES_LIMIT).order_by(A.created_at, A.id)
+            )).all()
+            for entry, c in rows:
+                entries[c].append(row_dict(entry))
+        return {
+            "total_courses": len(counts),
+            "total_changes": sum(n for _, n in counts),
+            "courses": [
+                {"code": c, "changes": n, "entries": entries.get(c, [])}
+                for c, n in counts[:COURSES_LIMIT]
+            ],
+        }
+
+    # ---------- Exports of this log ----------
+
+    async def exports(self, scope: ExportScope) -> dict:
+        entries = (await self.db.execute(
+            select(A).where(*self.where(scope), A.action == EXPORT_ACTION).order_by(desc(A.created_at), desc(A.id))
+        )).scalars().all()
+        rows = []
+        for e in entries:
+            extra = e.extra if isinstance(e.extra, dict) else {}
+            rows.append({
+                "id": e.id,
+                "created_at": e.created_at,
+                "user_email": e.user_email,
+                "format": extra.get("format"),
+                "from": extra.get("from"),
+                "to": extra.get("to"),
+                "row_count": extra.get("row_count"),
+                "sections": extra.get("sections") or [],
+                "mask_emails": extra.get("mask_emails"),
+                "filters": extra.get("filters") or {},
+            })
+        return {
+            "total": len(rows),
+            "unmasked": sum(1 for r in rows if r["mask_emails"] is False),
+            "exports": rows,
+        }
+
+    # ---------- Verification ----------
+
+    async def export_by_code(self, code: str) -> tuple[ActivityLog, str] | None:
+        """The export entry a report's verification code was issued with, and its
+        portal's name. Public and cross-portal by design, like a timetable's code."""
+        row = (await self.db.execute(
+            select(A, Realm.name)
+            .join(Realm, Realm.key == A.realm_key)
+            .where(A.action == EXPORT_ACTION, A.extra["verification_code"].astext == code)
+            .order_by(A.id)
+            .limit(1)
+        )).first()
+        return (row[0], row[1]) if row else None
+
+    # ---------- Locked timetables ----------
+
+    async def locked_timetables(self, scope: ExportScope) -> dict:
+        """Each time a locked (FINAL) timetable was reopened in the period: who
+        unlocked it and when, any edit request before that, the edits made while
+        it was open, and who locked it again.
+
+        The reopenings come from this portal's lock entries, whoever made them;
+        the edits counted are the ones the export's filters keep.
+        """
+        start, end = day_bounds(scope.bounds.first, scope.bounds.last)
+        lock_cond = [
+            A.realm_key == scope.realm_key,
+            A.entity_type == "timetable_lock",
+            A.action.in_((LOCK, UNLOCK, EDIT_REQUEST)),
+            A.created_at < end,
+            A.id <= scope.max_id,
+        ]
+        if scope.filters.timetable_type != "all":
+            lock_cond.append(A.entity_id.endswith(f":{scope.filters.timetable_type}", autoescape=True))
+        entries = (await self.db.execute(select(A).where(*lock_cond).order_by(A.created_at, A.id))).scalars().all()
+
+        # Walk each timetable's entries in order: an unlock opens a window, a lock closes it.
+        windows, open_by, requests_by = [], {}, {}
+        for e in entries:
+            key = e.entity_id or ""
+            if e.action == EDIT_REQUEST:
+                reason = e.extra.get("reason") if isinstance(e.extra, dict) else None
+                requests_by.setdefault(key, []).append({"at": e.created_at, "by": e.user_email, "reason": reason})
+            elif e.action == UNLOCK and key not in open_by:
+                open_by[key] = {"key": key, "unlocked_at": e.created_at, "unlocked_by": e.user_email,
+                                "requests": requests_by.pop(key, []), "relocked_at": None, "relocked_by": None}
+            elif e.action == LOCK:
+                requests_by.pop(key, None)
+                window = open_by.pop(key, None)
+                if window:
+                    window.update(relocked_at=e.created_at, relocked_by=e.user_email)
+                    windows.append(window)
+        windows += open_by.values()
+        windows = [w for w in windows if w["relocked_at"] is None or w["relocked_at"] >= start]
+        windows.sort(key=lambda w: w["unlocked_at"])
+
+        semester_ids = {int(w["key"].split(":")[0]) for w in windows if w["key"].split(":")[0].isdigit()}
+        names = {}
+        if semester_ids:
+            names = {
+                sid: (session, semester)
+                for sid, session, semester in (await self.db.execute(
+                    select(Semester.id, AcademicSession.name, Semester.name)
+                    .join(AcademicSession, AcademicSession.id == Semester.session_id)
+                    .where(Semester.id.in_(semester_ids), AcademicSession.realm_key == scope.realm_key)
+                )).all()
+            }
+
+        result = []
+        for w in windows:
+            semester, _, kind = w["key"].partition(":")
+            sid = int(semester) if semester.isdigit() else None
+            until = w["relocked_at"] or end
+            edited = [
+                *self.where(scope),
+                A.created_at >= w["unlocked_at"],
+                A.created_at <= until,
+                _timetable_edit(kind),
+                _in_semester(sid),
+            ]
+            by_user = (await self.db.execute(
+                select(A.user_email, func.count()).where(*edited).group_by(A.user_email).order_by(desc(func.count()), A.user_email)
+            )).all()
+            edits = (await self.db.execute(
+                select(A).where(*edited).order_by(A.created_at, A.id).limit(LOCKED_EDITS_LIMIT)
+            )).scalars().all()
+            relocked = w["relocked_at"] is not None and w["relocked_at"] < end
+            session_name, semester_name = names.get(sid, (None, None))
+            result.append({
+                "semester_id": sid,
+                "session_name": session_name,
+                "semester_name": semester_name,
+                "timetable_type": kind,
+                "unlocked_at": w["unlocked_at"],
+                "unlocked_by": w["unlocked_by"],
+                "relocked_at": w["relocked_at"] if relocked else None,
+                "relocked_by": w["relocked_by"] if relocked else None,
+                # Hours it stayed open, or None while it's still open at the end of the period.
+                "open_hours": round((w["relocked_at"] - w["unlocked_at"]).total_seconds() / 3600, 1) if relocked else None,
+                "requests": w["requests"],
+                "edit_count": sum(n for _, n in by_user),
+                "editors": [{"email": email, "count": n} for email, n in by_user],
+                "edits": [row_dict(entry) for entry in edits],
+            })
+        return {
+            "total": len(result),
+            "edits": sum(r["edit_count"] for r in result),
+            "still_open": sum(1 for r in result if r["relocked_at"] is None),
+            "without_request": sum(1 for r in result if not r["requests"]),
+            "reopenings": result,
+        }
+
     # ---------- Impersonation ----------
 
     async def impersonation_events(self, scope: ExportScope) -> list[Event]:
@@ -403,6 +841,16 @@ class AnalysisRepository:
                 acting_faculty_id=extra.get("act_as_faculty_id") if action == START else None,
             ))
         return events
+
+    async def can_impersonate(self, emails: tuple[str, ...]) -> bool:
+        """Whether any of these people can impersonate: a super admin account today,
+        or anyone who has started an impersonation (a former super admin's sessions
+        still belong in their report)."""
+        if not emails:
+            return False
+        is_admin = select(User.id).where(func.lower(User.email).in_(emails), User.role == RoleEnum.SUPER_ADMIN).exists()
+        has_started = select(A.id).where(A.action == START, func.lower(A.user_email).in_(emails)).exists()
+        return bool((await self.db.execute(select(or_(is_admin, has_started)))).scalar())
 
     async def impersonated_actions(self, scope: ExportScope) -> list[tuple[str, datetime, str]]:
         """(who, when, action) for each matching entry made while impersonating."""

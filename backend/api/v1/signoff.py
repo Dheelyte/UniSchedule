@@ -1,8 +1,10 @@
 from typing import Literal
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from api.dependencies.auth import RequireRole, get_current_user
+from modules.audit.export_service import ActivityExportService
+from modules.audit.schemas import ReportVerifyResponse
 from modules.auth.models import RoleEnum
 from modules.signoff.schemas import ExportSignoffResponse, SignoffResponse, SignoffUpdate, VerifyResponse
 from modules.signoff.service import SignoffService
@@ -39,7 +41,16 @@ async def export_signoff(
     return await service.export_signoff(semester_id, timetable_type, user)
 
 
-# Public: the QR code on a FINAL PDF opens /verify/<code>, which reads this.
-@router.get("/verify/{code}", response_model=VerifyResponse)
-async def verify(code: str, service: SignoffService = Depends()):
-    return await service.verify(code)
+# Public: the QR code on a FINAL PDF, or on an activity log report, opens
+# /verify/<code>, which reads this.
+@router.get("/verify/{code}", response_model=VerifyResponse | ReportVerifyResponse)
+async def verify(code: str, service: SignoffService = Depends(), reports: ActivityExportService = Depends()):
+    try:
+        return await service.verify(code)
+    except HTTPException as missing:
+        if missing.status_code != 404:
+            raise
+        report = await reports.verify_report(code)
+        if report is None:
+            raise HTTPException(status_code=404, detail="Nothing issued through UniSchedule has this code")
+        return report

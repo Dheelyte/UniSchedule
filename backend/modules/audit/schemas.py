@@ -86,9 +86,15 @@ ExportSection = Literal[
     "users",
     "roles_portals",
     "over_time",
+    "out_of_hours",
+    "unusual",
     "impersonation",
     "sensitive",
+    "handovers",
+    "locks",
+    "courses",
     "change_requests",
+    "exports",
     "members",
     "raw",
 ]
@@ -115,6 +121,9 @@ class ExportPreview(BaseModel):
     events: int
     members: int
     invitations: int
+    # False when the report only covers people who can't impersonate: the
+    # Impersonation section is then left out.
+    impersonation_applies: bool = True
 
 
 class ExportStarted(ExportPreview):
@@ -129,6 +138,27 @@ class ExportStarted(ExportPreview):
     portal_key: str
     portal_name: str | None
     first_entry_at: str | None
+    # The activity_log.export entry this export was recorded as: the report's
+    # reference, so a file can be traced back to the log.
+    reference: int | None = None
+    # The last log entry id the export reads (later entries are left out).
+    as_of_id: int | None = None
+    # Printed on the report with a QR code; /verify/<code> confirms it's genuine.
+    verification_code: str | None = None
+
+
+class ReportVerifyResponse(BaseModel):
+    """Public: what /verify/<code> shows for an activity log report. Enough to
+    match a printed copy against the log, and nothing about who or what it covers."""
+    document: Literal["activity_report"] = "activity_report"
+    code: str
+    reference: str
+    realm_name: str
+    first: date
+    last: date
+    generated_at: datetime
+    events: int
+    format: str
 
 
 class ExportRowsPage(BaseModel):

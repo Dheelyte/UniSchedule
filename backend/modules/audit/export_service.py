@@ -28,15 +28,20 @@ from modules.audit.members import (
     build_members,
     narrow,
 )
-from modules.audit.schemas import ExportRequest
+from modules.audit.schemas import ExportRequest, ReportVerifyResponse
 from modules.audit.service import ActivityLogReader, AuditService
+from modules.auth.models import RoleEnum
 from modules.auth.repository import AuthRepository
+from modules.signoff.repository import new_verification_code
 
 EXPORT_LIMIT = 10
 EXPORT_WINDOW = timedelta(minutes=15)
 TOO_LONG = "An export covers at most 12 months. Choose a range of 12 months or less."
 NO_EVENTS = "No events match these filters, so there's nothing to export. Tick Members to export the member list on its own."
 MAX_ROWS_PAGE = 5000
+SUPER_ADMIN = RoleEnum.SUPER_ADMIN.value
+# Sections about what only super admins can do, left out of reports that cover no one who can.
+SUPER_ADMIN_SECTIONS = ("impersonation", "exports")
 
 
 def file_name(first: date, last: date, fmt: str) -> str:
@@ -91,7 +96,23 @@ class ActivityExportService:
 
     async def scope(self, filters: AuditFilters, realm_key: str) -> tuple[ExportScope, bool]:
         bounds, clamped = await self.export_bounds(filters, realm_key)
-        return ExportScope(realm_key, filters, bounds, await self.analysis.max_id()), clamped
+        exclude = not await self.impersonation_applies(filters)
+        return ExportScope(realm_key, filters, bounds, await self.analysis.max_id(), exclude), clamped
+
+    # ---------- Which sections apply ----------
+
+    async def impersonation_applies(self, filters: AuditFilters) -> bool:
+        """Only super admins can impersonate, so a report about people who can't
+        leaves the Impersonation section out rather than showing it empty.
+
+        Narrowed to users: it applies if any of them can impersonate. Narrowed to
+        roles only: if Super Admin is one of them. Otherwise (the whole portal): yes.
+        """
+        if filters.users:
+            return await self.analysis.can_impersonate(filters.users)
+        if filters.roles:
+            return SUPER_ADMIN in filters.roles
+        return True
 
     # ---------- Members ----------
 
@@ -188,6 +209,7 @@ class ActivityExportService:
             "events": await self.analysis.count(scope),
             "members": members,
             "invitations": invitations,
+            "impersonation_applies": not scope.exclude_impersonated,
         }
 
     async def start(self, user: dict, request: ExportRequest) -> dict:
@@ -203,6 +225,10 @@ class ActivityExportService:
         scope, clamped = await self.scope(filters, realm_key)
         events = await self.analysis.count(scope)
         sections = list(dict.fromkeys(request.sections))
+        impersonation_applies = not scope.exclude_impersonated
+        if not impersonation_applies:
+            # Only super admins impersonate and export this log.
+            sections = [k for k in sections if k not in SUPER_ADMIN_SECTIONS]
         if request.format == "xlsx" and "raw" not in sections:
             sections.append("raw")  # an XLSX always has a Raw data sheet
         if events == 0 and "members" not in sections:
@@ -215,8 +241,11 @@ class ActivityExportService:
             max_id=scope.max_id,
             sections=tuple(sections),
             format=request.format,
+            exclude_impersonated=scope.exclude_impersonated,
         )
-        await self.audit.log(
+        # LOG-XXXX-XXXX: never a portal key, so it can't be mistaken for a timetable's code.
+        verification_code = new_verification_code("LOG")
+        logged = await self.audit.log(
             current_user=user,
             action="activity_log.export",
             entity_type="activity_log",
@@ -233,6 +262,7 @@ class ActivityExportService:
                 "row_count": events,
                 "member_count": members if "members" in sections else None,
                 "mask_emails": request.mask_emails,
+                "verification_code": verification_code,
             },
         )
         return {
@@ -252,11 +282,36 @@ class ActivityExportService:
             "portal_key": realm_key,
             "portal_name": user.get("realm_name"),
             "first_entry_at": lagos_iso(await self.reader.repo.first_entry_at(realm_key=realm_key)),
+            "reference": logged.id if logged else None,
+            "impersonation_applies": impersonation_applies,
+            "as_of_id": scope.max_id,
+            "verification_code": verification_code if logged else None,
         }
+
+    async def verify_report(self, code: str) -> ReportVerifyResponse | None:
+        found = await self.analysis.export_by_code(code.strip().upper())
+        if not found:
+            return None
+        entry, realm_name = found
+        extra = entry.extra or {}
+        try:
+            first, last = date.fromisoformat(extra["from"]), date.fromisoformat(extra["to"])
+        except (KeyError, TypeError, ValueError):
+            return None
+        return ReportVerifyResponse(
+            code=extra["verification_code"],
+            reference=f"AL-{entry.realm_key}-{entry.id:06d}",
+            realm_name=realm_name,
+            first=first,
+            last=last,
+            generated_at=entry.created_at,
+            events=int(extra.get("row_count") or 0),
+            format=extra.get("format") or "",
+        )
 
     def _grant_scope(self, user: dict, token: str | None) -> tuple[ExportGrant, ExportScope]:
         grant = read_export_token(token, user)
-        return grant, ExportScope(user["realm"], grant.filters, Bounds(grant.first, grant.last), grant.max_id)
+        return grant, ExportScope(user["realm"], grant.filters, Bounds(grant.first, grant.last), grant.max_id, grant.exclude_impersonated)
 
     async def analysis_for(self, user: dict, token: str | None) -> dict:
         """Every ticked section except Raw data, which is read page by page."""
@@ -278,6 +333,18 @@ class ActivityExportService:
             result["impersonation"] = await self.impersonation_sessions(scope)
         if "sensitive" in wanted:
             result["sensitive"] = await self.analysis.sensitive(scope)
+        if "out_of_hours" in wanted:
+            result["out_of_hours"] = await self.analysis.out_of_hours(scope)
+        if "unusual" in wanted:
+            result["unusual"] = await self.analysis.unusual(scope)
+        if "handovers" in wanted:
+            result["handovers"] = await self.analysis.handovers(scope)
+        if "courses" in wanted:
+            result["courses"] = await self.analysis.course_history(scope)
+        if "exports" in wanted:
+            result["exports"] = await self.analysis.exports(scope)
+        if "locks" in wanted:
+            result["locks"] = await self.analysis.locked_timetables(scope)
         if "change_requests" in wanted:
             result["change_requests"] = await self.analysis.change_requests(scope)
         if "members" in wanted:

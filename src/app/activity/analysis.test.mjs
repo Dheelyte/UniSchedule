@@ -24,13 +24,15 @@ function startedFor(format, overrides = {}) {
 		invitations: 1,
 		file_name: `unischedule-activity-analysis_2026-03-01_2026-03-31.${format}`,
 		format,
-		sections: ["summary", "categories", "users", "roles_portals", "over_time", "impersonation", "sensitive", "change_requests", "members", "raw"],
+		sections: ["summary", "categories", "users", "roles_portals", "over_time", "out_of_hours", "unusual", "impersonation", "sensitive", "handovers", "locks", "courses", "change_requests", "exports", "members", "raw"],
 		generated_by: "boss@unilag.edu.ng",
 		generated_at: "2026-11-26T14:05:03+01:00",
 		timezone: "Africa/Lagos",
 		portal_key: "UG",
 		portal_name: "Undergraduate",
 		first_entry_at: "2025-09-01T08:00:00+01:00",
+		reference: 183,
+		verification_code: "LOG-7K3P-92QD",
 		...overrides,
 	};
 }
@@ -40,6 +42,7 @@ const ANALYSIS = {
 		total_events: 3, unique_users: 2, first_event_at: "2026-03-02T09:00:00+01:00", last_event_at: "2026-03-03T23:30:00+01:00",
 		days: 31, events_per_day: 0.1, busiest_day: { date: "2026-03-02", count: 2 }, busiest_hour: { hour: 9, count: 2 },
 		most_common_action: { action: "schedule_item.exam.create", count: 2 }, impersonated_events: 1, cross_portal_events: 0,
+		previous: { first: "2026-01-29", last: "2026-02-28", total_events: 2, unique_users: 1 },
 	},
 	categories: {
 		total: 3,
@@ -72,6 +75,33 @@ const ANALYSIS = {
 		total: 1, shown: 1,
 		by_action: [{ action: "schedule_item.exam.delete", count: 1 }],
 		entries: [{ id: 3, created_at: "2026-03-03T23:30:00+01:00", user_email: "boss@unilag.edu.ng", user_role: "HOD", real_role: "SUPER_ADMIN", impersonating: true, action: "schedule_item.exam.delete", description: "boss@unilag.edu.ng deleted PHY101 exam", entity_type: "schedule_item", entity_id: "9", extra: null }],
+	},
+	out_of_hours: {
+		working_hours: { days: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"], start: "08:00", end: "18:00", holidays: [{ date: "2026-03-20", name: "Eid holiday" }] },
+		total: 1, pct: 33.3, shown: 1, by_reason: [{ reason: "Non-working day", count: 1 }], by_user: [{ email: "ada@unilag.edu.ng", count: 1 }],
+		entries: [{ id: 5, created_at: "2026-03-08T22:00:00+01:00", user_email: "ada@unilag.edu.ng", user_role: "FACULTY_EDITOR", user_faculty_id: "ENG", action: "schedule_item.exam.update", description: "Moved exam for PHY101", entity_type: "schedule_item", entity_id: "9", extra: null, reason: "Non-working day" }],
+	},
+	unusual: {
+		rules: { mass_delete: { count: 10, minutes: 60 }, burst: { count: 60, minutes: 10 } },
+		mass_deletions: [{ email: "ada@unilag.edu.ng", count: 12, peak: 12, from: "2026-03-04T09:00:00+01:00", until: "2026-03-04T09:33:00+01:00" }],
+		bursts: [], other_faculty: [{ id: 5, created_at: "2026-03-08T22:00:00+01:00", user_email: "ada@unilag.edu.ng", user_role: "FACULTY_EDITOR", user_faculty_id: "ENG", action: "schedule_item.exam.update", description: "Moved exam for PHY101", entity_type: "schedule_item", entity_id: "9", extra: null, item_faculty_id: "SCI" }], total: 2,
+	},
+	handovers: {
+		total: 1, active: 0, started_in_period: 1,
+		handovers: [{ faculty_id: "SCI", faculty_name: "Faculty of Science", granted_by: "ada@unilag.edu.ng", holder: "never@unilag.edu.ng", started_at: "2026-03-02T12:00:00+01:00", ended_at: "2026-03-12T12:00:00+01:00", end_reason: "returned", ended_by: null, days_held: 10, active: false }],
+	},
+	courses: { total_courses: 1, total_changes: 1, courses: [{ code: "PHY101", changes: 1, entries: [{ id: 5, created_at: "2026-03-08T22:00:00+01:00", user_email: "ada@unilag.edu.ng", user_role: "FACULTY_EDITOR", user_faculty_id: "ENG", action: "schedule_item.exam.update", description: "Moved exam for PHY101", entity_type: "schedule_item", entity_id: "9", extra: null }] }] },
+	exports: { total: 1, unmasked: 1, exports: [{ id: 40, created_at: "2026-03-05T12:00:00+01:00", user_email: "boss@unilag.edu.ng", format: "pdf", from: "2026-02-01", to: "2026-02-28", row_count: 9, sections: ["summary"], mask_emails: false, filters: { range: "custom" } }] },
+	locks: {
+		total: 1, edits: 1, still_open: 0, without_request: 0,
+		reopenings: [{
+			semester_id: 4, session_name: "2025/2026", semester_name: "Second Semester", timetable_type: "exam",
+			unlocked_at: "2026-03-03T10:00:00+01:00", unlocked_by: "boss@unilag.edu.ng",
+			relocked_at: "2026-03-03T14:00:00+01:00", relocked_by: "boss@unilag.edu.ng", open_hours: 4,
+			requests: [{ at: "2026-03-03T09:00:00+01:00", by: "ada@unilag.edu.ng", reason: "Clash in LT1" }],
+			edit_count: 1, editors: [{ email: "ada@unilag.edu.ng", count: 1 }],
+			edits: [{ id: 5, created_at: "2026-03-03T11:00:00+01:00", user_email: "ada@unilag.edu.ng", user_role: "FACULTY_EDITOR", real_role: "FACULTY_EDITOR", impersonating: false, action: "schedule_item.exam.update", description: "Moved exam for PHY101 from 2026-03-09 09:00-11:00 to 2026-03-10 09:00-11:00", entity_type: "schedule_item", entity_id: "9", extra: null }],
+		}],
 	},
 	change_requests: { created: 2, approved: 1, rejected: 0, still_pending: 1, decisions_timed: 1, median_hours: 2, mean_hours: 2, by_outcome: [{ outcome: "Approved", timed: 1, median_hours: 2 }] },
 	members: {
@@ -185,9 +215,17 @@ test("XLSX: a sheet per section, Members, Raw data and Filters; never a formula"
 	assert.equal(file.fileName, "unischedule-activity-analysis_2026-03-01_2026-03-31.xlsx");
 	const { names, xml } = sheetsOf(file);
 	assert.deepEqual(names, [
-		"Summary", "By category & action", "By user", "By role & portal", "Over time", "Impersonation",
-		"Sensitive actions", "Change requests", "Members overview", "Members", "Raw data", "Filters",
+		"Summary", "By category & action", "By user", "By role & portal", "Over time", "Out of hours", "Unusual activity", "Impersonation",
+		"Sensitive actions", "Editor access handovers", "Locked timetables", "Course history", "Change requests", "Exports of this log",
+		"Members overview", "Members", "Raw data", "Filters",
 	]);
+	for (const [name, expected] of [["Out of hours", "Eid holiday"], ["Unusual activity", "SCI"], ["Editor access handovers", "Taken back"], ["Course history", "PHY101"], ["Exports of this log", "Feb 2026"], ["Members overview", "Accounts to review"], ["Summary", "Previous period"]]) {
+		assert.ok(cellsOf(xml[name]).some((c) => c.includes(expected)), `${name}: ${expected}`);
+	}
+	const locks = cellsOf(xml["Locked timetables"]);
+	for (const expected of ["Times a FINAL timetable was reopened", "2025/2026, Second Semester", "Clash in LT1", "Moved exam for PHY101 from 2026-03-09 09:00-11:00 to 2026-03-10 09:00-11:00"]) {
+		assert.ok(locks.some((c) => c.includes(expected)), expected);
+	}
 	// Raw data came in pages and was written as it arrived.
 	assert.equal(api.calls.filter((c) => c.path.startsWith("/audit/export/rows")).length, 2);
 	assert.deepEqual(progress, [[2, 3], [3, 3]]);
@@ -212,6 +250,7 @@ test("XLSX: a sheet per section, Members, Raw data and Filters; never a formula"
 	assert.ok(overview.some((c) => c.includes("Names and departments")));
 
 	const filters = cellsOf(xml.Filters);
+	assert.ok(cellsOf(xml.Filters).some((c) => c.includes("LOG-7K3P-92QD") && c.includes("/verify/LOG-7K3P-92QD")), "the verification code and where to check it");
 	for (const expected of ["Timetable type", "Exam timetable", "Time of day", "22:00–06:00 (overnight)", "All times Africa/Lagos (WAT, UTC+01:00)", "boss@unilag.edu.ng", "2026-11-26 14:05 (Lagos)"]) {
 		assert.ok(filters.includes(expected), expected);
 	}

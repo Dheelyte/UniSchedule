@@ -84,6 +84,17 @@ export async function buildExportFile(api, { started, filters, options, roleLabe
 	}
 	check(signal);
 	const { buildPdfReport } = await (loadPdf ? loadPdf() : import("./pdfReport.js"));
-	const pdf = buildPdfReport(report, { appendix });
+	const pdf = buildPdfReport(report, { appendix, qr: await verifyQr(report.verifyUrl) });
 	return { fileName: started.file_name, type: "application/pdf", chunks: [new Uint8Array(pdf.output("arraybuffer"))] };
+}
+
+/** The QR code for a report's /verify address, as a PNG data URL; null if it can't be made. */
+async function verifyQr(url) {
+	if (!url) return null;
+	try {
+		const QRCode = (await import("qrcode")).default;
+		return await QRCode.toDataURL(url, { margin: 0, width: 240, errorCorrectionLevel: "M" });
+	} catch {
+		return null;
+	}
 }

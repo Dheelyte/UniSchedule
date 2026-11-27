@@ -15,6 +15,7 @@ const api = {
     get: (path, headers) => apiClient.get(path, { headers }),
 };
 
+const SUPER_ADMIN_SECTIONS = ['impersonation', 'exports'];
 const DEFAULT_SECTIONS = SECTIONS.map((s) => s.key).filter((k) => k !== 'raw');
 
 /**
@@ -26,7 +27,7 @@ export default function ExportAnalysisModal({ pageFilters, options, roleLabels, 
     const [start] = useState(() => exportStartFilters(pageFilters, options));
     const [filters, setFilters] = useState(start.filters);
     const [sections, setSections] = useState(() => new Set(DEFAULT_SECTIONS));
-    const [format, setFormat] = useState('xlsx');
+    const [format, setFormat] = useState('pdf');
     const [mask, setMask] = useState(false);
     const [preview, setPreview] = useState({ loading: true, data: null, error: null });
     const [submitting, setSubmitting] = useState(false);
@@ -151,23 +152,28 @@ export default function ExportAnalysisModal({ pageFilters, options, roleLabels, 
                         <div className={styles.checkGrid}>
                             {SECTIONS.map((s) => {
                                 const forced = s.key === 'raw' && format === 'xlsx';
+                                // Only super admins impersonate and export this log: a report about
+                                // people who can't leaves those sections out (the server decides; this shows it).
+                                const notApplicable = SUPER_ADMIN_SECTIONS.includes(s.key) && preview.data?.impersonation_applies === false;
                                 return (
-                                    <label key={s.key} className={`${styles.check} ${forced ? styles.checkLocked : ''}`}>
+                                    <label key={s.key} className={`${styles.check} ${forced || notApplicable ? styles.checkLocked : ''}`}>
                                         <input
                                             type="checkbox"
-                                            checked={forced || sections.has(s.key)}
-                                            disabled={forced}
+                                            checked={!notApplicable && (forced || sections.has(s.key))}
+                                            disabled={forced || notApplicable}
                                             onChange={() => toggle(s.key)}
                                             data-testid={`export-section-${s.key}`}
                                         />
                                         <span>
                                             {s.key === 'raw' ? (format === 'xlsx' ? 'Raw data sheet' : 'Raw log appendix') : s.label}
                                             <small>
-                                                {s.key === 'raw'
-                                                    ? format === 'xlsx'
-                                                        ? 'Always included in Excel'
-                                                        : `First ${PDF_APPENDIX_LIMIT.toLocaleString()} rows`
-                                                    : s.hint}
+                                                {notApplicable
+                                                    ? 'Left out: only super admins can do this, and the report covers none'
+                                                    : s.key === 'raw'
+                                                      ? format === 'xlsx'
+                                                          ? 'Always included in Excel'
+                                                          : `First ${PDF_APPENDIX_LIMIT.toLocaleString()} rows`
+                                                      : s.hint}
                                             </small>
                                         </span>
                                     </label>
@@ -179,18 +185,18 @@ export default function ExportAnalysisModal({ pageFilters, options, roleLabels, 
                     <section className={styles.modalSection}>
                         <h4 className={styles.sectionTitle}>Format</h4>
                         <div className={styles.formatRow} role="radiogroup" aria-label="Format">
-                            <label className={`${styles.formatOption} ${format === 'xlsx' ? styles.formatOptionActive : ''}`}>
-                                <input type="radio" name="export-format" value="xlsx" checked={format === 'xlsx'} onChange={() => setFormat('xlsx')} data-testid="export-format-xlsx" />
-                                <span>
-                                    Excel workbook (.xlsx)
-                                    <small>One sheet per section, plus Raw data and Filters</small>
-                                </span>
-                            </label>
                             <label className={`${styles.formatOption} ${format === 'pdf' ? styles.formatOptionActive : ''}`}>
                                 <input type="radio" name="export-format" value="pdf" checked={format === 'pdf'} onChange={() => setFormat('pdf')} data-testid="export-format-pdf" />
                                 <span>
                                     PDF report
                                     <small>Charts and tables; members overview and flagged members</small>
+                                </span>
+                            </label>
+                            <label className={`${styles.formatOption} ${format === 'xlsx' ? styles.formatOptionActive : ''}`}>
+                                <input type="radio" name="export-format" value="xlsx" checked={format === 'xlsx'} onChange={() => setFormat('xlsx')} data-testid="export-format-xlsx" />
+                                <span>
+                                    Excel workbook (.xlsx)
+                                    <small>One sheet per section, plus Raw data and Filters</small>
                                 </span>
                             </label>
                         </div>

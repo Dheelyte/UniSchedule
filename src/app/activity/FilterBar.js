@@ -85,9 +85,33 @@ export function FilterFields({ value, onChange, options, roleLabels = {}, allowA
     const departments = (options?.departments || []).filter((d) => !value.faculty || d.faculty_id === value.faculty);
     const today = options?.today;
 
+    // The filters most searches need stay in view; the rest fold away behind
+    // "More filters", which opens by itself when one of them is in use.
+    const advancedCount =
+        (value.type !== DEFAULT_FILTERS.type ? 1 : 0) +
+        (value.portal !== DEFAULT_FILTERS.portal ? 1 : 0) +
+        (value.cat.length ? 1 : 0) +
+        (value.action.length ? 1 : 0) +
+        (value.role.length ? 1 : 0) +
+        (value.faculty ? 1 : 0) +
+        (value.dept ? 1 : 0);
+    const [showMore, setShowMore] = useState(advancedCount > 0);
+
     return (
         <>
-            <div className={styles.fieldRow}>
+            <div className={styles.primaryRow}>
+                <div className={`${styles.field} ${styles.searchField}`}>
+                    <label className={styles.fieldLabel} htmlFor={`${idPrefix}-q`}>Search</label>
+                    <input
+                        id={`${idPrefix}-q`}
+                        type="search"
+                        className={styles.input}
+                        placeholder="Search descriptions…"
+                        value={keyword}
+                        maxLength={200}
+                        onChange={(e) => setKeyword(e.target.value)}
+                    />
+                </div>
                 <div className={styles.field}>
                     <label className={styles.fieldLabel} htmlFor={`${idPrefix}-range`}>Timeframe</label>
                     <select id={`${idPrefix}-range`} className={styles.input} value={value.range} onChange={(e) => changeRange(e.target.value)}>
@@ -98,92 +122,6 @@ export function FilterFields({ value, onChange, options, roleLabels = {}, allowA
                             </option>
                         ))}
                     </select>
-                </div>
-                {value.range === 'custom' && (
-                    <>
-                        <div className={`${styles.field} ${styles.fieldWide}`}>
-                            <span className={styles.fieldLabel}>From – to (Lagos dates)</span>
-                            <div className={styles.inline}>
-                                <input
-                                    type="date"
-                                    className={styles.input}
-                                    value={value.from}
-                                    max={value.to || today}
-                                    onChange={(e) => e.target.value && set({ from: e.target.value, to: value.to < e.target.value ? e.target.value : value.to })}
-                                    aria-label="From date"
-                                />
-                                <span className={styles.dash}>–</span>
-                                <input
-                                    type="date"
-                                    className={styles.input}
-                                    value={value.to}
-                                    min={value.from}
-                                    max={today}
-                                    onChange={(e) => e.target.value && set({ to: e.target.value, from: value.from > e.target.value ? e.target.value : value.from })}
-                                    aria-label="To date"
-                                />
-                            </div>
-                        </div>
-                        <div className={`${styles.field} ${styles.fieldWide}`}>
-                            <span className={styles.fieldLabel}>Time of day (optional)</span>
-                            <div className={styles.inline}>
-                                <input type="time" className={styles.input} value={draftStart} onChange={(e) => setWindow(e.target.value, draftEnd)} aria-label="From time" />
-                                <span className={styles.dash}>–</span>
-                                <input type="time" className={styles.input} value={draftEnd} onChange={(e) => setWindow(draftStart, e.target.value)} aria-label="To time" />
-                            </div>
-                            <span className={styles.hint}>
-                                Start included, end not. A start after the end runs overnight (e.g. 22:00–06:00).
-                            </span>
-                        </div>
-                    </>
-                )}
-                <div className={styles.field}>
-                    <label className={styles.fieldLabel} htmlFor={`${idPrefix}-type`}>Timetable type</label>
-                    <select id={`${idPrefix}-type`} className={styles.input} value={value.type} onChange={(e) => set({ type: e.target.value })}>
-                        {TIMETABLE_TYPES.map((t) => (
-                            <option key={t.value} value={t.value}>{t.label}</option>
-                        ))}
-                    </select>
-                </div>
-                <div className={styles.field}>
-                    <label className={styles.fieldLabel} htmlFor={`${idPrefix}-portal`}>Portal</label>
-                    <select id={`${idPrefix}-portal`} className={styles.input} value={value.portal} onChange={(e) => set({ portal: e.target.value })}>
-                        {PORTAL_SCOPES.map((p) => (
-                            <option key={p.value} value={p.value}>{p.label}</option>
-                        ))}
-                    </select>
-                </div>
-            </div>
-
-            <div className={styles.fieldRow}>
-                <div className={styles.field}>
-                    <span className={styles.fieldLabel}>Categories</span>
-                    <MultiSelect
-                        label="Categories"
-                        placeholder="All actions"
-                        options={CATEGORY_OPTIONS}
-                        value={value.cat}
-                        locked={includedBy(value.cat)}
-                        lockedHint="included in Schedule items (all)"
-                        onChange={(cat) => {
-                            const next = normalizeCategories(cat);
-                            // Drop specific actions the new categories no longer cover.
-                            set({ cat: next, action: value.action.filter((a) => inCategories(a, next)) });
-                        }}
-                        testId={`${idPrefix}-categories`}
-                    />
-                </div>
-                <div className={styles.field}>
-                    <span className={styles.fieldLabel}>Specific actions</span>
-                    <MultiSelect
-                        label="Specific actions"
-                        placeholder="Any action"
-                        options={actionOptions}
-                        value={value.action}
-                        onChange={(action) => set({ action })}
-                        emptyText="No actions recorded in these categories."
-                        testId={`${idPrefix}-actions`}
-                    />
                 </div>
                 <div className={styles.field}>
                     <span className={styles.fieldLabel}>Users</span>
@@ -197,48 +135,148 @@ export function FilterFields({ value, onChange, options, roleLabels = {}, allowA
                         testId={`${idPrefix}-users`}
                     />
                 </div>
-                <div className={styles.field}>
-                    <span className={styles.fieldLabel}>Roles (as acted)</span>
-                    <MultiSelect
-                        label="Roles"
-                        placeholder="All roles"
-                        options={roleOptions}
-                        value={value.role}
-                        onChange={(role) => set({ role })}
-                        testId={`${idPrefix}-roles`}
-                    />
-                </div>
-                <div className={styles.field}>
-                    <label className={styles.fieldLabel} htmlFor={`${idPrefix}-faculty`}>Faculty</label>
-                    <select id={`${idPrefix}-faculty`} className={styles.input} value={value.faculty} onChange={(e) => set({ faculty: e.target.value, dept: '' })}>
-                        <option value="">All faculties</option>
-                        {(options?.faculties || []).map((f) => (
-                            <option key={f.id} value={f.id}>{f.name}</option>
-                        ))}
-                    </select>
-                </div>
-                <div className={styles.field}>
-                    <label className={styles.fieldLabel} htmlFor={`${idPrefix}-dept`}>Department</label>
-                    <select id={`${idPrefix}-dept`} className={styles.input} value={value.dept} onChange={(e) => set({ dept: e.target.value })}>
-                        <option value="">All departments</option>
-                        {departments.map((d) => (
-                            <option key={d.id} value={String(d.id)}>{d.name}</option>
-                        ))}
-                    </select>
-                </div>
-                <div className={styles.field}>
-                    <label className={styles.fieldLabel} htmlFor={`${idPrefix}-q`}>Keyword</label>
-                    <input
-                        id={`${idPrefix}-q`}
-                        type="search"
-                        className={styles.input}
-                        placeholder="Search descriptions"
-                        value={keyword}
-                        maxLength={200}
-                        onChange={(e) => setKeyword(e.target.value)}
-                    />
-                </div>
+                <button
+                    type="button"
+                    className={`${styles.moreToggle} ${showMore ? styles.moreToggleOpen : ''}`}
+                    onClick={() => setShowMore((open) => !open)}
+                    aria-expanded={showMore}
+                    aria-controls={`${idPrefix}-more`}
+                    data-testid={`${idPrefix}-more-toggle`}
+                >
+                    More filters
+                    {advancedCount > 0 && <span className={styles.moreCount}>{advancedCount}</span>}
+                    <span className={styles.moreChevron} aria-hidden>▾</span>
+                </button>
             </div>
+
+            {value.range === 'custom' && (
+                <div className={styles.fieldRow}>
+                    <div className={`${styles.field} ${styles.fieldWide}`}>
+                        <span className={styles.fieldLabel}>From – to (Lagos dates)</span>
+                        <div className={styles.inline}>
+                            <input
+                                type="date"
+                                className={styles.input}
+                                value={value.from}
+                                max={value.to || today}
+                                onChange={(e) => e.target.value && set({ from: e.target.value, to: value.to < e.target.value ? e.target.value : value.to })}
+                                aria-label="From date"
+                            />
+                            <span className={styles.dash}>–</span>
+                            <input
+                                type="date"
+                                className={styles.input}
+                                value={value.to}
+                                min={value.from}
+                                max={today}
+                                onChange={(e) => e.target.value && set({ to: e.target.value, from: value.from > e.target.value ? e.target.value : value.from })}
+                                aria-label="To date"
+                            />
+                        </div>
+                    </div>
+                    <div className={`${styles.field} ${styles.fieldWide}`}>
+                        <span className={styles.fieldLabel}>Time of day (optional)</span>
+                        <div className={styles.inline}>
+                            <input type="time" className={styles.input} value={draftStart} onChange={(e) => setWindow(e.target.value, draftEnd)} aria-label="From time" />
+                            <span className={styles.dash}>–</span>
+                            <input type="time" className={styles.input} value={draftEnd} onChange={(e) => setWindow(draftStart, e.target.value)} aria-label="To time" />
+                        </div>
+                        <span className={styles.hint}>
+                            Start included, end not. A start after the end runs overnight (e.g. 22:00–06:00).
+                        </span>
+                    </div>
+                </div>
+            )}
+
+            {showMore && (
+                <div id={`${idPrefix}-more`} className={styles.moreFilters}>
+                    <div className={styles.filterGroup}>
+                        <span className={styles.groupTitle}>What happened</span>
+                        <div className={styles.fieldRow}>
+                            <div className={styles.field}>
+                                <span className={styles.fieldLabel}>Categories</span>
+                                <MultiSelect
+                                    label="Categories"
+                                    placeholder="All actions"
+                                    options={CATEGORY_OPTIONS}
+                                    value={value.cat}
+                                    locked={includedBy(value.cat)}
+                                    lockedHint="included in Schedule items (all)"
+                                    onChange={(cat) => {
+                                        const next = normalizeCategories(cat);
+                                        // Drop specific actions the new categories no longer cover.
+                                        set({ cat: next, action: value.action.filter((a) => inCategories(a, next)) });
+                                    }}
+                                    testId={`${idPrefix}-categories`}
+                                />
+                            </div>
+                            <div className={styles.field}>
+                                <span className={styles.fieldLabel}>Specific actions</span>
+                                <MultiSelect
+                                    label="Specific actions"
+                                    placeholder="Any action"
+                                    options={actionOptions}
+                                    value={value.action}
+                                    onChange={(action) => set({ action })}
+                                    emptyText="No actions recorded in these categories."
+                                    testId={`${idPrefix}-actions`}
+                                />
+                            </div>
+                            <div className={styles.field}>
+                                <label className={styles.fieldLabel} htmlFor={`${idPrefix}-type`}>Timetable type</label>
+                                <select id={`${idPrefix}-type`} className={styles.input} value={value.type} onChange={(e) => set({ type: e.target.value })}>
+                                    {TIMETABLE_TYPES.map((t) => (
+                                        <option key={t.value} value={t.value}>{t.label}</option>
+                                    ))}
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className={styles.filterGroup}>
+                        <span className={styles.groupTitle}>Who and where</span>
+                        <div className={styles.fieldRow}>
+                            <div className={styles.field}>
+                                <span className={styles.fieldLabel}>Roles (as acted)</span>
+                                <MultiSelect
+                                    label="Roles"
+                                    placeholder="All roles"
+                                    options={roleOptions}
+                                    value={value.role}
+                                    onChange={(role) => set({ role })}
+                                    testId={`${idPrefix}-roles`}
+                                />
+                            </div>
+                            <div className={styles.field}>
+                                <label className={styles.fieldLabel} htmlFor={`${idPrefix}-faculty`}>Faculty</label>
+                                <select id={`${idPrefix}-faculty`} className={styles.input} value={value.faculty} onChange={(e) => set({ faculty: e.target.value, dept: '' })}>
+                                    <option value="">All faculties</option>
+                                    {(options?.faculties || []).map((f) => (
+                                        <option key={f.id} value={f.id}>{f.name}</option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div className={styles.field}>
+                                <label className={styles.fieldLabel} htmlFor={`${idPrefix}-dept`}>Department</label>
+                                <select id={`${idPrefix}-dept`} className={styles.input} value={value.dept} onChange={(e) => set({ dept: e.target.value })}>
+                                    <option value="">All departments</option>
+                                    {departments.map((d) => (
+                                        <option key={d.id} value={String(d.id)}>{d.name}</option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div className={styles.field}>
+                                <label className={styles.fieldLabel} htmlFor={`${idPrefix}-portal`}>Portal</label>
+                                <select id={`${idPrefix}-portal`} className={styles.input} value={value.portal} onChange={(e) => set({ portal: e.target.value })}>
+                                    {PORTAL_SCOPES.map((p) => (
+                                        <option key={p.value} value={p.value}>{p.label}</option>
+                                    ))}
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
         </>
     );
 }

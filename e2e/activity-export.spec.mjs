@@ -25,6 +25,8 @@ test("filter the Activity Logs, export the analysis, check the file", async ({ p
 
 	await bar.getByLabel("Timeframe").selectOption("last_7_days");
 	await expect(page).toHaveURL(/[?&]range=last_7_days/);
+	// Categories sit under "More filters", folded away until opened.
+	await page.getByTestId("page-more-toggle").click();
 	await page.getByTestId("page-categories").click();
 	await page.getByRole("listbox", { name: "Categories" }).getByLabel("Auth", { exact: true }).check();
 	await expect(page).toHaveURL(/[?&]cat=auth/);

@@ -54,6 +54,7 @@ class ExportSignoffResponse(BaseModel):
 
 class VerifyResponse(BaseModel):
     """Public: what /verify/<code> shows. Never includes the signature or stamp."""
+    document: Literal["timetable"] = "timetable"
     code: str
     realm_name: str
     session_name: str
