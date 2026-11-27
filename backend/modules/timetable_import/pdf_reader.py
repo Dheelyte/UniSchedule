@@ -21,8 +21,6 @@ from __future__ import annotations
 import re
 from typing import BinaryIO
 
-import pdfplumber
-
 from modules.timetable_import.text import WEEKDAYS, extract_codes, parse_time_range
 
 MAX_PAGES = 60
@@ -249,6 +247,10 @@ def read_pdf_cells(source: str | BinaryIO):
     cells: dict[tuple[int, int], str] = {(1, c): h for c, h in enumerate(HEADER, start=1)}
     row = 2
     any_text = False
+    # Imported here, not at the top: pdfplumber adds about 9 MB, and the app is
+    # loaded on every Lambda request, while only a PDF import needs it.
+    import pdfplumber
+
     with pdfplumber.open(source) as pdf:
         if len(pdf.pages) > MAX_PAGES:
             raise ValueError("The PDF has too many pages")
