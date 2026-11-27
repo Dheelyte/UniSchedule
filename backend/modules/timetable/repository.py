@@ -22,6 +22,18 @@ def _realm_item_ids(realm_key: str):
     return select(ScheduleItem.id).where(ScheduleItem.realm_key == realm_key)
 
 
+# What the course and schedule item lists send (CourseResponse, ScheduleItemResponse), in that order.
+COURSE_LIST_COLUMNS = (
+    Course.id, Course.code, Course.title, Course.credit_load, Course.lecturers, Course.department_id,
+    Course.scope, Course.level, Course.semester, Course.is_cbt_exam,
+)
+SCHEDULE_ITEM_LIST_COLUMNS = (
+    ScheduleItem.course_id, ScheduleItem.room_ids, ScheduleItem.faculty_id, ScheduleItem.day_of_week,
+    ScheduleItem.start_time, ScheduleItem.end_time, ScheduleItem.type, ScheduleItem.week, ScheduleItem.exam_date,
+    ScheduleItem.semester_id, ScheduleItem.is_online, ScheduleItem.id,
+)
+
+
 class TimetableRepository:
     """Everything here is realm-scoped: its reads take a required, keyword-only
     `realm_key`, so a forgotten filter is a TypeError rather than a leak.
@@ -183,24 +195,40 @@ class TimetableRepository:
         return course
 
     async def get_courses(self, *, realm_key: str, faculty_id: str | None = None, prioritize_faculty_id: str | None = None) -> list[Course]:
+        query = await self._courses_query(realm_key=realm_key, faculty_id=faculty_id, prioritize_faculty_id=prioritize_faculty_id)
+        result = await self.db.execute(query)
+        return list(result.scalars().all())
+
+    async def course_rows(self, *, realm_key: str, faculty_id: str | None = None, prioritize_faculty_id: str | None = None) -> list[dict]:
+        """The course list as plain rows of COURSE_LIST_COLUMNS, in get_courses' order.
+
+        For GET /courses: UG has thousands of courses, and full ORM objects (plus a
+        response model for each) took about three times the memory and four times
+        the time, enough to push the request past the Lambda's limits.
+        """
+        query = await self._courses_query(
+            realm_key=realm_key, faculty_id=faculty_id, prioritize_faculty_id=prioritize_faculty_id, columns=COURSE_LIST_COLUMNS,
+        )
+        return [dict(row) for row in (await self.db.execute(query)).mappings()]
+
+    async def _courses_query(self, *, realm_key: str, faculty_id: str | None, prioritize_faculty_id: str | None, columns=None):
+        entity = columns or (Course,)
         if faculty_id:
             dept_result = await self.db.execute(select(Department.id).where(Department.faculty_id == faculty_id))
             dept_ids = [r for r in dept_result.scalars().all()]
             conditions = [Course.scope.in_([CourseScope.INTERFACULTY, CourseScope.UNIVERSITY_WIDE])]
             if dept_ids:
                 conditions.append(Course.department_id.in_(dept_ids))
-            query = select(Course).where(Course.realm_key == realm_key, or_(*conditions))
+            query = select(*entity).where(Course.realm_key == realm_key, or_(*conditions))
         else:
-            query = select(Course).where(Course.realm_key == realm_key)
+            query = select(*entity).where(Course.realm_key == realm_key)
 
         if prioritize_faculty_id:
             dept_result = await self.db.execute(select(Department.id).where(Department.faculty_id == prioritize_faculty_id))
             dept_ids = [r for r in dept_result.scalars().all()]
             if dept_ids:
                 query = query.order_by(case((Course.department_id.in_(dept_ids), 0), else_=1))
-
-        result = await self.db.execute(query)
-        return list(result.scalars().all())
+        return query
 
     async def get_course(self, id: int, *, realm_key: str) -> Course | None:
         result = await self.db.execute(select(Course).where(Course.id == id, Course.realm_key == realm_key))
@@ -266,6 +294,17 @@ class TimetableRepository:
             realm_key=realm_key, semester_id=semester_id, faculty_id=faculty_id, item_type=item_type,
         ))
         return list(result.scalars().all())
+
+    async def schedule_item_rows(
+        self, *, realm_key: str, semester_id: int | None = None, faculty_id: str | None = None,
+        item_type: str | None = None,
+    ) -> list[dict]:
+        """get_schedule_items as plain rows of SCHEDULE_ITEM_LIST_COLUMNS, for GET /schedule-items."""
+        result = await self.db.execute(self._schedule_items_query(
+            realm_key=realm_key, semester_id=semester_id, faculty_id=faculty_id, item_type=item_type,
+            columns=SCHEDULE_ITEM_LIST_COLUMNS,
+        ))
+        return [dict(row) for row in result.mappings()]
 
     async def room_usage(self, *, realm_key: str, faculty_id: str | None = None) -> dict[int, int]:
         """How many schedule items (every semester) use each room, among the items `faculty_id` sees."""
