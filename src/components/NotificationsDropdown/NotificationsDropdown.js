@@ -75,7 +75,7 @@ export default function NotificationsDropdown() {
     const hasUnread = notifications.some(n => !n.is_read);
 
     return (
-        <div className={styles.container} ref={dropdownRef}>
+        <div className={styles.container} ref={dropdownRef} data-tour="notifications">
             <button
                 title="Notifications"
                 onClick={() => setIsOpen(!isOpen)}

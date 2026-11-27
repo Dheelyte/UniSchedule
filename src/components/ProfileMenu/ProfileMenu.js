@@ -32,7 +32,7 @@ export default function ProfileMenu() {
     const initial = (user.email || '?').charAt(0).toUpperCase();
 
     return (
-        <div className={styles.root} ref={rootRef}>
+        <div className={styles.root} ref={rootRef} data-tour="profile-menu">
             <button
                 type="button"
                 className={`${styles.trigger} ${granted ? styles.triggerAttention : ''}`}

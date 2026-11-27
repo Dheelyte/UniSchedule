@@ -55,7 +55,11 @@ export default function TopBar({
 	const pathname = usePathname();
 	const { user, logout } = useAuth();
 	const confirm = useConfirm();
-	const pageInfo = pageTitles[pathname] || { title: "Dashboard", subtitle: "" };
+	const pageInfo =
+		pageTitles[pathname] ||
+		(pathname === "/help" || pathname.startsWith("/help/")
+			? { title: "Help centre", subtitle: "How to use every page and feature" }
+			: { title: "Dashboard", subtitle: "" });
 
 	return (
 		<header
@@ -75,6 +79,7 @@ export default function TopBar({
 			}>
 			<div className={styles.left}>
 				<button
+					data-tour="sidebar-toggle"
 					className={styles.toggleBtn}
 					onClick={toggleCollapse}
 					title={isSidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}>
@@ -92,7 +97,7 @@ export default function TopBar({
 						<line x1="3" y1="18" x2="21" y2="18" />
 					</svg>
 				</button>
-				<div className={styles.titleInfo}>
+				<div className={styles.titleInfo} data-tour="page-title">
 					<h1 className={styles.title}>{pageInfo.title}</h1>
 					{pageInfo.subtitle && (
 						<span className={styles.subtitle}>{pageInfo.subtitle}</span>
@@ -107,6 +112,7 @@ export default function TopBar({
 				<ProfileMenu />
 				{/* Logout Button */}
 				<button
+					data-tour="logout"
 					className={styles.logoutBtn}
 					onClick={async () => {
 						if (await confirm("Are you sure you want to log out?")) {

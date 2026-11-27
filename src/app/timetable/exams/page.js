@@ -403,6 +403,7 @@ export default function ExamTimetablePage() {
 				<div className={styles.headerActions}>
 					{semesters.length > 0 && (
 						<select
+							data-tour="tt-semester"
 							className="form-input"
 							style={{ minWidth: "240px" }}
 							value={selectedSemesterId ?? ""}
@@ -417,14 +418,14 @@ export default function ExamTimetablePage() {
 					)}
 					{user?.role === "SUPER_ADMIN" && isCurrentSemester && !isLocked && (
 						<>
-							<Link className="btn btn-secondary" href="/timetable/import?type=exam">
+							<Link className="btn btn-secondary" href="/timetable/import?type=exam" data-tour="tt-import">
 								Import <span className="badge badge-primary" style={{ marginLeft: 6, fontSize: "0.65rem" }}>Beta</span>
 							</Link>
-							<Link className="btn btn-secondary" href="/timetable/import?type=exam&source=semester">
+							<Link className="btn btn-secondary" href="/timetable/import?type=exam&source=semester" data-tour="tt-copy">
 								Copy semester <span className="badge badge-primary" style={{ marginLeft: 6, fontSize: "0.65rem" }}>Beta</span>
 							</Link>
 							{EXAM_SHIFT_REALMS.includes(realm) && (
-								<button className="btn btn-secondary" onClick={() => setIsShiftOpen(true)}>
+								<button className="btn btn-secondary" onClick={() => setIsShiftOpen(true)} data-tour="tt-shift">
 									Shift exams <span className="badge badge-primary" style={{ marginLeft: 6, fontSize: "0.65rem" }}>Beta</span>
 								</button>
 							)}
@@ -432,12 +433,14 @@ export default function ExamTimetablePage() {
 					)}
 					{showRequestChange && (
 						<button
+							data-tour="tt-request-change"
 							className="btn btn-secondary"
 							onClick={() => setIsChangeModalOpen(true)}>
 							Request a Change
 						</button>
 					)}
 					<button
+						data-tour="tt-export"
 						className="btn btn-secondary"
 						onClick={() => handleExportInit("csv")}>
 						<svg

@@ -284,7 +284,7 @@ export default function TermsPage() {
             <div className={styles.section}>
                 <h3 className={styles.sectionTitle}>Academic Sessions</h3>
 
-                <div style={{ marginBottom: '20px', display: 'flex', gap: '8px' }}>
+                <div style={{ marginBottom: '20px', display: 'flex', gap: '8px' }} data-tour="terms-add-session">
                     <select className="form-input" value={sessionName} onChange={(e) => setSessionName(e.target.value)}>
                         <option value="">- Select Academic Session -</option>
                         {sessionOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
@@ -314,7 +314,7 @@ export default function TermsPage() {
 
                         return (
                             <div key={s.id} className={`${styles.accordionItem} ${s.is_current ? styles.accordionItemCurrent : ''}`}>
-                                <button className={styles.accordionHeader} onClick={() => toggleExpand(s.id)}>
+                                <button className={styles.accordionHeader} onClick={() => toggleExpand(s.id)} data-tour="terms-session">
                                     <div className={styles.accordionHeaderLeft}>
                                         <span className={styles.accordionTitle}>{s.name}</span>
                                         <span className={`badge ${s.is_current ? styles.badgeSuccess : styles.badgeNeutral}`}>
@@ -346,6 +346,7 @@ export default function TermsPage() {
                                                     </span>
                                                     {s.is_current && !sem.is_current && (
                                                         <button
+                                                            data-tour="terms-set-semester"
                                                             className="btn btn-secondary"
                                                             style={{ padding: '2px 10px', fontSize: '0.75rem' }}
                                                             onClick={() => handleSetCurrentSemester(s, sem)}
@@ -378,6 +379,7 @@ export default function TermsPage() {
                                                             className="btn btn-secondary"
                                                             style={{ marginTop: '12px' }}
                                                             onClick={() => { setAddingSemFor(s.id); setSemName(''); }}
+                                                            data-tour="terms-add-semester"
                                                         >
                                                             + Add Semester
                                                         </button>
@@ -392,7 +394,7 @@ export default function TermsPage() {
                                                 <p style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)', margin: 0 }}>
                                                     🔒 View only - set this session as current to add semesters or edit its timetables.
                                                 </p>
-                                                <button className="btn btn-secondary" onClick={() => handleSetCurrentSession(s)}>
+                                                <button className="btn btn-secondary" onClick={() => handleSetCurrentSession(s)} data-tour="terms-set-session">
                                                     Set as current session
                                                 </button>
                                             </div>
@@ -409,7 +411,7 @@ export default function TermsPage() {
             <div className={styles.section}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', paddingBottom: '12px', borderBottom: '1px solid var(--color-border)' }}>
                     <h3 style={{ fontSize: '1.1rem', fontWeight: 600, color: 'var(--color-text)', margin: 0 }}>Blocked Slots</h3>
-                    <button className="btn btn-primary" onClick={openAddBlockedSlot} disabled={!currentSemester}>
+                    <button className="btn btn-primary" onClick={openAddBlockedSlot} disabled={!currentSemester} data-tour="terms-add-blocked">
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
                         Add Blocked Slot
                     </button>
@@ -426,7 +428,7 @@ export default function TermsPage() {
                 )}
 
                 {blockedSlots.length > 0 && (
-                    <div className="table-container">
+                    <div className="table-container" data-tour="terms-blocked">
                         <table className="data-table">
                             <thead>
                                 <tr>

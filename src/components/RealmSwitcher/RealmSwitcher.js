@@ -60,7 +60,7 @@ export default function RealmSwitcher() {
 	};
 
 	return (
-		<div className={styles.root} ref={rootRef}>
+		<div className={styles.root} ref={rootRef} data-tour="realm-switcher">
 			<button
 				type="button"
 				className={styles.trigger}

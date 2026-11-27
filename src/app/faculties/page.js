@@ -180,13 +180,13 @@ export default function FacultiesPage() {
                 <div />
                 <div className={styles.headerActions}>
                     {!isViewerRole(role) && !isGsAdmin(role) && (
-                        <button className="btn btn-secondary" onClick={() => openAddDept()}>
+                        <button className="btn btn-secondary" onClick={() => openAddDept()} data-tour="fac-add-dept">
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
                             Add Department
                         </button>
                     )}
                     {role === 'SUPER_ADMIN' && (
-                        <button className="btn btn-primary" onClick={openAddFaculty}>
+                        <button className="btn btn-primary" onClick={openAddFaculty} data-tour="fac-add-faculty">
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
                             Add Faculty
                         </button>
@@ -196,7 +196,7 @@ export default function FacultiesPage() {
 
             {/* Stats Bar - SUPER_ADMIN only */}
             {role === 'SUPER_ADMIN' && (
-                <div className={styles.statsBar}>
+                <div className={styles.statsBar} data-tour="fac-stats">
                     <div className={styles.stat}>
                         <span className={styles.statValue}>{regularCount}</span>
                         <span className={styles.statLabel}>Faculties</span>
@@ -215,7 +215,7 @@ export default function FacultiesPage() {
             {/* Faculties Table (click faculty to expand departments) */}
             <div className={styles.section}>
                 <h3 className={styles.sectionTitle}>Faculties</h3>
-                <div className="table-container">
+                <div className="table-container" data-tour="fac-table">
                     <table className="data-table">
                         <thead>
                             <tr>
@@ -237,7 +237,7 @@ export default function FacultiesPage() {
                                             aria-controls={`depts-${fac.id}`}
                                             style={{ fontWeight: 500, color: 'var(--color-text)', display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}
                                         >
-                                            <button className={styles.expandBtn} onClick={(e) => { e.stopPropagation(); toggleFacultyExpand(fac.id); }} aria-expanded={expandedFaculties.has(fac.id)} title="Toggle departments" style={{ background: 'transparent', border: 'none', padding: 4 }}>
+                                            <button data-tour="fac-expand" className={styles.expandBtn} onClick={(e) => { e.stopPropagation(); toggleFacultyExpand(fac.id); }} aria-expanded={expandedFaculties.has(fac.id)} title="Toggle departments" style={{ background: 'transparent', border: 'none', padding: 4 }}>
                                                 {expandedFaculties.has(fac.id) ? (
                                                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9" /></svg>
                                                 ) : (
@@ -246,7 +246,7 @@ export default function FacultiesPage() {
                                             </button>
                                             <span>{fac.name}</span>
                                             {isSpecialFac(fac) && (
-                                                <span className={styles.specialTag} title="Exempt from timetable conflict detection">Special</span>
+                                                <span className={styles.specialTag} title="Exempt from timetable conflict detection" data-tour="fac-special">Special</span>
                                             )}
                                         </td>
                                         <td>
@@ -254,7 +254,7 @@ export default function FacultiesPage() {
                                         </td>
                                         <td>
                                             {role === 'SUPER_ADMIN' ? (
-                                                <div className={styles.actions}>
+                                                <div className={styles.actions} data-tour="fac-row-actions">
                                                     <button className={styles.actionBtn} onClick={() => openEditFaculty(fac)} title="Edit">
                                                         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" /><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" /></svg>
                                                     </button>

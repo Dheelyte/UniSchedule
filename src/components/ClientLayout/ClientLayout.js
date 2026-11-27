@@ -12,6 +12,7 @@ import { AuthProvider, useAuth } from "@/context/AuthContext";
 import { usePathname, useRouter } from "next/navigation";
 import { isCrossRealmRole } from "@/lib/roles";
 import { lastRealm, loginPath, splitRealmLink } from "@/lib/realm";
+import TourController from "@/components/Tour/TourController";
 import styles from "./ClientLayout.module.css";
 
 const MOBILE_QUERY = "(max-width: 768px)";
@@ -32,7 +33,7 @@ function LayoutInner({ children }) {
 	const publicPaths = ["/", ...guestOnlyPaths];
 	// Open to everyone and always rendered without the app shell. /verify/<code>
 	// is where the QR code on a FINAL timetable PDF leads.
-	const standalonePaths = ["/contributors", "/verify", "/download"];
+	const standalonePaths = ["/contributors", "/verify", "/download", "/faq"];
 	const isStandalone = standalonePaths.includes(pathname) || pathname.startsWith("/verify/");
 
     useEffect(() => {
@@ -140,6 +141,7 @@ export default function ClientLayout({ children }) {
 			<AuthProvider>
 				<ConfirmProvider>
 					<LayoutInner>{children}</LayoutInner>
+					<TourController />
 				</ConfirmProvider>
 			</AuthProvider>
 		</ToastProvider>

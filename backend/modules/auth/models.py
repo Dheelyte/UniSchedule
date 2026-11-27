@@ -1,6 +1,7 @@
 import enum
 from datetime import datetime
-from sqlalchemy import String, Boolean, Enum, DateTime, ForeignKey, null
+from sqlalchemy import String, Boolean, Enum, DateTime, ForeignKey, null, text
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 from core.base_model import Base
@@ -44,6 +45,9 @@ class User(Base):
     # NULL for cross-realm roles (set explicitly in code).
     realm_key: Mapped[str | None] = mapped_column(ForeignKey("realms.key"), nullable=True, server_default="UG", index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    # Page previews (the step-by-step tours): on by default, and the pages already shown.
+    tours_enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default=text("true"))
+    tours_seen: Mapped[list[str]] = mapped_column(JSONB, default=list, server_default=text("'[]'::jsonb"))
 
 
 class Invitation(Base):

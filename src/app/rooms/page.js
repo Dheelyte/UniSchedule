@@ -386,7 +386,7 @@ export default function RoomsPage() {
                                     <td style={{ fontWeight: 500, color: 'var(--color-text)' }}>
                                         {room.name}
                                         {(room.linked_rooms || []).map((linked) => (
-                                            <div key={`${linked.realm_key}-${linked.room_id}`} className={styles.hallTag} title="The same physical hall: bookings there block this room at the same time">
+                                            <div key={`${linked.realm_key}-${linked.room_id}`} className={styles.hallTag} title="The same physical hall: bookings there block this room at the same time" data-tour="rooms-hall">
                                                 Same hall as {linked.realm_name} · {linked.name}
                                             </div>
                                         ))}
@@ -431,6 +431,7 @@ export default function RoomsPage() {
                                     {isDraggable && (
                                         <td style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>
                                             <button
+                                                data-tour="rooms-reorder"
                                                 onClick={() => handleMoveUp(roomList, index)}
                                                 disabled={index === 0}
                                                 style={{ background: 'transparent', border: '1px solid var(--color-border)', cursor: index === 0 ? 'not-allowed' : 'pointer', opacity: index === 0 ? 0.3 : 1, padding: '2px 6px', borderRadius: '4px', marginRight: '4px' }}
@@ -450,7 +451,7 @@ export default function RoomsPage() {
                                     )}
                                     <td>
                                         {!isViewerRole(role) && (!isGsAdmin(role) || !room.facultyId) ? (
-                                            <div className={styles.actions}>
+                                            <div className={styles.actions} data-tour="rooms-row-actions">
                                                 <button className={styles.actionBtn} onClick={() => openEdit(room)} title="Edit">
                                                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" /><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" /></svg>
                                                 </button>
@@ -490,12 +491,12 @@ export default function RoomsPage() {
             <div className={styles.pageHeader}>
                 <div />
                 {usesCatalogue && (
-                    <button className="btn btn-secondary" onClick={openPicker} style={{ marginRight: 8 }}>
+                    <button className="btn btn-secondary" onClick={openPicker} style={{ marginRight: 8 }} data-tour="rooms-add-from">
                         Add from {catalogue.realm_name}
                     </button>
                 )}
                 {!isViewerRole(role) && (
-                    <button className="btn btn-primary" onClick={openAdd}>
+                    <button className="btn btn-primary" onClick={openAdd} data-tour="rooms-add">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
                         {usesCatalogue ? 'Create new room' : 'Add Room'}
                     </button>
@@ -503,7 +504,7 @@ export default function RoomsPage() {
             </div>
 
             {/* Stats */}
-            <div className={styles.statsRow}>
+            <div className={styles.statsRow} data-tour="rooms-stats">
                 <div className={styles.statCard}>
                     <div className={styles.statValue}>{rooms.length}</div>
                     <div className={styles.statLabel}>Total Rooms</div>
@@ -526,14 +527,14 @@ export default function RoomsPage() {
             <div className={styles.filters}>
                 <div className={styles.searchWrap}>
                     <svg className={styles.searchIcon} width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>
-                    <input className={styles.searchInput} value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search rooms..." />
+                    <input className={styles.searchInput} value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search rooms..." data-tour="rooms-search" />
                 </div>
-                <select className="form-select form-input" style={{ width: 180 }} value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
+                <select className="form-select form-input" style={{ width: 180 }} value={sortBy} onChange={(e) => setSortBy(e.target.value)} data-tour="rooms-sort">
                     <option value="custom">Custom Order</option>
                     <option value="name">Sort by Name</option>
                     <option value="capacity">Sort by Capacity</option>
                 </select>
-                <select className="form-select form-input" style={{ width: 180 }} value={filterFaculty} onChange={(e) => setFilterFaculty(e.target.value)}>
+                <select className="form-select form-input" style={{ width: 180 }} value={filterFaculty} onChange={(e) => setFilterFaculty(e.target.value)} data-tour="rooms-faculty">
                     <option value="">All Faculties</option>
                     {faculties.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
                 </select>
@@ -545,7 +546,7 @@ export default function RoomsPage() {
             </div>
 
             {/* Accordion List */}
-            <div className={styles.accordion}>
+            <div className={styles.accordion} data-tour="rooms-list">
                 {activeFaculties.map((fac) => {
                     const roomsInFac = filteredRooms.filter(r => r.facultyId === fac.id);
                     const isOpen = !collapsedFaculties.has(fac.id);
@@ -553,7 +554,7 @@ export default function RoomsPage() {
                     const facInactive = roomsInFac.reduce((a, r) => a + (r.inactiveSeats ?? 0), 0);
                     return (
                         <div key={fac.id} className={styles.accordionItem}>
-                            <button className={styles.accordionHeader} onClick={() => toggleFaculty(fac.id)}>
+                            <button className={styles.accordionHeader} onClick={() => toggleFaculty(fac.id)} data-tour="rooms-faculty-group">
                                 <div className={styles.accordionHeaderLeft}>
                                     <span className={styles.accordionTitle}>{fac.name}</span>
                                     <span className={styles.accordionCount}>{roomsInFac.length} venue{roomsInFac.length !== 1 ? 's' : ''}</span>

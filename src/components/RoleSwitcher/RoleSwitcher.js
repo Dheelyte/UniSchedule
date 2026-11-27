@@ -87,7 +87,7 @@ export default function RoleSwitcher() {
 		: "View as…";
 
 	return (
-		<div className={styles.root} ref={rootRef}>
+		<div className={styles.root} ref={rootRef} data-tour="role-switcher">
 			<button
 				type="button"
 				className={`${styles.trigger} ${impersonating ? styles.triggerActive : ""}`}

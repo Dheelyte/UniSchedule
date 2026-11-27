@@ -216,7 +216,7 @@ export default function StaffManagementPage() {
                 {editorAccess.granted && (
                     <div className={styles.section}>
                         <h3 className={styles.sectionTitle}>Your Editor Access</h3>
-                        <div className={styles.handoverPanel}>
+                        <div className={styles.handoverPanel} data-tour="staff-your-access">
                             <RetractControls handover={editorAccess.granted} candidates={editorAccess.candidates} />
                         </div>
                     </div>
@@ -230,7 +230,7 @@ export default function StaffManagementPage() {
             <div className={styles.pageHeader}>
                 <div />
                 <div className={styles.headerActions}>
-                    <button className={styles.btnPrimary} onClick={() => setIsInviteModalOpen(true)}>
+                    <button className={styles.btnPrimary} onClick={() => setIsInviteModalOpen(true)} data-tour="staff-invite">
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                             <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
                             <circle cx="8.5" cy="7" r="4" />
@@ -243,7 +243,7 @@ export default function StaffManagementPage() {
             </div>
 
             {editorAccess.received && (
-                <div className={styles.handoverNote}>
+                <div className={styles.handoverNote} data-tour="staff-received">
                     {editorAccess.received.granted_by.email} gave you their Faculty Editor access. You can do everything a
                     Faculty Editor can, but only they can take it back or pass it on.
                 </div>
@@ -251,7 +251,7 @@ export default function StaffManagementPage() {
 
             {/* Pending Invitations */}
             <div className={styles.section}>
-                <h3 className={styles.sectionTitle}>
+                <h3 className={styles.sectionTitle} data-tour="staff-invitations">
                     Pending Invitations
                     <span style={{ fontSize: '0.8rem', background: '#f1f5f9', padding: '4px 8px', borderRadius: '12px' }}>{invitations.length}</span>
                 </h3>
@@ -294,7 +294,7 @@ export default function StaffManagementPage() {
 
             {/* Active Accounts */}
             <div className={styles.section}>
-                <h3 className={styles.sectionTitle}>
+                <h3 className={styles.sectionTitle} data-tour="staff-accounts">
                     Active Access Lists
                     <span style={{ fontSize: '0.8rem', background: '#f1f5f9', padding: '4px 8px', borderRadius: '12px' }}>{users.length}</span>
                 </h3>
@@ -330,12 +330,12 @@ export default function StaffManagementPage() {
                                             {user.email !== u.email ? (
                                                 <div className={styles.rowActions}>
                                                     {user.role === 'SUPER_ADMIN' && (
-                                                        <button className={styles.btnSecondaryOutlined} onClick={() => openEditRole(u)}>Edit Role</button>
+                                                        <button className={styles.btnSecondaryOutlined} onClick={() => openEditRole(u)} data-tour="staff-edit-role">Edit Role</button>
                                                     )}
                                                     {grantableIds.has(u.id) && canReceiveEditorAccess(u.role) && (
-                                                        <button className={styles.btnSecondaryOutlined} onClick={() => handleGrant(u)} disabled={editorAccessBusy}>Grant Editor Access</button>
+                                                        <button className={styles.btnSecondaryOutlined} onClick={() => handleGrant(u)} disabled={editorAccessBusy} data-tour="staff-grant">Grant Editor Access</button>
                                                     )}
-                                                    <button className={styles.btnDangerOutlined} onClick={() => handleDeleteUser(u.id, u.email)}>Remove Access</button>
+                                                    <button className={styles.btnDangerOutlined} onClick={() => handleDeleteUser(u.id, u.email)} data-tour="staff-remove">Remove Access</button>
                                                 </div>
                                             ) : (
                                                 <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Current Session</span>
@@ -352,7 +352,7 @@ export default function StaffManagementPage() {
             {/* Editor access handed from a Faculty Editor to a Faculty Viewer */}
             {user.role === 'SUPER_ADMIN' && (
                 <div className={styles.section}>
-                    <h3 className={styles.sectionTitle}>
+                    <h3 className={styles.sectionTitle} data-tour="staff-handovers">
                         Active Editor Handovers
                         <span style={{ fontSize: '0.8rem', background: '#f1f5f9', padding: '4px 8px', borderRadius: '12px' }}>{handovers.length}</span>
                     </h3>

@@ -288,6 +288,7 @@ export default function LectureTimetablePage() {
                 <div className={styles.headerActions}>
                     {semesters.length > 0 && (
                         <select
+                            data-tour="tt-semester"
                             className="form-input"
                             style={{ minWidth: '240px' }}
                             value={selectedSemesterId ?? ''}
@@ -302,20 +303,20 @@ export default function LectureTimetablePage() {
                     )}
                     {user?.role === 'SUPER_ADMIN' && isCurrentSemester && !isLocked && (
                         <>
-                            <Link className="btn btn-secondary" href="/timetable/import?type=lecture">
+                            <Link className="btn btn-secondary" href="/timetable/import?type=lecture" data-tour="tt-import">
                                 Import <span className="badge badge-primary" style={{ marginLeft: 6, fontSize: '0.65rem' }}>Beta</span>
                             </Link>
-                            <Link className="btn btn-secondary" href="/timetable/import?type=lecture&source=semester">
+                            <Link className="btn btn-secondary" href="/timetable/import?type=lecture&source=semester" data-tour="tt-copy">
                                 Copy semester <span className="badge badge-primary" style={{ marginLeft: 6, fontSize: '0.65rem' }}>Beta</span>
                             </Link>
                         </>
                     )}
                     {showRequestChange && (
-                        <button className="btn btn-secondary" onClick={() => setIsChangeModalOpen(true)}>
+                        <button className="btn btn-secondary" onClick={() => setIsChangeModalOpen(true)} data-tour="tt-request-change">
                             Request a Change
                         </button>
                     )}
-                    <button className="btn btn-secondary" onClick={() => handleExportInit()}>
+                    <button className="btn btn-secondary" onClick={() => handleExportInit()} data-tour="tt-export">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
                             <polyline points="7 10 12 15 17 10" />

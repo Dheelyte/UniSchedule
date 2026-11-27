@@ -437,6 +437,7 @@ export default function CBTTimetablePage() {
 				<div className={styles.headerActions}>
 					{semesters.length > 0 && (
 						<select
+							data-tour="tt-semester"
 							className="form-input"
 							style={{ minWidth: "240px" }}
 							value={selectedSemesterId ?? ""}
@@ -451,6 +452,7 @@ export default function CBTTimetablePage() {
 					)}
 					{canManageCourses && !readOnly && (
 						<button
+							data-tour="cbt-manage"
 							className="btn btn-primary"
 							onClick={() => setIsManageModalOpen(true)}
 						>
@@ -459,12 +461,14 @@ export default function CBTTimetablePage() {
 					)}
 					{showRequestChange && (
 						<button
+							data-tour="tt-request-change"
 							className="btn btn-secondary"
 							onClick={() => setIsChangeModalOpen(true)}>
 							Request a Change
 						</button>
 					)}
 					<button
+						data-tour="tt-export"
 						className="btn btn-secondary"
 						onClick={() => triggerExport("csv")}>
 						<svg

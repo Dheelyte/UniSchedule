@@ -157,6 +157,18 @@ const navItems = [
       </svg>
     ),
   },
+  { type: 'divider', label: 'Help' },
+  {
+    label: 'Help centre',
+    href: '/help',
+    icon: (
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="12" cy="12" r="10" />
+        <path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3" />
+        <line x1="12" y1="17" x2="12.01" y2="17" />
+      </svg>
+    ),
+  },
 ];
 
 export default function Sidebar({ isCollapsed, isMobileOpen = false, onMobileClose }) {
@@ -189,7 +201,7 @@ export default function Sidebar({ isCollapsed, isMobileOpen = false, onMobileClo
       </div>
 
       {/* Navigation */}
-      <nav className={styles.nav}>
+      <nav className={styles.nav} data-tour="sidebar">
         {navItems.map((item, index) => {
           if (!isAllowed(item)) return null;
 
@@ -212,6 +224,7 @@ export default function Sidebar({ isCollapsed, isMobileOpen = false, onMobileClo
               href={item.href}
               className={`${styles.navItem} ${isActive ? styles.navItemActive : ''} ${isCollapsed ? styles.navItemCollapsed : ''}`}
               title={isCollapsed ? item.label : undefined}
+              data-tour={`nav${item.href === '/' ? '-dashboard' : item.href.replace(/\//g, '-')}`}
               onClick={handleNavClick}
             >
               <span className={styles.navIcon}>{item.icon}</span>
