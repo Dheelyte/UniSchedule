@@ -1,0 +1,595 @@
+// The content of an Activity Logs export, built once from the API's answers and
+// drawn by both writers (xlsx.js for the workbook, pdfReport.js for the PDF), so
+// the two always say the same thing.
+//
+// Each section becomes a sheet of blocks: { title?, columns, rows, note? }.
+// Every text cell passes through `text()`, which masks emails when asked.
+// No DOM, no path aliases.
+import { CATEGORIES, OTHER, categoryLabel } from "./categories.js";
+import { TIMEZONE_NOTE, describeFilters, formatDay, lagosStamp } from "./filters.js";
+import { DETAILS_COLUMN, OTHER_COLUMN, flattenDetails } from "./flatten.js";
+import { maskText } from "./mask.js";
+import { SITE_URL } from "../../lib/site.js";
+import { MAX_SHEET_ROWS } from "./xlsx.js";
+
+export const SECTIONS = [
+	{ key: "summary", label: "Summary", hint: "Total events, unique users, busiest day and hour, most common action" },
+	{ key: "categories", label: "By category & action", hint: "Counts and % of total" },
+	{ key: "users", label: "By user", hint: "Events, top actions, last active" },
+	{ key: "roles_portals", label: "By role & portal", hint: "Including how often each user switches portals" },
+	{ key: "over_time", label: "Over time", hint: "Daily or weekly counts per category, day × hour heatmap" },
+	{ key: "out_of_hours", label: "Out of hours", hint: "Activity outside the portal's working days and hours, or on a holiday" },
+	{ key: "unusual", label: "Unusual activity", hint: "Many deletions at once, bursts of changes, edits outside the person's faculty" },
+	{ key: "impersonation", label: "Impersonation sessions", hint: "Who acted as which role, for how long, what they did" },
+	{ key: "sensitive", label: "Sensitive actions", hint: "Role changes, invitations, handovers, locks, deletions" },
+	{ key: "handovers", label: "Editor access handovers", hint: "Who gave their editor access to whom, and when it ended" },
+	{ key: "locks", label: "Locked timetables", hint: "Each time a FINAL timetable was reopened, the edits made, who locked it again" },
+	{ key: "courses", label: "Course history", hint: "Every change to each course's lecture and exam slots" },
+	{ key: "change_requests", label: "Change requests", hint: "Created, approved, rejected, median time to decide" },
+	{ key: "exports", label: "Exports of this log", hint: "Who exported the activity log, when, and whether emails were masked" },
+	{ key: "members", label: "Members", hint: "Every member with access, including inactive; invitations" },
+	{ key: "raw", label: "Raw data", hint: "Every entry, details flattened into columns" },
+];
+
+export const PDF_APPENDIX_LIMIT = 2000;
+export const CLASSIFICATION = "For internal audit use only";
+
+/** The report's reference, from the activity_log.export entry it was recorded as, e.g. AL-UG-000183. */
+export function reportReference(started) {
+	return started.reference ? `AL-${started.portal_key}-${String(started.reference).padStart(6, "0")}` : "Not recorded";
+}
+
+/** Where anyone can check a report's verification code. */
+export function reportVerifyUrl(code) {
+	return code ? `${SITE_URL}/verify/${code}` : null;
+}
+const REVIEW_FLAGS = ["Inactive 90+ days", "Never logged in"];
+const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+const NO_EVENTS = "No events match the filters in this period.";
+const pad = (n) => String(n).padStart(2, "0");
+
+/** "+40%", "-12%", "New" or "No change", against the previous period. */
+export function changeLabel(now, before) {
+	if (!before) return now ? "New" : "No change";
+	const pct = Math.round(((now - before) / before) * 100);
+	return pct === 0 ? "No change" : `${pct > 0 ? "+" : ""}${pct}%`;
+}
+
+export function hourLabel(hour) {
+	return `${pad(hour)}:00–${pad((hour + 1) % 24)}:00`;
+}
+
+/**
+ * started:  the answer to POST /audit/export
+ * analysis: the answer to GET /audit/export/analysis
+ * filters:  the export's filter state (filters.js)
+ */
+export function buildReport({ started, analysis = {}, filters, options, roleLabels = {}, mask = false, note = null }) {
+	const text = (value) => (value === null || value === undefined ? "" : mask ? maskText(String(value)) : String(value));
+	const role = (r) => (r ? roleLabels[r] || r : "N/A");
+	const when = (iso) => lagosStamp(iso);
+	const period = started.first === started.last ? formatDay(started.first) : `${formatDay(started.first)} to ${formatDay(started.last)}`;
+	const sections = new Set(started.sections);
+	const noEvents = started.events === 0;
+
+	const sectionNames = started.sections.map((k) => SECTIONS.find((x) => x.key === k)?.label || k);
+	// The audit record: what the file is, where its data comes from, who made it
+	// and when, and how to trace it back to the log.
+	const meta = [
+		["Report reference", reportReference(started)],
+		["Portal", started.portal_name ? `${started.portal_name} (${started.portal_key})` : started.portal_key],
+		["Period covered", period],
+		["Time zone", TIMEZONE_NOTE],
+		["Generated by", text(started.generated_by)],
+		["Role", "Super Admin"],
+		["Generated at", `${when(started.generated_at)} (Lagos)`],
+		["Data source", "UniSchedule activity log"],
+		[
+			"Data snapshot",
+			started.as_of_id
+				? `Entries up to log ID ${started.as_of_id}. Later entries are not included.`
+				: "Taken when the export started",
+		],
+		["Matching events", started.events],
+		["Sections included", sectionNames.join(", ")],
+		["Format", started.format === "pdf" ? "PDF report" : "Excel workbook"],
+		["Emails masked", mask ? "Yes" : "No"],
+		["Activity log began", started.first_entry_at ? when(started.first_entry_at) : "No entries yet"],
+		["Export logged as", started.reference ? `Log ID ${started.reference}` : "Not recorded"],
+		["Verification code", started.verification_code ? `${started.verification_code} (check at ${reportVerifyUrl(started.verification_code)})` : "Not issued"],
+		["Classification", CLASSIFICATION],
+	];
+	const notes = [];
+	if (note) notes.push(note);
+	if (started.clamped) notes.push("The range was shortened to 12 months, the most one export can cover.");
+	if (noEvents) notes.push(`${NO_EVENTS} Only the member list has content.`);
+
+	const sheets = [];
+	const add = (key, name, blocks, opts = {}) => sections.has(key) && sheets.push({ key, name, blocks, ...opts });
+	const empty = (columns, message = NO_EVENTS) => ({ columns, rows: [[message]] });
+
+	// ---------- Summary ----------
+	const s = analysis.summary;
+	if (s) {
+		add("summary", "Summary", [{
+			columns: ["Measure", "Value"],
+			rows: [
+				["Total events", s.total_events],
+				...(s.previous ? [[`Previous period (${formatDay(s.previous.first)} to ${formatDay(s.previous.last)})`, `${s.previous.total_events} events (${changeLabel(s.total_events, s.previous.total_events)})`]] : []),
+				["Unique users", s.unique_users],
+				...(s.previous ? [["Unique users, previous period", `${s.previous.unique_users} (${changeLabel(s.unique_users, s.previous.unique_users)})`]] : []),
+				["Days in period", s.days],
+				["Events per day (average)", s.events_per_day],
+				["Busiest day", s.busiest_day ? `${formatDay(s.busiest_day.date)} (${s.busiest_day.count} events)` : "N/A"],
+				["Busiest hour", s.busiest_hour ? `${hourLabel(s.busiest_hour.hour)} (${s.busiest_hour.count} events)` : "N/A"],
+				["Most common action", s.most_common_action ? `${s.most_common_action.action} (${s.most_common_action.count} events)` : "N/A"],
+				// Only for reports that can involve someone able to impersonate (a super admin).
+				...(started.impersonation_applies === false ? [] : [["Events made while impersonating", s.impersonated_events]]),
+				["Cross-portal events", s.cross_portal_events],
+				["First event", s.first_event_at ? when(s.first_event_at) : "N/A"],
+				["Last event", s.last_event_at ? when(s.last_event_at) : "N/A"],
+			],
+		}], { widths: [34, 50] });
+	}
+
+	// ---------- By category & action ----------
+	const c = analysis.categories;
+	if (c) {
+		const cats = c.categories || [];
+		add("categories", "By category & action", cats.length ? [
+			{
+				title: "By category",
+				columns: ["Category", "Events", "% of total", "Previous period", "Change"],
+				rows: cats.map((k) => [k.label, k.count, k.pct, k.previous ?? "", k.previous === undefined ? "" : changeLabel(k.count, k.previous)]),
+			},
+			{
+				title: "By action",
+				columns: ["Category", "Action", "Events", "% of total"],
+				rows: cats.flatMap((k) => k.actions.map((a) => [k.label, a.action, a.count, a.pct])),
+				note: c.previous_total !== undefined ? `The previous period is the same number of days just before this one, with the same filters (${c.previous_total} events).` : null,
+			},
+		] : [empty(["Category", "Events", "% of total"])], { widths: [28, 34, 12, 14, 12] });
+	}
+
+	// ---------- By user ----------
+	const u = analysis.users;
+	if (u) {
+		const columns = ["User email", "Account", "Roles (as acted)", "Events", "% of total", "Made while impersonating", "Top actions", "Last active (Lagos)"];
+		add("users", "By user", [u.users.length ? {
+			columns,
+			rows: u.users.map((x) => [
+				x.email ? text(x.email) : "(no user recorded)",
+				x.email ? (x.deleted ? "Deleted" : "Exists") : "N/A",
+				x.roles.map(role).join(", "),
+				x.count,
+				x.pct,
+				x.impersonated,
+				x.top_actions.map((a) => `${a.action} (${a.count})`).join(", "),
+				when(x.last_active_at),
+			]),
+		} : empty(columns)], { widths: [34, 10, 26, 10, 10, 14, 50, 18], freezeHeader: u.users.length > 0 });
+	}
+
+	// ---------- By role & portal ----------
+	const rp = analysis.roles_portals;
+	if (rp) {
+		add("roles_portals", "By role & portal", [
+			{ title: "By role (as acted)", columns: ["Role", "Events", "% of total"], rows: rp.roles.length ? rp.roles.map((r) => [role(r.role), r.count, r.pct]) : [[NO_EVENTS]] },
+			{
+				title: "By portal",
+				columns: ["Portal", "Events", "% of total"],
+				rows: rp.portals.length ? rp.portals.map((p) => [p.scope === "cross" ? "Cross-portal events" : `${started.portal_name || started.portal_key} portal`, p.count, p.pct]) : [[NO_EVENTS]],
+			},
+			{
+				title: "Portal switches per user",
+				columns: ["User email", "Switches", "Switched to"],
+				rows: rp.switches.length
+					? rp.switches.map((x) => [text(x.email || "(no user recorded)"), x.count, Object.entries(x.to).map(([k, n]) => `${k} (${n})`).join(", ")])
+					: [["No portal switches match the filters."]],
+			},
+		], { widths: [34, 12, 30] });
+	}
+
+	// ---------- Over time ----------
+	const o = analysis.over_time;
+	if (o) {
+		const keys = o.categories;
+		const labels = keys.map((k) => (k === OTHER.key ? OTHER.label : categoryLabel(k)));
+		add("over_time", "Over time", [
+			{
+				title: o.granularity === "day" ? "Events per day" : "Events per week (weeks start on Monday)",
+				columns: [o.granularity === "day" ? "Day" : "Week starting", "Total", ...labels],
+				rows: o.buckets.map((b) => [b.start, b.total, ...keys.map((k) => b.by_category[k] || 0)]),
+			},
+			{
+				title: "Day × hour (Lagos time)",
+				columns: ["Day", ...Array.from({ length: 24 }, (_, h) => pad(h)), "Total"],
+				rows: o.heatmap.map((row, i) => [DAYS[i], ...row, row.reduce((a, b) => a + b, 0)]),
+			},
+		], { widths: [16, 8, ...labels.map(() => 12)] });
+	}
+
+	// ---------- Out of hours ----------
+	const oh = analysis.out_of_hours;
+	if (oh) {
+		const wh = oh.working_hours;
+		add("out_of_hours", "Out of hours", [
+			{
+				columns: ["Measure", "Value"],
+				rows: [
+					["Working days", wh.days.join(", ")],
+					["Working hours (Lagos)", `${wh.start} to ${wh.end}`],
+					["Holidays in the period", wh.holidays.length ? wh.holidays.map((h) => `${formatDay(h.date)} (${text(h.name)})`).join(", ") : "None"],
+					["Events out of hours", `${oh.total} (${oh.pct}% of all events)`],
+					...oh.by_reason.map((r) => [r.reason, r.count]),
+				],
+			},
+			{ title: "By user", columns: ["User", "Events out of hours"], rows: oh.by_user.length ? oh.by_user.map((u) => [text(u.email), u.count]) : [["None."]] },
+			{
+				title: "Entries, newest first",
+				columns: ["When (Lagos)", "Why", "User", "Role (as acted)", "Action", "Description"],
+				rows: oh.entries.length ? oh.entries.map((e) => [when(e.created_at), e.reason, text(e.user_email), role(e.user_role), e.action, text(e.description)]) : [["Nothing out of hours in this period."]],
+				note: `Working days and hours come from this portal's calendar settings. Holidays are dates blocked for the whole day.${oh.shown < oh.total ? ` Showing the latest ${oh.shown.toLocaleString()} of ${oh.total.toLocaleString()}; every entry is in Raw data.` : ""}`,
+			},
+		], { widths: [17, 26, 30, 20, 28, 60] });
+	}
+
+	// ---------- Unusual activity ----------
+	const un = analysis.unusual;
+	if (un) {
+		const r = un.rules;
+		const burstRows = (list) => list.map((b) => [text(b.email), b.count, when(b.from), when(b.until)]);
+		add("unusual", "Unusual activity", [
+			{
+				title: `Many deletions at once (${r.mass_delete.count} or more within ${r.mass_delete.minutes} minutes)`,
+				columns: ["User", "Deletions", "From (Lagos)", "Until (Lagos)"],
+				rows: un.mass_deletions.length ? burstRows(un.mass_deletions) : [["None found."]],
+			},
+			{
+				title: `Bursts of changes (${r.burst.count} or more within ${r.burst.minutes} minutes)`,
+				columns: ["User", "Changes", "From (Lagos)", "Until (Lagos)"],
+				rows: un.bursts.length ? burstRows(un.bursts) : [["None found."]],
+				note: "Sign-ins and exports aren't counted as changes.",
+			},
+			{
+				title: "Schedule changes outside the person's own faculty",
+				columns: ["When (Lagos)", "User", "Their faculty", "Item's faculty", "Action", "Description"],
+				rows: un.other_faculty.length ? un.other_faculty.map((e) => [when(e.created_at), text(e.user_email), e.user_faculty_id, e.item_faculty_id, e.action, text(e.description)]) : [["None found."]],
+			},
+		], { widths: [30, 26, 17, 17, 28, 60] });
+	}
+
+	// ---------- Impersonation ----------
+	const im = analysis.impersonation;
+	if (im) {
+		const columns = ["Admin (real user)", "Acted as role", "Acted as faculty", "Started (Lagos)", "Ended (Lagos)", "Ended by", "Duration (min)", "Actions taken", "Actions", "Flag"];
+		add("impersonation", "Impersonation", [im.sessions.length ? {
+			columns,
+			rows: im.sessions.map((x) => [
+				text(x.admin_email),
+				role(x.acting_role),
+				x.acting_faculty_id || "N/A",
+				when(x.started_at),
+				x.ended_at ? when(x.ended_at) : "N/A",
+				x.ended_by || "Not recorded",
+				x.duration_minutes,
+				x.action_count,
+				x.actions.map((a) => `${a.action} (${a.count})`).join(", "),
+				x.flag || "",
+			]),
+			note: "Sessions end at a stop, a switch to another role, or a portal switch. Logouts aren't logged, so a session with none of these is flagged.",
+		} : empty(columns, "No impersonation sessions in this period.")], { widths: [30, 22, 14, 17, 17, 16, 12, 12, 44, 18], freezeHeader: im.sessions.length > 0 });
+	}
+
+	// ---------- Sensitive actions ----------
+	const se = analysis.sensitive;
+	if (se) {
+		const entryColumns = ["When (Lagos)", "User", "Role (as acted)", "Real role", "Action", "Description", "Entity"];
+		add("sensitive", "Sensitive actions", [
+			{ title: "By action", columns: ["Action", "Events"], rows: se.by_action.length ? se.by_action.map((a) => [a.action, a.count]) : [["No sensitive actions in this period."]] },
+			{
+				title: "Entries, newest first",
+				columns: entryColumns,
+				rows: se.entries.map((e) => [when(e.created_at), text(e.user_email), role(e.user_role), role(e.real_role), e.action, text(e.description), e.entity_type ? `${e.entity_type} ${e.entity_id ?? ""}`.trim() : ""]),
+				note: se.shown < se.total ? `Showing the latest ${se.shown.toLocaleString()} of ${se.total.toLocaleString()}; every entry is in Raw data.` : null,
+			},
+		], { widths: [17, 30, 20, 16, 26, 60, 20] });
+	}
+
+	// ---------- Editor access handovers ----------
+	const ho = analysis.handovers;
+	if (ho) {
+		const REASONS = { returned: "Taken back", redirected: "Passed to someone else", reversed_by_admin: "Reversed by a super admin" };
+		add("handovers", "Editor access handovers", [
+			{
+				columns: ["Measure", "Value"],
+				rows: [
+					["Handovers held in the period", ho.total],
+					["Started in the period", ho.started_in_period],
+					["Still active", ho.active],
+				],
+			},
+			{
+				title: "Handovers",
+				columns: ["Faculty", "Given by", "Given to", "Started (Lagos)", "Ended (Lagos)", "How it ended", "Ended by", "Days held"],
+				rows: ho.handovers.length ? ho.handovers.map((h) => [
+					h.faculty_name || h.faculty_id, text(h.granted_by), text(h.holder), when(h.started_at),
+					h.ended_at ? when(h.ended_at) : "Still active", h.ended_at ? REASONS[h.end_reason] || h.end_reason || "Not recorded" : "", text(h.ended_by), h.days_held,
+				]) : [["No editor access handovers in this period."]],
+				note: "While a handover is active, the person who gave it is a Faculty Viewer and the person holding it is the Faculty Editor.",
+			},
+		], { widths: [26, 30, 30, 17, 17, 24, 30, 10] });
+	}
+
+	// ---------- Locked timetables ----------
+	const lk = analysis.locks;
+	if (lk) {
+		const kind = (t) => (t === "exam" ? "Exam" : t === "lecture" ? "Lecture" : t || "N/A");
+		const semesterOf = (r) => [r.session_name, r.semester_name].filter(Boolean).join(", ") || (r.semester_id ? `Semester #${r.semester_id}` : "N/A");
+		const columns = ["Timetable", "Semester", "Unlocked (Lagos)", "Unlocked by", "Edit request before it", "Edits while open", "Edited by", "Locked again (Lagos)", "Locked again by", "Hours open"];
+		const reopenings = lk.reopenings || [];
+		const edits = reopenings.flatMap((r) => r.edits.map((e) => [
+			`${kind(r.timetable_type)}, ${semesterOf(r)}`, when(e.created_at), text(e.user_email), role(e.user_role), e.action, text(e.description),
+		]));
+		const listedEdits = reopenings.reduce((n, r) => n + r.edits.length, 0);
+		add("locks", "Locked timetables", [
+			{
+				columns: ["Measure", "Value"],
+				rows: [
+					["Times a FINAL timetable was reopened", lk.total],
+					["Reopened without an edit request", lk.without_request],
+					["Edits made while reopened", lk.edits],
+					["Not locked again by the end of the period", lk.still_open],
+				],
+			},
+			{
+				title: "Reopenings",
+				columns,
+				rows: reopenings.length ? reopenings.map((r) => [
+					kind(r.timetable_type),
+					semesterOf(r),
+					when(r.unlocked_at),
+					text(r.unlocked_by),
+					r.requests.length ? r.requests.map((q) => `${text(q.by)}, ${when(q.at)}${q.reason ? `: ${text(q.reason)}` : ""}`).join("; ") : "None",
+					r.edit_count,
+					r.editors.map((x) => `${text(x.email)} (${x.count})`).join(", ") || "Nobody",
+					r.relocked_at ? when(r.relocked_at) : "Not by the end of the period",
+					r.relocked_at ? text(r.relocked_by) : "",
+					r.open_hours ?? "",
+				]) : [["No FINAL timetable was reopened in this period."]],
+				note: "Locking a timetable marks it FINAL and issues its verification code. Each reopening runs from an unlock to the next lock. Edits are counted when they match the filters; the reopenings themselves are listed whoever made them.",
+			},
+			{
+				title: "Edits made while reopened",
+				columns: ["Timetable", "When (Lagos)", "User", "Role (as acted)", "Action", "Description"],
+				rows: edits.length ? edits : [["No edits while reopened."]],
+				note: listedEdits < lk.edits ? `Showing ${listedEdits.toLocaleString()} of ${lk.edits.toLocaleString()}; every edit is in Raw data.` : null,
+			},
+		], { widths: [28, 26, 17, 28, 40, 12, 36, 20, 28, 10] });
+	}
+
+	// ---------- Course history ----------
+	const co = analysis.courses;
+	if (co) {
+		const listed = co.courses.reduce((n, x) => n + x.entries.length, 0);
+		add("courses", "Course history", [
+			{
+				title: "Changes by course",
+				columns: ["Course", "Changes"],
+				rows: co.courses.length ? co.courses.map((x) => [x.code, x.changes]) : [["No schedule changes in this period."]],
+				note: co.courses.length < co.total_courses ? `The ${co.courses.length} most changed of ${co.total_courses} courses.` : null,
+			},
+			{
+				title: "Changes, oldest first",
+				columns: ["Course", "When (Lagos)", "User", "Role (as acted)", "Action", "Description"],
+				rows: co.courses.flatMap((x) => x.entries.map((e) => [x.code, when(e.created_at), text(e.user_email), role(e.user_role), e.action, text(e.description)])),
+				note: listed < co.total_changes ? `Up to 50 changes per course are listed (${listed.toLocaleString()} of ${co.total_changes.toLocaleString()}); every change is in Raw data.` : null,
+			},
+		], { widths: [14, 17, 30, 20, 28, 70] });
+	}
+
+	// ---------- Change requests ----------
+	const cr = analysis.change_requests;
+	if (cr) {
+		const hours = (h) => (h === null || h === undefined ? "N/A" : h);
+		add("change_requests", "Change requests", [
+			{
+				columns: ["Measure", "Value"],
+				rows: [
+					["Created", cr.created],
+					["Approved", cr.approved],
+					["Rejected", cr.rejected],
+					["Created in period, still undecided", cr.still_pending],
+					["Decisions with a known request time", cr.decisions_timed],
+					["Median time to a decision (hours)", hours(cr.median_hours)],
+					["Mean time to a decision (hours)", hours(cr.mean_hours)],
+				],
+			},
+			{ title: "By outcome", columns: ["Outcome", "Decisions timed", "Median hours"], rows: cr.by_outcome.length ? cr.by_outcome.map((x) => [x.outcome, x.timed, hours(x.median_hours)]) : [["No decisions in this period."]] },
+		], { widths: [40, 16, 14] });
+	}
+
+	// ---------- Exports of this log ----------
+	const ex = analysis.exports;
+	if (ex) {
+		const filtersText = (f) => Object.entries(f || {}).map(([k, v]) => `${k}=${Array.isArray(v) ? v.join("|") : v}`).join(", ") || "None";
+		add("exports", "Exports of this log", [{
+			columns: ["When (Lagos)", "By", "Format", "Period", "Events", "Emails masked", "Filters", "Log ID"],
+			rows: ex.exports.length ? ex.exports.map((e) => [
+				when(e.created_at), text(e.user_email), e.format === "pdf" ? "PDF" : e.format === "xlsx" ? "Excel" : e.format || "",
+				e.from && e.to ? `${formatDay(e.from)} to ${formatDay(e.to)}` : "", e.row_count ?? "", e.mask_emails ? "Yes" : "No", text(filtersText(e.filters)), e.id,
+			]) : [["No exports in this period."]],
+			note: ex.total ? `${ex.unmasked} of ${ex.total} exports included unmasked emails.` : null,
+		}], { widths: [17, 30, 8, 26, 8, 10, 50, 8] });
+	}
+
+	// ---------- Members ----------
+	const m = analysis.members;
+	const memberNotes = [];
+	if (m) {
+		memberNotes.push(...m.notes);
+		memberNotes.push(`The activity log began on ${started.first_entry_at ? when(started.first_entry_at) : "an unrecorded date"}, so "Never logged in" means not since then.`);
+		const ov = m.overview;
+		const review = m.rows.filter((x) => x.kind === "member" && x.flags.some((f) => REVIEW_FLAGS.includes(f)));
+		const catKeys = CATEGORIES.map((k) => k.key).filter((k) => m.rows.some((r) => r.by_category[k]));
+		if (m.rows.some((r) => r.by_category[OTHER.key])) catKeys.push(OTHER.key);
+		add("members", "Members overview", [
+			{
+				title: "Totals",
+				columns: ["Measure", "Count"],
+				rows: [
+					["Members with access", ov.members],
+					["Active in the last 30 days", ov.active_30_days],
+					["Inactive 30+ days", ov.inactive],
+					["Never logged in", ov.never_logged_in],
+					["Pending invitations", ov.pending_invitations],
+					["Expired invitations", ov.expired_invitations],
+				],
+			},
+			{ title: "By role", columns: ["Role", "Members"], rows: ov.by_role.map(([r, n]) => [role(r), n]) },
+			{ title: "By faculty", columns: ["Faculty", "Members"], rows: ov.by_faculty.map(([f, n]) => [f, n]) },
+			{
+				title: "Invitations not yet accepted",
+				columns: ["Email", "Role", "Status", "Invited (Lagos)", "Age (days)"],
+				rows: ov.invitations.length ? ov.invitations.map((x) => [text(x.email), role(x.role), x.status, x.invited_at ? when(x.invited_at) : "Not recorded", x.age_days]) : [["None."]],
+			},
+			{
+				title: "Accounts to review",
+				columns: ["Email", "Role", "Faculty", "Why", "Last login (Lagos)", "Invited by"],
+				rows: review.length ? review.map((x) => [
+					text(x.email), role(x.role), x.faculty || x.faculty_id || "N/A",
+					x.flags.filter((f) => REVIEW_FLAGS.includes(f)).join(", "), x.last_login_at ? when(x.last_login_at) : "Never", text(x.invited_by) || "Not recorded",
+				]) : [["No accounts need review."]],
+				note: "Accounts that haven't been used in 90 days or have never been used. Consider removing them or asking the owner whether they still need access.",
+			},
+			{ title: "Notes", columns: ["Note"], rows: memberNotes.map((n) => [n]) },
+		], { widths: [40, 22, 12, 18, 12] });
+		add("members", "Members", [{
+			columns: [
+				"Email", "Role", "Faculty", "Date invited", "Invited by", "Date onboarded", "Last login (Lagos)", "Last login via",
+				"Days since last login", "Sign-ins in period", "Portal switches in period", "Total activities",
+				...catKeys.map((k) => (k === OTHER.key ? OTHER.label : categoryLabel(k))),
+				"Top 3 actions", "Last activity (Lagos)", "Portals used", "Flags",
+			],
+			rows: m.rows.map((r) => [
+				text(r.email),
+				role(r.role),
+				r.faculty || "N/A",
+				r.invited_at ? `${when(r.invited_at).slice(0, 10)}${r.invited_at_recorded ? "" : " (estimated)"}` : "Not recorded",
+				r.invited_by ? text(r.invited_by) : "Not recorded",
+				r.onboarded_at ? when(r.onboarded_at).slice(0, 10) : r.kind === "invitation" ? "Not yet" : "N/A",
+				r.last_login_at ? when(r.last_login_at) : "Never",
+				r.last_login_via || "N/A",
+				r.days_since_last_login,
+				r.sign_ins_in_period,
+				r.switches_in_period,
+				r.total_activities,
+				...catKeys.map((k) => r.by_category[k] || 0),
+				r.top_actions.map((a) => `${a.action} (${a.count})`).join(", "),
+				r.last_activity_at ? when(r.last_activity_at) : "N/A",
+				r.portals_used.join(", "),
+				r.flags.join(", "),
+			]),
+		}], { widths: [32, 22, 26, 16, 30, 14, 17, 14, 10, 10, 10, 10, ...catKeys.map(() => 10), 46, 17, 12, 30], freezeHeader: true });
+	}
+
+	// ---------- Raw data ----------
+	const detailKeys = analysis.detail_keys || [];
+	const rawColumns = [
+		"When (Lagos)", "User email", "Role (as acted)", "Real role", "Impersonating", "Acting faculty", "Portal", "Category",
+		"Action", "Timetable type", "Entity type", "Entity ID", "Description", ...detailKeys, DETAILS_COLUMN, OTHER_COLUMN,
+	];
+	const keySet = new Set(detailKeys);
+	const rawRow = (e) => {
+		const details = flattenDetails(e.extra, keySet);
+		return [
+			when(e.created_at), text(e.user_email), e.user_role || "", e.real_role || "", e.impersonating ? "Yes" : "No",
+			e.user_faculty_id || "", e.portal, categoryLabel(e.category), e.action, e.timetable_type || "", e.entity_type || "",
+			e.entity_id || "", text(e.description),
+			...detailKeys.map((k) => (k in details ? (typeof details[k] === "string" ? text(details[k]) : details[k]) : "")),
+			text(details[DETAILS_COLUMN] ?? ""), text(details[OTHER_COLUMN] ?? ""),
+		];
+	};
+
+	const filterRows = describeFilters(filters, { options, roleLabels });
+	return {
+		title: "Activity log analysis",
+		subtitle: `${started.portal_name || started.portal_key} portal, ${period}`,
+		reference: reportReference(started),
+		verificationCode: started.verification_code || null,
+		verifyUrl: reportVerifyUrl(started.verification_code),
+		generatedBy: text(started.generated_by),
+		generatedAt: `${when(started.generated_at)} (Lagos)`,
+		fileName: started.file_name,
+		events: started.events,
+		meta,
+		filters: filterRows.map(([k, v]) => [k, text(v)]),
+		notes,
+		memberNotes,
+		sections: started.sections,
+		sheets,
+		raw: { columns: rawColumns, row: rawRow, widths: [17, 30, 18, 16, 8, 12, 12, 20, 30, 10, 14, 10, 60, ...detailKeys.map(() => 16), 30, 30] },
+		analysis,
+	};
+}
+
+/** Each block of a report sheet into a workbook sheet: title, header, rows, a blank row between. */
+export function writeSheet(workbook, sheet) {
+	const single = sheet.blocks.length === 1 && !sheet.blocks[0].title;
+	const ws = workbook.sheet(sheet.name, { widths: sheet.widths || [], freezeHeader: Boolean(single && sheet.freezeHeader) });
+	sheet.blocks.forEach((block, i) => {
+		if (i > 0) ws.addRow([]);
+		if (block.title) ws.addRow([block.title], { bold: true });
+		ws.addRow(block.columns, { bold: true });
+		for (const row of block.rows) ws.addRow(row);
+		if (block.note) ws.addRow([block.note]);
+	});
+	ws.end();
+}
+
+/** The Raw data sheet(s), streamed: a new sheet starts when one reaches Excel's row limit. */
+export function rawWriter(workbook, report, { maxRows = MAX_SHEET_ROWS } = {}) {
+	let ws = null;
+	let part = 0;
+	const open = () => {
+		part += 1;
+		ws = workbook.sheet(part === 1 ? "Raw data" : `Raw data (${part})`, { widths: report.raw.widths, freezeHeader: true });
+		ws.addRow(report.raw.columns, { bold: true });
+	};
+	return {
+		add(entries) {
+			for (const entry of entries) {
+				if (!ws || ws.rows >= maxRows) {
+					if (ws) ws.end();
+					open();
+				}
+				ws.addRow(report.raw.row(entry));
+			}
+		},
+		end() {
+			if (!ws) {
+				open();
+				ws.addRow([NO_EVENTS]);
+			}
+			ws.end();
+		},
+	};
+}
+
+/** The Filters sheet: every filter applied, who made the file and when, and the notes. */
+export function writeFiltersSheet(workbook, report) {
+	const ws = workbook.sheet("Filters", { widths: [30, 90] });
+	ws.addRow(["Filters applied"], { bold: true });
+	ws.addRow(["Filter", "Value"], { bold: true });
+	for (const row of report.filters) ws.addRow(row);
+	ws.addRow([]);
+	ws.addRow(["Audit record"], { bold: true });
+	for (const row of report.meta) ws.addRow(row);
+	const notes = [...report.notes, ...report.memberNotes];
+	if (notes.length) {
+		ws.addRow([]);
+		ws.addRow(["Notes"], { bold: true });
+		for (const n of notes) ws.addRow([n]);
+	}
+	ws.end();
+}

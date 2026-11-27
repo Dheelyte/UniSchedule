@@ -76,6 +76,21 @@ def _times_overlap(a_start, a_end, b_start, b_end) -> bool:
     return a_start < b_end and b_start < a_end
 
 
+def _clock(value) -> str:
+    """09:00 for a time (or a "09:00:00" string)."""
+    return str(value)[:5] if value is not None else "?"
+
+
+def _slot_text(day, start_time, end_time) -> str:
+    """e.g. "Monday 09:00-11:00" or "2026-12-04 09:00-11:00"."""
+    return f"{day} {_clock(start_time)}-{_clock(end_time)}"
+
+
+def _jsonable(value):
+    """Dates and times as ISO text, for an activity log entry."""
+    return value.isoformat() if hasattr(value, "isoformat") else value
+
+
 def _for_super_admins(current_user: dict, title: str, link: str) -> tuple[str, str]:
     """Super admins work across realms, so a notification to them names the
     realm in its title and carries it on its link."""
@@ -910,6 +925,10 @@ class TimetableService:
         if lock and lock.is_locked:
             raise HTTPException(status_code=423, detail=f"This {item_type} timetable is locked.")
 
+    async def _room_names(self, ids: set[int], realm_key: str) -> dict[int, str]:
+        rooms = await self.repo.get_rooms_by_ids(list(ids), realm_key=realm_key) if ids else []
+        return {r.id: r.name for r in rooms}
+
     async def _assert_rooms_active(self, room_ids: list[int] | None, realm_key: str, already_assigned_ids: list[int] | None = None) -> None:
         """Newly assigned rooms must be active rooms of the realm."""
         already_assigned_ids = already_assigned_ids or []
@@ -1094,6 +1113,12 @@ class TimetableService:
             room_ids=[] if new_online else (data.room_ids if data.room_ids is not None else item.room_ids),
             faculty_id=item.faculty_id,
         )
+        # The values this edit replaces, for the activity log (read before they change).
+        before_slot = _slot_text(item.exam_date or item.day_of_week, item.start_time, item.end_time)
+        before = {
+            "room_ids": list(item.room_ids or []), "day_of_week": item.day_of_week, "exam_date": item.exam_date,
+            "start_time": item.start_time, "end_time": item.end_time, "is_online": item.is_online,
+        }
         if data.room_ids is not None:
             await self._assert_rooms_active(data.room_ids, current_user["realm"], already_assigned_ids=item.room_ids or [])
             item.room_ids = data.room_ids
@@ -1105,13 +1130,33 @@ class TimetableService:
         updated = await self.repo.update_schedule_item(item)
         await self._notify_priority_overrides(updated)
         course = await self.repo.get_course(updated.course_id, realm_key=current_user["realm"])
+        after = {
+            "room_ids": list(updated.room_ids or []), "day_of_week": updated.day_of_week, "exam_date": updated.exam_date,
+            "start_time": updated.start_time, "end_time": updated.end_time, "is_online": updated.is_online,
+        }
+        changed = [k for k in before if before[k] != after[k]]
+        code = course.code if course else f'course #{updated.course_id}'
+        description = f"Updated {updated.type} for {code}"
+        after_slot = _slot_text(updated.exam_date or updated.day_of_week, updated.start_time, updated.end_time)
+        if after_slot != before_slot:
+            description = f"Moved {updated.type} for {code} from {before_slot} to {after_slot}"
+        if "room_ids" in changed or "is_online" in changed:
+            names = await self._room_names({*before["room_ids"], *after["room_ids"]}, current_user["realm"])
+            place = lambda v: "online" if v["is_online"] else (", ".join(names.get(i, f"room #{i}") for i in v["room_ids"]) or "no room")  # noqa: E731
+            if place(before) != place(after):
+                description += f"; venue {place(before)} to {place(after)}"
+        extra = data.model_dump(exclude_unset=True, mode='json')
+        # What each changed field was before this edit, so the log shows the move, not just where it ended up.
+        extra["before"] = {k: _jsonable(before[k]) for k in changed}
+        extra["semester_id"] = updated.semester_id
+        extra["course_code"] = course.code if course else None
         await self.audit_service.log(
             current_user=current_user,
             action=f"schedule_item.{updated.type}.update",
             entity_type="schedule_item",
             entity_id=updated.id,
-            description=f"Updated {updated.type} for {course.code if course else f'course #{updated.course_id}'}",
-            extra=data.model_dump(exclude_unset=True, mode='json'),
+            description=description,
+            extra=extra,
         )
         return updated
 
@@ -1135,6 +1180,18 @@ class TimetableService:
             entity_type="schedule_item",
             entity_id=item.id,
             description=f"Removed {item.type} for {course.code if course else f'course #{item.course_id}'} from {item.exam_date or item.day_of_week} {item.start_time}-{item.end_time}",
+            # What was removed, since the item itself is gone.
+            extra={
+                "course_id": item.course_id,
+                "course_code": course.code if course else None,
+                "day_of_week": item.day_of_week,
+                "exam_date": _jsonable(item.exam_date),
+                "start_time": _jsonable(item.start_time),
+                "end_time": _jsonable(item.end_time),
+                "room_ids": list(item.room_ids or []),
+                "faculty_id": item.faculty_id,
+                "semester_id": item.semester_id,
+            },
         )
 
     # ---------- Exam shift ----------

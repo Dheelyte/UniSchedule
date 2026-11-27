@@ -45,3 +45,10 @@ __pycache__
 
 # local data dumps / scripts (not for the repo)
 /backend/scripts/
+/backend/data/backups/
+/backend/data/seed.sql
+/backend/data/load_seed.sql
+/supabase/
+# playwright (local end-to-end tests)
+/test-results/
+/playwright-report/

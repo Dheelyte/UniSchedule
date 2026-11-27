@@ -1,0 +1,680 @@
+/* The Activity Logs page: filter bar, chips, export modal and background job. */
+
+.page {
+    padding: 20px 40px;
+}
+
+.header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 14px;
+}
+
+.title {
+    margin: 0;
+}
+
+.subtitle {
+    margin: 4px 0 0;
+    color: var(--color-text-muted);
+    font-size: 0.85rem;
+}
+
+.headerActions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+/* ---------- Filter bar ---------- */
+
+.filterBar {
+    background: var(--color-bg-card);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    padding: 14px 16px;
+    margin-bottom: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.fieldRow {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+    gap: 10px 12px;
+    align-items: end;
+}
+
+.field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+}
+
+.fieldWide {
+    grid-column: span 2;
+}
+
+/* ---------- Main filters + "More filters" ---------- */
+
+/* Search takes the spare width; timeframe, users and the toggle keep theirs. */
+.primaryRow {
+    display: grid;
+    /* Minimums small enough to fit the export modal, which reuses these fields. */
+    grid-template-columns: minmax(180px, 2fr) minmax(150px, 1fr) minmax(160px, 1fr) auto;
+    gap: 10px 12px;
+    align-items: end;
+}
+
+.searchField .input {
+    padding-left: 12px;
+}
+
+.moreToggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    height: 37px;
+    padding: 0 12px;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--color-border);
+    background: var(--color-bg-card);
+    color: var(--color-text);
+    font: inherit;
+    font-size: 0.85rem;
+    font-weight: 600;
+    white-space: nowrap;
+    cursor: pointer;
+}
+
+.moreToggle:hover,
+.moreToggleOpen {
+    border-color: var(--color-primary);
+    color: var(--color-primary);
+}
+
+.moreCount {
+    min-width: 20px;
+    height: 20px;
+    padding: 0 6px;
+    border-radius: 999px;
+    background: var(--color-primary);
+    color: #fff;
+    font-size: 0.72rem;
+    line-height: 20px;
+    text-align: center;
+}
+
+.moreChevron {
+    font-size: 0.7rem;
+    transition: transform 0.15s ease;
+}
+
+.moreToggleOpen .moreChevron {
+    transform: rotate(180deg);
+}
+
+.moreFilters {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding-top: 12px;
+    border-top: 1px dashed var(--color-border);
+}
+
+.filterGroup {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.groupTitle {
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--color-text);
+}
+
+@media (max-width: 900px) {
+    .primaryRow {
+        grid-template-columns: 1fr 1fr;
+    }
+
+    .searchField {
+        grid-column: 1 / -1;
+    }
+
+    .moreToggle {
+        justify-content: center;
+    }
+}
+
+@media (max-width: 520px) {
+    .primaryRow {
+        grid-template-columns: 1fr;
+    }
+}
+
+.fieldLabel {
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    color: var(--color-text-secondary);
+}
+
+.input {
+    width: 100%;
+    min-width: 0;
+    padding: 8px 10px;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--color-border);
+    background: var(--color-bg-input);
+    color: var(--color-text);
+    font-size: 0.85rem;
+    font-family: inherit;
+}
+
+.input:focus {
+    outline: none;
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+}
+
+.inline {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.inline > .input {
+    flex: 1;
+}
+
+.dash {
+    color: var(--color-text-muted);
+    font-size: 0.8rem;
+}
+
+.hint {
+    font-size: 0.72rem;
+    color: var(--color-text-muted);
+}
+
+/* ---------- Multi-select ---------- */
+
+.multi {
+    position: relative;
+    min-width: 0;
+}
+
+.multiButton {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    padding: 8px 10px;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--color-border);
+    background: var(--color-bg-input);
+    color: var(--color-text);
+    font-size: 0.85rem;
+    font-family: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.multiButton:focus-visible {
+    outline: none;
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+}
+
+.multiValue {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.multiPlaceholder {
+    color: var(--color-text-muted);
+}
+
+.caret {
+    color: var(--color-text-muted);
+    font-size: 0.7rem;
+    flex-shrink: 0;
+}
+
+.multiPanel {
+    position: absolute;
+    z-index: 30;
+    top: calc(100% + 4px);
+    left: 0;
+    min-width: 100%;
+    width: max-content;
+    max-width: min(380px, 90vw);
+    background: var(--color-bg-card);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-lg);
+    padding: 6px;
+}
+
+.multiSearch {
+    width: 100%;
+    padding: 6px 8px;
+    margin-bottom: 4px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--color-border);
+    background: var(--color-bg-input);
+    color: var(--color-text);
+    font-size: 0.82rem;
+    font-family: inherit;
+}
+
+.multiList {
+    max-height: 260px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+}
+
+.multiOption {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 8px;
+    border-radius: var(--radius-sm);
+    font-size: 0.83rem;
+    color: var(--color-text);
+    cursor: pointer;
+}
+
+.multiOption:hover {
+    background: var(--color-primary-bg);
+}
+
+.multiOptionLocked {
+    cursor: default;
+    color: var(--color-text-secondary);
+}
+
+.multiOptionLabel {
+    flex: 1;
+    overflow-wrap: anywhere;
+}
+
+.multiOptionHint {
+    font-size: 0.7rem;
+    color: var(--color-text-muted);
+    white-space: nowrap;
+}
+
+.multiEmpty {
+    padding: 8px;
+    font-size: 0.8rem;
+    color: var(--color-text-muted);
+}
+
+.multiClear {
+    margin-top: 4px;
+    width: 100%;
+    background: transparent;
+    border: none;
+    border-top: 1px solid var(--color-border);
+    padding: 6px 8px 2px;
+    font-size: 0.78rem;
+    color: var(--color-primary);
+    text-align: left;
+    cursor: pointer;
+    font-family: inherit;
+}
+
+/* ---------- Chips ---------- */
+
+.chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+    margin-bottom: 12px;
+}
+
+.chipsLabel {
+    font-size: 0.75rem;
+    color: var(--color-text-muted);
+    margin-right: 2px;
+}
+
+.chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    max-width: 100%;
+    padding: 3px 4px 3px 10px;
+    border-radius: 999px;
+    background: var(--color-primary-bg);
+    color: var(--color-primary-dark);
+    border: 1px solid rgba(99, 102, 241, 0.25);
+    font-size: 0.78rem;
+    font-weight: 500;
+}
+
+.chipText {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.chipRemove {
+    border: none;
+    background: transparent;
+    color: inherit;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    cursor: pointer;
+    font-size: 0.75rem;
+    line-height: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.chipRemove:hover {
+    background: var(--color-primary-bg-hover);
+}
+
+.clearAll {
+    border: none;
+    background: transparent;
+    color: var(--color-danger);
+    font-size: 0.78rem;
+    font-weight: 600;
+    cursor: pointer;
+    padding: 3px 6px;
+    font-family: inherit;
+}
+
+.clearAll:hover {
+    text-decoration: underline;
+}
+
+.error {
+    padding: 10px 12px;
+    border-radius: var(--radius-md);
+    font-size: 0.83rem;
+    line-height: 1.4;
+    background: var(--color-danger-bg);
+    color: var(--color-danger);
+    border: 1px solid rgba(220, 38, 38, 0.2);
+    margin-bottom: 12px;
+}
+
+.note {
+    padding: 10px 12px;
+    border-radius: var(--radius-md);
+    font-size: 0.83rem;
+    line-height: 1.4;
+    background: var(--color-warning-bg);
+    color: #92400e;
+    border: 1px solid rgba(217, 119, 6, 0.25);
+}
+
+.info {
+    padding: 10px 12px;
+    border-radius: var(--radius-md);
+    font-size: 0.83rem;
+    line-height: 1.4;
+    background: var(--color-info-bg);
+    color: var(--color-info);
+    border: 1px solid rgba(37, 99, 235, 0.2);
+}
+
+.whenCell {
+    font-size: 0.82rem;
+    color: var(--color-text-muted);
+    white-space: nowrap;
+}
+
+/* ---------- Export modal ---------- */
+
+.overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.4);
+    backdrop-filter: blur(2px);
+    z-index: 1000;
+}
+
+.modal {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 760px;
+    max-width: calc(100vw - 32px);
+    max-height: calc(100vh - 32px);
+    display: flex;
+    flex-direction: column;
+    background: var(--color-bg-card);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-lg);
+    z-index: 1001;
+}
+
+.modalHeader {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--color-border);
+}
+
+.modalTitle {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 600;
+}
+
+.closeBtn {
+    background: transparent;
+    border: none;
+    font-size: 1rem;
+    color: var(--color-text-muted);
+    cursor: pointer;
+    padding: 4px 6px;
+    border-radius: var(--radius-sm);
+}
+
+.closeBtn:hover {
+    background: var(--color-primary-bg);
+    color: var(--color-text);
+}
+
+.modalBody {
+    padding: 16px 20px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.modalSection {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.sectionTitle {
+    margin: 0;
+    font-size: 0.8rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: var(--color-text-secondary);
+}
+
+.count {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    flex-wrap: wrap;
+    padding: 10px 12px;
+    border-radius: var(--radius-md);
+    background: var(--color-bg-input);
+    border: 1px solid var(--color-border);
+    font-size: 0.85rem;
+}
+
+.countNumber {
+    font-size: 1.15rem;
+    font-weight: 700;
+    color: var(--color-text);
+}
+
+.countMuted {
+    color: var(--color-text-muted);
+    font-size: 0.8rem;
+}
+
+.checkGrid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 6px 14px;
+}
+
+.check {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    font-size: 0.85rem;
+    cursor: pointer;
+    color: var(--color-text);
+}
+
+.check input {
+    margin-top: 3px;
+    cursor: pointer;
+}
+
+.check small {
+    display: block;
+    color: var(--color-text-muted);
+    font-size: 0.72rem;
+}
+
+.checkLocked {
+    cursor: default;
+}
+
+.formatRow {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.formatOption {
+    flex: 1 1 200px;
+    display: flex;
+    gap: 8px;
+    align-items: flex-start;
+    padding: 10px 12px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    font-size: 0.85rem;
+}
+
+.formatOption small {
+    display: block;
+    color: var(--color-text-muted);
+    font-size: 0.72rem;
+}
+
+.formatOptionActive {
+    border-color: var(--color-primary);
+    background: var(--color-primary-bg);
+}
+
+.modalFooter {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 20px;
+    border-top: 1px solid var(--color-border);
+}
+
+.footerNote {
+    margin-right: auto;
+    font-size: 0.75rem;
+    color: var(--color-text-muted);
+}
+
+/* ---------- Background job ---------- */
+
+.job {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    padding: 10px 14px;
+    margin-bottom: 12px;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--color-border);
+    background: var(--color-bg-card);
+    font-size: 0.85rem;
+}
+
+.jobText {
+    flex: 1 1 260px;
+}
+
+.progress {
+    flex: 1 1 200px;
+    height: 8px;
+    border-radius: 999px;
+    background: var(--color-bg-input);
+    border: 1px solid var(--color-border);
+    overflow: hidden;
+}
+
+.progressBar {
+    height: 100%;
+    background: var(--color-primary);
+    transition: width 0.3s ease;
+}
+
+@media (max-width: 768px) {
+    .page {
+        padding: 16px;
+    }
+
+    .fieldWide {
+        grid-column: auto;
+    }
+
+    .modalFooter {
+        flex-wrap: wrap;
+    }
+
+    .footerNote {
+        flex-basis: 100%;
+    }
+}
+
+/* The app's .btn has no disabled look; make a disabled action plainly unavailable. */
+.action:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+}
