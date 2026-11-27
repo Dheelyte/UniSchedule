@@ -45,3 +45,6 @@ __pycache__
 
 # local data dumps / scripts (not for the repo)
 /backend/scripts/
+# playwright (local end-to-end tests)
+/test-results/
+/playwright-report/
