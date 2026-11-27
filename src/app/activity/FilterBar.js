@@ -100,7 +100,7 @@ export function FilterFields({ value, onChange, options, roleLabels = {}, allowA
     return (
         <>
             <div className={styles.primaryRow}>
-                <div className={`${styles.field} ${styles.searchField}`}>
+                <div className={`${styles.field} ${styles.searchField}`} data-tour={idPrefix === 'page' ? 'act-search' : undefined}>
                     <label className={styles.fieldLabel} htmlFor={`${idPrefix}-q`}>Search</label>
                     <input
                         id={`${idPrefix}-q`}
@@ -112,7 +112,7 @@ export function FilterFields({ value, onChange, options, roleLabels = {}, allowA
                         onChange={(e) => setKeyword(e.target.value)}
                     />
                 </div>
-                <div className={styles.field}>
+                <div className={styles.field} data-tour={idPrefix === 'page' ? 'act-timeframe' : undefined}>
                     <label className={styles.fieldLabel} htmlFor={`${idPrefix}-range`}>Timeframe</label>
                     <select id={`${idPrefix}-range`} className={styles.input} value={value.range} onChange={(e) => changeRange(e.target.value)}>
                         {presets.map((p) => (
@@ -123,7 +123,7 @@ export function FilterFields({ value, onChange, options, roleLabels = {}, allowA
                         ))}
                     </select>
                 </div>
-                <div className={styles.field}>
+                <div className={styles.field} data-tour={idPrefix === 'page' ? 'act-users' : undefined}>
                     <span className={styles.fieldLabel}>Users</span>
                     <MultiSelect
                         label="Users"
@@ -142,6 +142,7 @@ export function FilterFields({ value, onChange, options, roleLabels = {}, allowA
                     aria-expanded={showMore}
                     aria-controls={`${idPrefix}-more`}
                     data-testid={`${idPrefix}-more-toggle`}
+                    data-tour={idPrefix === 'page' ? 'act-more' : undefined}
                 >
                     More filters
                     {advancedCount > 0 && <span className={styles.moreCount}>{advancedCount}</span>}
@@ -295,7 +296,7 @@ export function FilterChips({ value, onChange, options, roleLabels }) {
     const chips = filterChips(value, { options, roleLabels });
     if (chips.length === 0) return null;
     return (
-        <div className={styles.chips} data-testid="activity-chips">
+        <div className={styles.chips} data-testid="activity-chips" data-tour="act-chips">
             <span className={styles.chipsLabel}>Filtered by:</span>
             {chips.map((chip) => (
                 <span key={chip.id} className={styles.chip} title={chip.label}>

@@ -299,7 +299,7 @@ export default function CoursesPage() {
             <div className={styles.pageHeader}>
                 <div />
                 {canAddCourse && (
-                    <button className="btn btn-primary" onClick={openAdd}>
+                    <button className="btn btn-primary" onClick={openAdd} data-tour="courses-add">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
                         Add Course
                     </button>
@@ -309,7 +309,7 @@ export default function CoursesPage() {
             {/* Filters */}
             <div className={styles.filters}>
                 {role === 'SUPER_ADMIN' && (
-                    <div className={styles.filterGroup}>
+                    <div className={styles.filterGroup} data-tour="courses-faculty">
                         <label className="form-label">Faculty</label>
                         <select className="form-select form-input" value={filterFaculty} onChange={(e) => { setFilterFaculty(e.target.value); setFilterDept(''); }}>
                             <option value="">All Faculties</option>
@@ -317,7 +317,7 @@ export default function CoursesPage() {
                         </select>
                     </div>
                 )}
-                <div className={styles.filterGroup}>
+                <div className={styles.filterGroup} data-tour="courses-department">
                     <label className="form-label">Department</label>
                     <select className="form-select form-input" value={filterDept} onChange={(e) => setFilterDept(e.target.value)}>
                         <option value="">All Departments</option>
@@ -327,8 +327,9 @@ export default function CoursesPage() {
                 <div className={styles.filterGroup}>
                     <label className="form-label">Search</label>
                     <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                        <input className="form-input" style={{ flex: 1 }} value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search by code, title, or lecturer..." />
+                        <input className="form-input" style={{ flex: 1 }} value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search by code, title, or lecturer..." data-tour="courses-search" />
                         <select
+                            data-tour="courses-type"
                             className="form-select form-input"
                             style={{ width: 'auto', minWidth: 130 }}
                             value={filterScope}
@@ -344,13 +345,13 @@ export default function CoursesPage() {
             </div>
 
             {/* Results Count */}
-            <div className={styles.resultCount}>
+            <div className={styles.resultCount} data-tour="courses-count">
                 Showing <strong>{filteredCourses.length}</strong> of {getCoursesWithDetails.length} courses
                 {filterScope && <span style={{ marginLeft: 6, color: filterScope === SCOPES.UNIVERSITY_WIDE ? '#eab308' : filterScope === SCOPES.INTERFACULTY ? '#6366f1' : 'var(--color-text-muted)' }}>• {filterScope === SCOPES.UNIVERSITY_WIDE ? 'University-Wide' : filterScope === SCOPES.INTERFACULTY ? 'Interfaculty' : 'Departmental'} courses</span>}
             </div>
 
             {/* Table */}
-            <div className={styles.scrollableTableContainer} ref={containerRef} onScroll={handleScroll}>
+            <div className={styles.scrollableTableContainer} ref={containerRef} onScroll={handleScroll} data-tour="courses-table">
                 <table className="data-table">
                     <thead>
                         <tr>
@@ -408,7 +409,7 @@ export default function CoursesPage() {
 
                                         if (isOwnCourse && !isViewerRole(role)) {
                                             return (
-                                                <div className={styles.actions}>
+                                                <div className={styles.actions} data-tour="courses-row-actions">
                                                     <button className={styles.actionBtn} onClick={() => openEdit(c)} title="Edit">
                                                         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" /><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" /></svg>
                                                     </button>
@@ -421,6 +422,7 @@ export default function CoursesPage() {
                                         if (isCrossEnrollable && (role === 'FACULTY_EDITOR' || role === 'SUPER_ADMIN')) {
                                             return (
                                                 <button
+                                                    data-tour="courses-take"
                                                     className={`btn ${myEnrollments.length > 0 ? 'btn-secondary' : 'btn-primary'}`}
                                                     style={{ padding: '4px 10px', fontSize: '0.78rem' }}
                                                     onClick={() => setManageCourse(c)}

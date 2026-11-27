@@ -39,7 +39,7 @@ const LIVE = [
 	"/timetable-import/imports",
 	"/audit",
 ];
-const NEVER_KEPT = ["/auth/me", "/editor-access", "/notifications"];
+const NEVER_KEPT = ["/auth/me", "/editor-access", "/notifications", "/tours"];
 const readCache = new Map(); // endpoint -> { at, promise }
 
 export function clearReadCache() {
@@ -91,7 +91,8 @@ export const apiClient = {
 				const path = window.location.pathname;
 				if (
 					!["/", "/login", "/register", "/forgot-password", "/realms", "/contributors", "/verify", "/download"].includes(path) &&
-					!path.startsWith("/verify/")
+					!path.startsWith("/verify/") &&
+					path !== "/faq"
 				) {
 					window.location.href = loginPath(lastRealm());
 				}

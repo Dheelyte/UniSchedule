@@ -137,7 +137,7 @@ function ActivityLogs() {
                 </div>
                 {canExport && (
                     <div className={styles.headerActions}>
-                        <button type="button" className="btn btn-primary" onClick={() => setExportOpen(true)} data-testid="export-analysis-button">
+                        <button type="button" className="btn btn-primary" onClick={() => setExportOpen(true)} data-testid="export-analysis-button" data-tour="act-export">
                             Export analysis
                         </button>
                     </div>
@@ -152,7 +152,7 @@ function ActivityLogs() {
             {error && <div className={styles.error} role="alert">{error}</div>}
 
             <div className="table-container">
-                <table className="data-table" data-testid="activity-table">
+                <table className="data-table" data-testid="activity-table" data-tour="act-table">
                     <thead>
                         <tr>
                             <th style={{ width: 190 }}>When (Lagos)</th>
@@ -193,7 +193,7 @@ function ActivityLogs() {
                                         <td style={{ fontSize: '0.88rem' }}>{row.description}</td>
                                         <td>
                                             {row.extra && Object.keys(row.extra).length > 0 ? (
-                                                <button className="btn btn-secondary" style={{ padding: '2px 10px', fontSize: '0.75rem' }} onClick={() => setExpandedId(expanded ? null : row.id)}>
+                                                <button className="btn btn-secondary" style={{ padding: '2px 10px', fontSize: '0.75rem' }} onClick={() => setExpandedId(expanded ? null : row.id)} data-tour="act-details">
                                                     {expanded ? 'Hide' : 'Details'}
                                                 </button>
                                             ) : null}
@@ -217,7 +217,7 @@ function ActivityLogs() {
 
             {!reachedEnd && logs.length > 0 && (
                 <div style={{ display: 'flex', justifyContent: 'center', padding: '16px 0' }}>
-                    <button className="btn btn-secondary" onClick={() => load(logs.length)} disabled={loading}>
+                    <button className="btn btn-secondary" onClick={() => load(logs.length)} disabled={loading} data-tour="act-more-rows">
                         {loading ? 'Loading…' : 'Load more'}
                     </button>
                 </div>

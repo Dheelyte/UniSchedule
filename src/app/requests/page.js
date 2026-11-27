@@ -117,12 +117,12 @@ export default function ChangeRequestsPage() {
                         Course-schedule changes proposed by faculty and other roles. Approving applies the change directly.
                     </p>
                 </div>
-                <select className="form-select form-input" value={status} onChange={(e) => setStatus(e.target.value)} style={{ maxWidth: 200 }}>
+                <select className="form-select form-input" value={status} onChange={(e) => setStatus(e.target.value)} style={{ maxWidth: 200 }} data-tour="req-status">
                     {STATUS_FILTERS.map((s) => <option key={s.label} value={s.value}>{s.label}</option>)}
                 </select>
             </div>
 
-            <div className="table-container">
+            <div className="table-container" data-tour="req-table">
                 <table className="data-table">
                     <thead>
                         <tr>
@@ -155,7 +155,7 @@ export default function ChangeRequestsPage() {
                                             <span style={{ background: sc.bg, color: sc.fg, padding: '2px 8px', borderRadius: 6, fontSize: '0.75rem', fontWeight: 500 }}>{r.status}</span>
                                         </td>
                                         <td>
-                                            <button className="btn btn-secondary" style={{ padding: '2px 10px', fontSize: '0.75rem' }} onClick={() => setExpandedId(expanded ? null : r.id)}>
+                                            <button className="btn btn-secondary" style={{ padding: '2px 10px', fontSize: '0.75rem' }} onClick={() => setExpandedId(expanded ? null : r.id)} data-tour="req-view">
                                                 {expanded ? 'Hide' : 'View'}
                                             </button>
                                         </td>

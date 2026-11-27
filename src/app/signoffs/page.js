@@ -61,7 +61,7 @@ function ImageField({ label, hint, value, onChange, maxSize, disabled }) {
 				)}
 				<input ref={inputRef} type="file" accept="image/png,image/jpeg" hidden onChange={pick} />
 			</div>
-			<label className={styles.checkbox}>
+			<label className={styles.checkbox} data-tour="sign-clean">
 				<input type="checkbox" checked={removeBackground} onChange={(e) => setRemoveBackground(e.target.checked)} />
 				Remove the paper background
 			</label>
@@ -111,20 +111,20 @@ function SignoffCard({ type, value, saved, onChange, onSave, saving, copyTo }) {
 	const dirty = Object.keys(changedFields(value, saved)).length > 0;
 	const set = (field) => (v) => onChange({ ...value, [field]: v });
 	return (
-		<section className={styles.card}>
+		<section className={styles.card} data-tour="sign-card">
 			<header className={styles.cardHeader}>
 				<div>
 					<h3 className={styles.cardTitle}>{type.label}</h3>
 					<p className={styles.cardNote}>{type.note}</p>
 				</div>
 				{copyTo && (
-					<button type="button" className="btn btn-secondary" onClick={copyTo.onCopy} disabled={saving}>
+					<button type="button" className="btn btn-secondary" onClick={copyTo.onCopy} disabled={saving} data-tour="sign-copy">
 						Copy to {copyTo.label.toLowerCase()}
 					</button>
 				)}
 			</header>
 
-			<div className={styles.fields}>
+			<div className={styles.fields} data-tour="sign-fields">
 				<label className={styles.field}>
 					<span className={styles.label}>Signatory&apos;s name</span>
 					<input
@@ -147,7 +147,7 @@ function SignoffCard({ type, value, saved, onChange, onSave, saving, copyTo }) {
 				</label>
 			</div>
 
-			<div className={styles.images}>
+			<div className={styles.images} data-tour="sign-images">
 				<ImageField
 					label="Signature"
 					hint="Sign in dark ink on plain white paper, then scan or photograph it straight on."
@@ -166,7 +166,7 @@ function SignoffCard({ type, value, saved, onChange, onSave, saving, copyTo }) {
 				/>
 			</div>
 
-			<span className={styles.label}>Preview</span>
+			<span className={styles.label} data-tour="sign-preview">Preview</span>
 			<StripPreview value={value} />
 
 			<footer className={styles.cardFooter}>
@@ -177,6 +177,7 @@ function SignoffCard({ type, value, saved, onChange, onSave, saving, copyTo }) {
 				)}
 				<button
 					type="button"
+					data-tour="sign-save"
 					className="btn btn-primary"
 					onClick={onSave}
 					disabled={!dirty || saving || !value.signatory_title.trim()}
@@ -233,7 +234,7 @@ export default function SignoffsPage() {
 
 	return (
 		<div className={styles.page}>
-			<div className={styles.intro}>
+			<div className={styles.intro} data-tour="sign-intro">
 				<p>
 					Every page of a <strong>FINAL</strong> (locked) {realmName || ''} timetable PDF carries the stamp, the
 					signatory&apos;s signature, name and title, and a QR code anyone can scan to check the copy is genuine

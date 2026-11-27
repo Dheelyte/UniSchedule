@@ -324,7 +324,7 @@ function TimetableImport() {
                             ? `Schedule ${sources?.current ? `${sources.current.session_name} ${sources.current.name}` : 'the current semester'} from an earlier one: the same courses, days, times and rooms, checked against this semester before anything is saved.`
                             : 'Upload a faculty\'s Excel, Word or PDF timetable (PDFs need selectable text, not a scan). Codes and venues are matched to this realm\'s courses and rooms; anything that doesn\'t match is asked about below before anything is saved.'}
                     </p>
-                    <div className={styles.sourceTabs}>
+                    <div className={styles.sourceTabs} data-tour="imp-source">
                         {[['file', 'From a file'], ['semester', 'From an earlier semester']].map(([value, label]) => (
                             <button key={value} type="button" disabled={!!preview}
                                 className={`btn ${source === value ? 'btn-primary' : 'btn-secondary'}`}
@@ -332,7 +332,7 @@ function TimetableImport() {
                         ))}
                     </div>
                 </div>
-                <Link className="btn btn-secondary" href={itemType === 'exam' ? '/timetable/exams' : '/timetable/lectures'}>
+                <Link className="btn btn-secondary" href={itemType === 'exam' ? '/timetable/exams' : '/timetable/lectures'} data-tour="imp-back">
                     Back to timetable
                 </Link>
             </div>
@@ -344,7 +344,7 @@ function TimetableImport() {
             {!imported && (
             <section className={styles.card}>
                 <div className={styles.setup}>
-                    <label className={styles.field}>
+                    <label className={styles.field} data-tour="imp-type">
                         <span className="form-label">Timetable</span>
                         <select className="form-select" value={itemType} disabled={!!preview}
                             onChange={(e) => setItemType(e.target.value)}>
@@ -352,7 +352,7 @@ function TimetableImport() {
                             <option value="exam">Exams</option>
                         </select>
                     </label>
-                    <label className={styles.field}>
+                    <label className={styles.field} data-tour="imp-faculty">
                         <span className="form-label">Faculty</span>
                         <select className="form-select" value={facultyId} disabled={!!preview}
                             onChange={(e) => setFacultyId(e.target.value)}>
@@ -362,7 +362,7 @@ function TimetableImport() {
                         </select>
                     </label>
                     {copying ? (
-                        <label className={styles.field}>
+                        <label className={styles.field} data-tour="imp-copy-from">
                             <span className="form-label">Copy from</span>
                             <select className="form-select" value={sourceSemesterId} disabled={!!preview}
                                 onChange={(e) => setSourceSemesterId(e.target.value)}>
@@ -375,20 +375,20 @@ function TimetableImport() {
                             </select>
                         </label>
                     ) : (
-                        <label className={styles.field}>
+                        <label className={styles.field} data-tour="imp-file">
                             <span className="form-label">Excel (.xlsx), Word (.docx) or PDF file, up to {MAX_FILE_MB} MB</span>
                             <input className="form-input" type="file" accept=".xlsx,.docx,.pdf" disabled={!!preview} onChange={pickFile} />
                         </label>
                     )}
                     {isGeneralStudies && (
-                        <label className={`${styles.field} ${styles.inline}`}>
+                        <label className={`${styles.field} ${styles.inline}`} data-tour="imp-place-all">
                             <input type="checkbox" checked={placeAll} disabled={!!preview} onChange={(e) => setPlaceAll(e.target.checked)} />
                             {itemType === 'exam'
                                 ? 'Place each paper in the faculties its row names'
                                 : `Place each session in every faculty's timetable (${faculties.length} faculties)`}
                         </label>
                     )}
-                    <div className={styles.field}>
+                    <div className={styles.field} data-tour="imp-mode">
                         <span className="form-label">If the faculty already has a timetable</span>
                         <div className={styles.modes}>
                             <label><input type="radio" checked={mode === 'replace'} onChange={() => setMode('replace')} /> Replace it</label>
@@ -400,7 +400,7 @@ function TimetableImport() {
                     {preview ? (
                         <button className="btn btn-secondary" onClick={startOver} disabled={busy}>Start over</button>
                     ) : (
-                        <button className="btn btn-primary" onClick={runPreview} disabled={!ready || busy}>
+                        <button className="btn btn-primary" onClick={runPreview} disabled={!ready || busy} data-tour="imp-read">
                             {busy ? (copying ? 'Copying…' : 'Reading…') : (copying ? 'Preview copy' : 'Read file')}
                         </button>
                     )}
@@ -687,7 +687,7 @@ function ImportHistory({ rows, itemType, reverting, onRevert, approving, onAppro
     const busy = reverting !== null || approving !== null;
     return (
         <section className={styles.card}>
-            <h3 className={styles.sectionTitle}>Past {itemType} imports</h3>
+            <h3 className={styles.sectionTitle} data-tour="imp-history">Past {itemType} imports</h3>
             <div className="table-container">
                 <table className="data-table">
                     <thead>

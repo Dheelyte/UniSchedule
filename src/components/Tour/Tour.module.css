@@ -1,0 +1,214 @@
+.root {
+	position: fixed;
+	inset: 0;
+	z-index: 3000;
+}
+
+.dim {
+	position: fixed;
+	inset: 0;
+	background: rgba(15, 23, 42, 0.55);
+}
+
+/* The highlighted feature: a clear window in the dimmed page. */
+.spotlight {
+	position: fixed;
+	border-radius: var(--radius-md);
+	box-shadow: 0 0 0 9999px rgba(15, 23, 42, 0.55);
+	outline: 2px solid var(--color-primary);
+	outline-offset: 0;
+	transition: top 0.2s ease, left 0.2s ease, width 0.2s ease, height 0.2s ease;
+	pointer-events: none;
+}
+
+.blocker {
+	position: fixed;
+	inset: 0;
+}
+
+.card {
+	position: fixed;
+	background: var(--color-bg-modal);
+	color: var(--color-text);
+	border: 1px solid var(--color-border);
+	border-radius: var(--radius-lg);
+	box-shadow: var(--shadow-lg);
+	padding: 16px 18px 14px;
+	outline: none;
+	transition: top 0.2s ease, left 0.2s ease;
+}
+
+.kicker {
+	margin: 0 0 4px;
+	font-size: 0.72rem;
+	font-weight: 600;
+	letter-spacing: 0.04em;
+	text-transform: uppercase;
+	color: var(--color-primary);
+}
+
+.title {
+	margin: 0 0 6px;
+	font-size: 1rem;
+	font-weight: 700;
+}
+
+.body {
+	margin: 0;
+	font-size: 0.88rem;
+	line-height: 1.5;
+	color: var(--color-text-secondary);
+}
+
+.footer {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+	margin-top: 14px;
+}
+
+.count {
+	font-size: 0.78rem;
+	color: var(--color-text-muted);
+	white-space: nowrap;
+}
+
+.actions {
+	display: flex;
+	gap: 6px;
+}
+
+.primary,
+.secondary,
+.skip {
+	border-radius: var(--radius-sm);
+	font-size: 0.84rem;
+	font-weight: 600;
+	padding: 6px 12px;
+	cursor: pointer;
+	border: 1px solid transparent;
+}
+
+.primary {
+	background: var(--color-primary);
+	color: #fff;
+}
+
+.primary:hover {
+	background: var(--color-primary-dark);
+}
+
+.secondary {
+	background: transparent;
+	border-color: var(--color-border-strong);
+	color: var(--color-text);
+}
+
+.skip {
+	background: transparent;
+	color: var(--color-text-secondary);
+}
+
+.skip:hover,
+.secondary:hover {
+	background: var(--color-bg-card-hover);
+}
+
+/* The "?" button that replays a page's preview, and its menu. */
+.help {
+	position: fixed;
+	right: 20px;
+	bottom: 20px;
+	z-index: 1500;
+}
+
+.helpButton {
+	width: 44px;
+	height: 44px;
+	border-radius: 50%;
+	border: 1px solid var(--color-border);
+	background: var(--color-bg-elevated);
+	color: var(--color-primary);
+	font-size: 1.15rem;
+	font-weight: 700;
+	box-shadow: var(--shadow-md);
+	cursor: pointer;
+}
+
+.helpButton:hover {
+	background: var(--color-primary-bg-hover);
+}
+
+.menu {
+	position: absolute;
+	right: 0;
+	bottom: 52px;
+	min-width: 230px;
+	background: var(--color-bg-elevated);
+	border: 1px solid var(--color-border);
+	border-radius: var(--radius-md);
+	box-shadow: var(--shadow-lg);
+	padding: 6px;
+	display: flex;
+	flex-direction: column;
+}
+
+.menuItem {
+	text-align: left;
+	background: transparent;
+	border: 0;
+	border-radius: var(--radius-sm);
+	padding: 8px 10px;
+	font-size: 0.86rem;
+	color: var(--color-text);
+	cursor: pointer;
+}
+
+.menuItem:hover {
+	background: var(--color-bg-card-hover);
+}
+
+.menuItem:disabled {
+	color: var(--color-text-muted);
+	cursor: default;
+	background: transparent;
+}
+
+.menuNote {
+	margin: 4px 10px 6px;
+	font-size: 0.75rem;
+	color: var(--color-text-muted);
+}
+
+@media (max-width: 600px) {
+	.help {
+		right: 12px;
+		bottom: 12px;
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.spotlight,
+	.card {
+		transition: none;
+	}
+}
+
+.learnMore {
+	display: inline-block;
+	margin-top: 8px;
+	font-size: 0.82rem;
+	font-weight: 600;
+	color: var(--color-primary-dark);
+	text-decoration: none;
+}
+
+.learnMore:hover {
+	text-decoration: underline;
+}
+
+a.menuItem {
+	text-decoration: none;
+	display: block;
+}

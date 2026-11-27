@@ -46,6 +46,7 @@ export function PublicHeader() {
 						<a key={s.href} href={s.href} onClick={scrollToSection}>{s.label}</a>
 					))}
 					<Link href="/download">Download</Link>
+					<Link href="/faq">FAQ</Link>
 					<Link href="/contributors">Contributors</Link>
 				</nav>
 				<Link href="/realms" className={styles.signIn}>
@@ -85,6 +86,7 @@ export function PublicFooter({ callout = true }) {
 							<h3>Timetables</h3>
 							<Link href="/download">Download a timetable</Link>
 							<Link href="/verify">Check a printed copy</Link>
+							<Link href="/faq">Common questions</Link>
 						</div>
 						<div>
 							<h3>Staff</h3>

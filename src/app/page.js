@@ -242,7 +242,7 @@ function DashboardPage() {
 					</h1>
 				</div>
 				{currentSession && currentTerm && (
-					<div className={styles.termBadge}>
+					<div className={styles.termBadge} data-tour="dash-term">
 						{currentSession.name} - {currentTerm.name}
 					</div>
 				)}
@@ -251,7 +251,7 @@ function DashboardPage() {
 			{/* Scheduling Progress + Room Utilization */}
 			<div className={styles.contentGrid}>
 				{/* Scheduling Progress */}
-				<div className={styles.panel}>
+				<div className={styles.panel} data-tour="dash-progress">
 					<div className={styles.panelHeader}>
 						<span className={styles.panelTitle}>
 							<svg
@@ -499,7 +499,7 @@ function DashboardPage() {
 				</div>
 
 				{/* Room Capacity */}
-				<div className={styles.panel}>
+				<div className={styles.panel} data-tour="dash-capacity">
 					<div className={styles.panelHeader}>
 						<span className={styles.panelTitle}>
 							<svg
@@ -518,6 +518,7 @@ function DashboardPage() {
 						</span>
 						<div className={styles.panelHeaderActions}>
 							<select
+								data-tour="dash-capacity-faculty"
 								className={styles.panelHeaderSelect}
 								value={roomCapacityFacultyId}
 								onChange={(e) => setRoomCapacityFacultyId(e.target.value)}>
@@ -672,7 +673,7 @@ function DashboardPage() {
 			{/* Bottom: Faculty Overview + Rooms by faculty */}
 			<div className={styles.contentGrid}>
 				{/* Faculty Distribution */}
-				<div className={styles.panel}>
+				<div className={styles.panel} data-tour="dash-overview">
 					<div className={styles.panelHeader}>
 							<span className={styles.panelTitle}>
 								<svg
@@ -741,7 +742,7 @@ function DashboardPage() {
 					</div>
 				</div>
 				{/* Rooms by faculty */}
-				<div className={styles.panel}>
+				<div className={styles.panel} data-tour="dash-rooms">
 					<div className={styles.panelHeader}>
 						<span className={styles.panelTitle}>
 							<svg

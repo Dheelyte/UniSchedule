@@ -26,5 +26,6 @@ export default async function sitemap() {
 		{ url: `${SITE_URL}/realms`, lastModified: PAGES_UPDATED, changeFrequency: 'yearly', priority: 0.6 },
 		{ url: `${SITE_URL}/download`, lastModified: await lastPublished(), changeFrequency: 'weekly', priority: 0.9 },
 		{ url: `${SITE_URL}/contributors`, lastModified: PAGES_UPDATED, changeFrequency: 'monthly', priority: 0.5 },
+		{ url: `${SITE_URL}/faq`, lastModified: PAGES_UPDATED, changeFrequency: 'monthly', priority: 0.6 },
 	];
 }

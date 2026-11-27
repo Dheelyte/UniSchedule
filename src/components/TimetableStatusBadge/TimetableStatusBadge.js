@@ -16,13 +16,14 @@ export default function TimetableStatusBadge({
 
     return (
         <div className={styles.wrapper}>
-            <div className={`${styles.badge} ${badgeClass}`}>
+            <div className={`${styles.badge} ${badgeClass}`} data-tour="tt-status">
                 <span className={styles.dot} />
                 {label}
             </div>
             {canToggle && (
                 <button
                     type="button"
+                    data-tour="tt-lock"
                     className={`btn ${isLocked ? 'btn-secondary' : 'btn-primary'}`}
                     onClick={onToggle}
                     disabled={disabled}
@@ -50,6 +51,7 @@ export default function TimetableStatusBadge({
                 <button
                     type="button"
                     className="btn btn-secondary"
+                    data-tour="tt-request-edit"
                     onClick={onRequestEdit}
                     disabled={requestBusy}
                 >

@@ -955,7 +955,7 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
     return (
         <div className={styles.container}>
             {readOnly && readOnlyReasons.length > 0 && (
-                <div style={{
+                <div data-tour="grid-readonly" style={{
                     background: '#fef9c3', border: '1px solid #fcd34d', borderRadius: '8px',
                     padding: '10px 16px', marginBottom: '12px', fontSize: '0.875rem',
                     color: '#92400e', display: 'flex', alignItems: 'flex-start', gap: '8px'
@@ -976,7 +976,7 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
             {/* Filter Bar */}
             <div className={styles.filterBar}>
                 <div className={styles.filterLeft}>
-                    <div className={styles.filterItem}>
+                    <div className={styles.filterItem} data-tour="grid-faculty">
                         <label className={styles.filterLabel}>Faculty</label>
                         <select
                             className={styles.filterSelect}
@@ -987,7 +987,7 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
                             {faculties.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
                         </select>
                     </div>
-                    <div className={styles.filterItem}>
+                    <div className={styles.filterItem} data-tour="grid-department">
                         <label className={styles.filterLabel}>Department</label>
                         <select
                             className={styles.filterSelect}
@@ -998,7 +998,7 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
                             {filteredDepts.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
                         </select>
                     </div>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem', cursor: 'pointer', userSelect: 'none', color: 'var(--color-text-secondary)', marginLeft: '8px' }}>
+                    <label data-tour="grid-hide-empty" style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem', cursor: 'pointer', userSelect: 'none', color: 'var(--color-text-secondary)', marginLeft: '8px' }}>
                         <input
                             type="checkbox"
                             checked={hideEmptyRooms}
@@ -1009,10 +1009,10 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
                     </label>
                 </div>
                 <div className={styles.filterRight}>
-                    <span className={styles.scheduleCount}>
+                    <span className={styles.scheduleCount} data-tour="grid-count">
                         {daySchedules.length} {mode === 'lecture' ? 'lecture' : 'exam'}{daySchedules.length !== 1 ? 's' : ''} on {mode === 'exam' ? (currentDate.startsWith('legacy:') ? currentDate.replace('legacy:', '') : formatDateLabel(currentDate, { day: 'numeric', month: 'short', year: 'numeric' })) : currentDay}
                         {visibleConflictCount > 0 && (
-                            <span className={styles.conflictBadge}>
+                            <span className={styles.conflictBadge} data-tour="grid-conflicts">
                                 ⚠ {visibleConflictCount} conflict{visibleConflictCount !== 1 ? 's' : ''}
                             </span>
                         )}
@@ -1022,6 +1022,7 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
                                 className="btn btn-secondary"
                                 style={{ marginLeft: 8, padding: '2px 10px', fontSize: '0.78rem' }}
                                 onClick={jumpToFirstConflict}
+                                data-tour="grid-jump-conflict"
                                 title={`Jump to ${firstConflictItem.courseCode}`}
                             >
                                 Go to conflict → {firstConflictItem.courseCode}
@@ -1033,6 +1034,7 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
                                 className="btn btn-secondary"
                                 style={{ marginLeft: 8, padding: '2px 10px', fontSize: '0.78rem' }}
                                 onClick={() => setShowConflictManager(true)}
+                                data-tour="grid-manage-conflicts"
                                 title="Dismiss or restore conflicts"
                             >
                                 Manage conflicts
@@ -1044,7 +1046,7 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
 
             {/* Day selector bar */}
             {mode === 'exam' ? (
-                <div className={styles.dayBar}>
+                <div className={styles.dayBar} data-tour="grid-days">
                     {allActiveDates.length === 0 && <span style={{ color: 'var(--color-text-muted)', marginRight: '16px', fontSize: '0.9rem' }}>No exam dates scheduled yet.</span>}
                     {allActiveDates.map(date => {
                         const count = filteredModeSchedules.filter(s => s.examDate === date).length;
@@ -1060,7 +1062,7 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
                         );
                     })}
                     {!readOnly && (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: 'auto' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: 'auto' }} data-tour="grid-add-date">
                             <input
                                 type="date"
                                 className="form-input"
@@ -1092,7 +1094,7 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
                     )}
                 </div>
             ) : (
-                <div className={styles.dayBar}>
+                <div className={styles.dayBar} data-tour="grid-days">
                     {activeDays.map(day => {
                         const count = filteredModeSchedules.filter(s => s.day === day).length;
                         return (
@@ -1112,14 +1114,14 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
             )}
 
             {/* Grid */}
-            <div className={styles.gridWrapper} id="timetable-grid">
+            <div className={styles.gridWrapper} id="timetable-grid" data-tour="grid">
                 {/* 1 room column, then 2 columns per hour of the realm's day (UG: 8:00 to 18:00, 20 columns) */}
                 <div
                     className={styles.grid}
                     style={{ '--grid-columns': `180px repeat(${hourCols.length * 2}, 1fr)` }}
                 >
                     {/* Header row */}
-                    <div className={styles.cornerCell}>
+                    <div className={styles.cornerCell} data-tour="grid-rooms">
                         <span className={styles.cornerLabel}>Room / Time</span>
                     </div>
                     {/* Time slots (only showing 8:00, 9:00, etc. but spanning 2 columns) */}
@@ -1182,7 +1184,7 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
                                             onDragLeave={handleCellDragLeave}
                                             onDrop={(e) => handleDrop(room.id, hour, e)}
                                         >
-                                            {isCellEmpty && !readOnly && !room.isVirtual && <span className={styles.cellHint}>+ Add</span>}
+                                            {isCellEmpty && !readOnly && !room.isVirtual && <span className={styles.cellHint} data-tour="grid-add">+ Add</span>}
                                             {!readOnly && !room.isVirtual && (
                                                 <button
                                                     className={styles.quickAddBtn}
@@ -1200,6 +1202,7 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
                                             {(blockedSlotsByHour[hour] || []).map(({ slot, si, leftPct, widthPct }) => (
                                                 <div
                                                     key={`blocked-${slot.id}-${si}`}
+                                                    data-tour="grid-blocked"
                                                     style={{
                                                         position: 'absolute',
                                                         top: 0,
@@ -1227,6 +1230,7 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
                                             {cellExternal.map(({ booking, startMin, endMin }) => (
                                                 <div
                                                     key={booking.id}
+                                                    data-tour="grid-external"
                                                     className={styles.externalBooking}
                                                     style={{
                                                         left: `${((startMin - cellStartMin) / 60) * 100}%`,
@@ -1265,6 +1269,7 @@ export default function TimetableGrid({ mode = 'lecture', semesterId = null, sem
                                                             else eventNodeRefs.current.delete(s.id);
                                                         }}
                                                         className={`${styles.event} ${hasError ? styles.eventConflict : ''} ${dragItem?.id === s.id ? styles.eventDragging : ''}`}
+                                                        data-tour={hasError ? 'grid-event-conflict' : 'grid-event'}
                                                         style={{
                                                             top: `calc(${topOffset}% + 4px)`,
                                                             height: `calc(${rowHeight}% - 8px)`,
